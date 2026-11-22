@@ -2061,12 +2061,14 @@ describe("API Routes - Extended Coverage", () => {
           abort,
           done: Promise.resolve(),
         });
-        vi.mocked(storage.updateDownloader).mockResolvedValue({
+        const linkOnly = {
           id: "dl-tb",
           type: "torbox",
           url: "https://api.torbox.app",
           settings: JSON.stringify({ fetchMode: "linkOnly" }),
-        } as unknown as Downloader);
+        } as unknown as Downloader;
+        vi.mocked(storage.updateDownloader).mockResolvedValue(linkOnly);
+        vi.mocked(storage.getDownloader).mockResolvedValue(linkOnly);
 
         const response = await request(app)
           .patch("/api/downloaders/dl-tb")

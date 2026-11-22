@@ -48,6 +48,24 @@ import { newznabClient, type NewznabResult } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
 import { cancelStagingJobs, setStagingBlocked } from "./downloaders/debrid-staging.js";
+
+const stagingModeQueue = new Map<string, Promise<void>>();
+
+function applyStagingMode(downloaderId: string): Promise<void> {
+  const run = (stagingModeQueue.get(downloaderId) ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(async () => {
+      const current = await storage.getDownloader(downloaderId);
+      if (!current) return;
+      if (isLinkOnlyDownloader(current)) await cancelStagingJobs(downloaderId);
+      else setStagingBlocked(downloaderId, false);
+    });
+  stagingModeQueue.set(downloaderId, run);
+  void run.finally(() => {
+    if (stagingModeQueue.get(downloaderId) === run) stagingModeQueue.delete(downloaderId);
+  });
+  return run;
+}
 import {
   DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
   isDownloaderDebugLoggingEnabled,
@@ -4011,8 +4029,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Downloader not found" });
         }
         // Switched to link-only: copies still running would keep filling the staging folder.
-        if (isLinkOnlyDownloader(downloader)) await cancelStagingJobs(downloader.id);
-        else setStagingBlocked(downloader.id, false);
+        // Effects run one at a time per downloader and follow the latest saved mode, so
+        // overlapping PATCH requests cannot leave the staging block out of step with it.
+        await applyStagingMode(downloader.id);
         return res.json(maskDownloader(downloader));
       } catch (error) {
         routesLogger.error({ error }, "error updating downloader");

@@ -32,6 +32,7 @@ import {
   RefreshCw,
   Info,
   Download,
+  Copy,
   Newspaper,
   Tag,
   ScanLine,
@@ -87,6 +88,8 @@ interface DownloadStatus {
   trackedByQuestarr?: boolean;
   gameStatus?: GameStatus;
   downloaderCategory?: string;
+  /** Finished on a cloud client and kept there: fetched through a link, never imported. */
+  linkOnly?: boolean;
 }
 
 interface DownloaderError {
@@ -321,6 +324,70 @@ export default function Downloads() {
       toast({ title: "Failed to remove download", variant: "destructive" });
     },
   });
+
+  const [linkBusyId, setLinkBusyId] = useState<string | null>(null);
+
+  // Links are short-lived, so one is requested each time rather than stored.
+  const requestDownloadLink = async (download: DownloadStatus): Promise<string | null> => {
+    setLinkBusyId(download.id);
+    try {
+      const res = await apiFetch(
+        `/api/downloaders/${download.downloaderId}/downloads/${encodeURIComponent(download.id)}/link`
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not get a download link");
+      }
+      return ((await res.json()) as { url: string }).url;
+    } catch (error) {
+      toast({
+        title: "Download link unavailable",
+        description: error instanceof Error ? error.message : "Could not get a download link",
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setLinkBusyId(null);
+    }
+  };
+
+  const handleOpenLink = async (download: DownloadStatus) => {
+    // The tab is opened from the click itself: after the request the browser may no longer
+    // treat it as a user action and block the popup.
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
+    const url = await requestDownloadLink(download);
+    if (!url) {
+      tab?.close();
+      return;
+    }
+    if (tab) tab.location.href = url;
+    else window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleCopyLink = async (download: DownloadStatus) => {
+    // Handing the clipboard a pending value keeps the write tied to the click (Safari rejects
+    // a write made after an await); older browsers fall back to writing once the link is known.
+    const link = { url: null as string | null };
+    const pending = requestDownloadLink(download).then((url) => {
+      link.url = url;
+      if (!url) throw new Error("No link");
+      return new Blob([url], { type: "text/plain" });
+    });
+    try {
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": pending })]);
+      } else {
+        await pending;
+        await navigator.clipboard.writeText(link.url ?? "");
+      }
+      toast({ title: "Link copied", description: "The download link is on your clipboard." });
+    } catch {
+      await pending.catch(() => undefined);
+      // No link means the request already explained why; otherwise show it for manual copy.
+      if (link.url) toast({ title: "Copy failed", description: link.url });
+    }
+  };
 
   const handlePause = (download: DownloadStatus) => {
     pauseMutation.mutate({
@@ -783,16 +850,18 @@ export default function Downloads() {
                               Ratio: {download.ratio?.toFixed(2) ?? "0.00"}
                             </Badge>
                           )}
-                        {importConfig?.enablePostProcessing && download.gameStatus === "owned" && (
-                          <Badge
-                            className="text-xs bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                            data-testid={`badge-imported-${download.id}`}
-                            aria-label="Files have been imported to your library"
-                            title="Files have been imported to your library"
-                          >
-                            Imported
-                          </Badge>
-                        )}
+                        {importConfig?.enablePostProcessing &&
+                          !download.linkOnly &&
+                          download.gameStatus === "owned" && (
+                            <Badge
+                              className="text-xs bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                              data-testid={`badge-imported-${download.id}`}
+                              aria-label="Files have been imported to your library"
+                              title="Files have been imported to your library"
+                            >
+                              Imported
+                            </Badge>
+                          )}
                       </div>
                     </CardDescription>
                   </div>
@@ -885,28 +954,54 @@ export default function Downloads() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span data-testid={`text-progress-label-${download.id}`}>Progress</span>
-                    <span data-testid={`text-progress-value-${download.id}`}>
-                      {download.progress.toFixed(1)}%
-                    </span>
-                  </div>
-                  <Progress
-                    value={download.progress}
-                    className="h-2"
-                    aria-label={`Download progress: ${download.progress.toFixed(1)}%`}
-                    data-testid={`progress-bar-${download.id}`}
-                  />
-                  {download.error && (
-                    <div
-                      className="text-sm text-destructive mt-2"
-                      data-testid={`text-error-${download.id}`}
+                {download.linkOnly && download.status === "completed" ? (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      className="min-h-11 flex-1 sm:flex-none"
+                      onClick={() => handleOpenLink(download)}
+                      disabled={linkBusyId === download.id}
+                      aria-label={`Download ${download.name || "files"} from the cloud`}
+                      data-testid={`button-download-link-${download.id}`}
                     >
-                      Error: {download.error}
+                      <Download className="h-4 w-4 mr-2" />
+                      Download
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="min-h-11 flex-1 sm:flex-none"
+                      onClick={() => handleCopyLink(download)}
+                      disabled={linkBusyId === download.id}
+                      aria-label={`Copy download link for ${download.name || "files"}`}
+                      data-testid={`button-copy-link-${download.id}`}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy link
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span data-testid={`text-progress-label-${download.id}`}>Progress</span>
+                      <span data-testid={`text-progress-value-${download.id}`}>
+                        {download.progress.toFixed(1)}%
+                      </span>
                     </div>
-                  )}
-                </div>
+                    <Progress
+                      value={download.progress}
+                      className="h-2"
+                      aria-label={`Download progress: ${download.progress.toFixed(1)}%`}
+                      data-testid={`progress-bar-${download.id}`}
+                    />
+                    {download.error && (
+                      <div
+                        className="text-sm text-destructive mt-2"
+                        data-testid={`text-error-${download.id}`}
+                      >
+                        Error: {download.error}
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))

@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { FormatSpec, ReleaseProfile } from "./release-scoring.js";
 import { resolveTargetPlatform } from "./title-utils.js";
 import { isValidFinishByDate } from "./play-goal.js";
+import { getTorBoxFetchMode } from "./downloader-types.js";
 import { hasReversedYearRange, isEmptyCollectionRules } from "./collection-rules.js";
 
 export const users = sqliteTable("users", {
@@ -1214,10 +1215,18 @@ export const insertDownloaderSchema = createInsertSchema(downloaders, {
     message: "A staging path is required for Real-Debrid",
     path: ["downloadPath"],
   })
-  .refine((data) => !(data.type === "torbox" && !data.downloadPath), {
-    message: "A staging path is required for TorBox",
-    path: ["downloadPath"],
-  })
+  .refine(
+    (data) =>
+      !(
+        data.type === "torbox" &&
+        getTorBoxFetchMode(data.settings) === "local" &&
+        !data.downloadPath
+      ),
+    {
+      message: "A staging path is required for TorBox",
+      path: ["downloadPath"],
+    }
+  )
   .refine((data) => !(data.type === "torbox" && !data.password), {
     message: "An API key is required for TorBox",
     path: ["password"],
@@ -1713,6 +1722,11 @@ export interface DownloadStatus {
   error?: string | undefined;
   category?: string | undefined;
   // Questarr tracking fields
+  /**
+   * True for a finished download that stays on a cloud client: nothing is copied or imported,
+   * the user fetches it through a link requested on demand (TorBox "link only" mode).
+   */
+  linkOnly?: boolean;
   trackedByQuestarr?: boolean; // True if the download was initiated through Questarr
   downloaderCategory?: string; // The category configured on the downloader (for display purposes)
 }

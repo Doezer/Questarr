@@ -1524,7 +1524,7 @@ async function runDownloadStatusCheck() {
 
             let shouldSendCompletionNotification = true;
 
-            if (importConfig.enablePostProcessing) {
+            if (importConfig.enablePostProcessing && !remoteDownload.linkOnly) {
               const details = await DownloaderManager.getDownloadDetails(
                 downloader,
                 download.downloadHash
@@ -1569,7 +1569,8 @@ async function runDownloadStatusCheck() {
             } else {
               // Update DB - mark as completed
               await storage.updateGameDownloadStatus(download.id, "completed");
-              // With post-processing on, the import records it once the files are in place.
+              // With post-processing on, the import records it once the files are in place
+              // (a link-only download is never imported: the user fetches it from the link).
               await recordDeliveredVersion(storage, download);
 
               // Update Game status to 'owned' (which means we have the files), unless

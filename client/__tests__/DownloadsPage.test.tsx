@@ -98,6 +98,100 @@ describe("Downloads page", () => {
       </QueryClientProvider>
     );
 
+  describe("link-only downloads", () => {
+    const linkOnlyDownload = {
+      id: "7",
+      name: "Cloud Release",
+      status: "completed",
+      progress: 100,
+      linkOnly: true,
+      downloaderId: "tb-1",
+      downloaderName: "TorBox",
+      trackedByQuestarr: true,
+      downloadType: "torrent",
+    };
+
+    const mockLinkFetch = (linkResponse: Partial<Response>) => {
+      globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+        const target = getRequestUrl(url);
+        if (target.includes("/link")) return linkResponse as Response;
+        if (target.includes("/api/downloads")) {
+          return createJsonResponse({ downloads: [linkOnlyDownload], errors: [] });
+        }
+        return createJsonResponse({});
+      });
+    };
+
+    it("shows link actions instead of progress and copies a fresh link", async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      mockLinkFetch({ ok: true, json: async () => ({ url: "https://cdn.example/zip" }) });
+
+      renderPage();
+
+      fireEvent.click(await screen.findByTestId("button-copy-link-7"));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://cdn.example/zip"));
+      expect(screen.queryByTestId("progress-bar-7")).not.toBeInTheDocument();
+      expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: "Link copied" }));
+    });
+
+    it("opens the link in a new tab when downloading", async () => {
+      const open = vi.spyOn(window, "open").mockReturnValue(null);
+      mockLinkFetch({ ok: true, json: async () => ({ url: "https://cdn.example/one" }) });
+
+      renderPage();
+
+      fireEvent.click(await screen.findByTestId("button-download-link-7"));
+      await waitFor(() =>
+        expect(open).toHaveBeenCalledWith(
+          "https://cdn.example/one",
+          "_blank",
+          "noopener,noreferrer"
+        )
+      );
+      open.mockRestore();
+    });
+
+    it("navigates a tab opened from the click, and closes it when there is no link", async () => {
+      const tab = { opener: {}, location: { href: "" }, close: vi.fn() };
+      const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+      mockLinkFetch({ ok: true, json: async () => ({ url: "https://cdn.example/one" }) });
+
+      renderPage();
+
+      fireEvent.click(await screen.findByTestId("button-download-link-7"));
+      await waitFor(() => expect(tab.location.href).toBe("https://cdn.example/one"));
+      expect(open).toHaveBeenCalledWith("", "_blank");
+      expect(tab.opener).toBeNull();
+
+      mockLinkFetch({ ok: false, json: async () => ({ error: "nope" }) });
+      tab.location.href = "";
+      fireEvent.click(await screen.findByTestId("button-download-link-7"));
+      await waitFor(() => expect(tab.close).toHaveBeenCalled());
+      expect(tab.location.href).toBe("");
+      open.mockRestore();
+    });
+
+    it("tells the user when no link is available", async () => {
+      mockLinkFetch({
+        ok: false,
+        json: async () => ({ error: "No download link is available yet" }),
+      });
+
+      renderPage();
+
+      fireEvent.click(await screen.findByTestId("button-copy-link-7"));
+      await waitFor(() =>
+        expect(toastSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            title: "Download link unavailable",
+            description: "No download link is available yet",
+          })
+        )
+      );
+    });
+  });
+
   it("keeps the scan unlinked action available and opens the batch modal", async () => {
     renderPage();
 

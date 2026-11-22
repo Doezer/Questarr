@@ -2,7 +2,7 @@ import { coverSrc } from "@/lib/cover";
 import React, { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Download, Star, Calendar, Eye, EyeOff, Loader2, Trophy } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { TagList } from "@/components/ui/tag-list";
@@ -14,6 +14,7 @@ import SearchResultsBadge from "./SearchResultsBadge";
 import UpdateAvailableBadge from "./UpdateAvailableBadge";
 import PlayTimerButton from "./PlayTimerButton";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAchievementProgress } from "@/hooks/use-achievement-progress";
 import { mapGameToInsertGame, isDiscoveryId, parseReleaseDate } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -55,6 +56,8 @@ const GameCard = ({
   const cardRef = useRef<HTMLDivElement>(null);
   const releaseStatus = getReleaseStatus(game);
   const isMobile = useIsMobile();
+  const { data: achievementData } = useAchievementProgress(!isDiscovery);
+  const achievements = achievementData?.progress?.find((p) => p.gameId === game.id);
 
   // Keep track of the resolved game object (either original or newly added)
   const [resolvedGame, setResolvedGame] = useState<Game>(game);
@@ -282,6 +285,27 @@ const GameCard = ({
               </TooltipTrigger>
               <TooltipContent>
                 <p>My rating</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {!isDiscovery && achievements && achievements.total > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className="flex items-center gap-1"
+                  role="img"
+                  aria-label={`Achievements for ${game.title}: ${achievements.unlocked} of ${achievements.total} unlocked`}
+                >
+                  <Trophy className="w-3 h-3 text-amber-500" aria-hidden="true" />
+                  <span data-testid={`text-achievements-${game.id}`}>
+                    {Math.round((achievements.unlocked / achievements.total) * 100)}%
+                  </span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  Achievements: {achievements.unlocked}/{achievements.total}
+                </p>
               </TooltipContent>
             </Tooltip>
           )}

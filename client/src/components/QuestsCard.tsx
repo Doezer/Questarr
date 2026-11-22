@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Award, CalendarDays, CheckCircle2, ChevronDown, Target, Trophy } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { useViewerZone } from "@/hooks/use-viewer-zone";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -112,19 +113,7 @@ function QuestRow({ quest }: { quest: QuestView }) {
  */
 export default function QuestsCard({ showHistory = false }: { showHistory?: boolean }) {
   const [historyOpen, setHistoryOpen] = useState(false);
-  const tz = useMemo(() => new Date().getTimezoneOffset(), []);
-  const timeZone = useMemo(() => {
-    try {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-    } catch {
-      return "";
-    }
-  }, []);
-  const search = useMemo(() => {
-    const params = new URLSearchParams({ tz: String(tz) });
-    if (timeZone) params.set("timeZone", timeZone);
-    return params.toString();
-  }, [tz, timeZone]);
+  const { tz, timeZone, search } = useViewerZone();
 
   const { data } = useQuery<QuestsData>({
     queryKey: ["/api/quests", tz, timeZone],

@@ -338,7 +338,11 @@ async function assertNoDestinationConflicts(
 // A destination nested inside its own source (e.g. hardlink/symlink extraction
 // landing inside the source directory) must not have that source removed out from
 // under it — the per-entry loop already transferred everything worth keeping.
-async function removeSourceUnlessNested(source: string, destination: string): Promise<void> {
+async function removeSourceUnlessNested(
+  source: string,
+  destination: string,
+  sourceRoots: string[]
+): Promise<void> {
   const resolvedSource = path.resolve(source);
   const resolvedDestination = path.resolve(destination);
   const destinationInsideSource = resolvedDestination.startsWith(resolvedSource + path.sep);
@@ -347,6 +351,12 @@ async function removeSourceUnlessNested(source: string, destination: string): Pr
   // when the import was planned: the tree has been moved since, and a recursive delete of a
   // system directory must never be possible from this helper.
   if (await isSensitivePath(resolvedSource)) return;
+  // The same containment check planImport and executeImport already applied to this path.
+  await assertWithinRoots(
+    resolvedSource,
+    sourceRoots,
+    "Refusing to process a path outside the configured downloader roots"
+  );
   await fs.remove(resolvedSource).catch(() => undefined);
 }
 
@@ -358,7 +368,8 @@ async function transferDirectoryPerFile(
   source: string,
   destination: string,
   mode: TransferMode,
-  excludePaths: Set<string>
+  excludePaths: Set<string>,
+  sourceRoots: string[]
 ): Promise<TransferMode> {
   const relFiles = await walkRelative(source);
   const plannedTransfers = relFiles
@@ -384,7 +395,7 @@ async function transferDirectoryPerFile(
     throw new Error("No files to transfer after applying exclusions");
   }
 
-  if (mode === "move") await removeSourceUnlessNested(source, destination);
+  if (mode === "move") await removeSourceUnlessNested(source, destination, sourceRoots);
 
   return mode === "hardlink" && usedCopyFallback ? "copy" : mode;
 }
@@ -393,7 +404,8 @@ async function transferFile(
   source: string,
   destination: string,
   mode: TransferMode,
-  excludePaths?: Set<string>
+  excludePaths?: Set<string>,
+  sourceRoots: string[] = []
 ): Promise<TransferMode> {
   if (path.resolve(source) === path.resolve(destination)) {
     return mode;
@@ -403,7 +415,7 @@ async function transferFile(
   const hasExcludes = !!excludePaths && excludePaths.size > 0;
 
   if (stats.isDirectory() && hasExcludes) {
-    return transferDirectoryPerFile(source, destination, mode, excludePaths);
+    return transferDirectoryPerFile(source, destination, mode, excludePaths, sourceRoots);
   }
 
   if (mode === "hardlink" && stats.isDirectory()) {
@@ -774,7 +786,8 @@ export class PCImportStrategy implements ImportStrategy {
       review.originalPath,
       review.proposedPath,
       transferMode,
-      excludePaths
+      excludePaths,
+      this.sourceRoots
     );
     const filesPlaced = await gatherFiles(review.proposedPath, { skipExtractStaging: true });
     return {

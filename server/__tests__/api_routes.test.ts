@@ -2047,6 +2047,37 @@ describe("API Routes - Extended Coverage", () => {
       });
     });
 
+    describe("PATCH /api/downloaders/:id switching TorBox to link-only", () => {
+      it("aborts the staging copies still running for that downloader", async () => {
+        const { stagingJobs } = await import("../downloaders/debrid-staging.js");
+        const abort = new AbortController();
+        stagingJobs.set("dl-tb:7", {
+          state: "running",
+          bytesDone: 0,
+          bytesTotal: 10,
+          startedAt: Date.now(),
+          attempts: 1,
+          cancelled: false,
+          abort,
+          done: Promise.resolve(),
+        });
+        vi.mocked(storage.updateDownloader).mockResolvedValue({
+          id: "dl-tb",
+          type: "torbox",
+          url: "https://api.torbox.app",
+          settings: JSON.stringify({ fetchMode: "linkOnly" }),
+        } as unknown as Downloader);
+
+        const response = await request(app)
+          .patch("/api/downloaders/dl-tb")
+          .send({ settings: JSON.stringify({ fetchMode: "linkOnly" }) });
+
+        expect(response.status).toBe(200);
+        expect(abort.signal.aborted).toBe(true);
+        expect(stagingJobs.has("dl-tb:7")).toBe(false);
+      });
+    });
+
     describe("GET /api/downloaders", () => {
       it("should return all downloaders", async () => {
         vi.mocked(storage.getAllDownloaders).mockResolvedValue([]);

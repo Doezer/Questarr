@@ -321,6 +321,22 @@ export function stagingProgress(job: StagingJob) {
  * an overlapping status poll can't start a copy while it is torn down, stops an active copy, then
  * runs `cleanup`. The key stays reserved until cleanup is done.
  */
+/**
+ * Aborts every running staging copy of a downloader (it was switched to link-only: nothing
+ * may keep filling the staging folder). Jobs are dropped, so their torrents are not copied again.
+ */
+export function cancelStagingJobs(downloaderId: string): number {
+  let cancelled = 0;
+  for (const [key, job] of stagingJobs) {
+    if (!key.startsWith(`${downloaderId}:`)) continue;
+    job.cancelled = true;
+    job.abort.abort();
+    stagingJobs.delete(key);
+    cancelled++;
+  }
+  return cancelled;
+}
+
 export async function removeWithCleanup(
   downloaderId: string,
   id: string,

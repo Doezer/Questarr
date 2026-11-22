@@ -164,6 +164,8 @@ export async function syncSteamAchievements(
         );
         if (achievements.length === 0) continue;
         summary = summarizeAchievements(achievements);
+        // The Steam ID changed during the run: these counts belong to the old account.
+        if ((await storage.getUser(userId))?.steamId64 !== user.steamId64) break;
         await storage.upsertAchievementProgress({
           gameId: game.id,
           userId,

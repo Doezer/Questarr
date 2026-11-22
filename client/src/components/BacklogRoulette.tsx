@@ -85,10 +85,14 @@ function saveSnoozed(snoozed: Record<string, number>) {
   }
 }
 
-/** A random number in [0, 1) from the secure generator. */
-function randomUnit(): number {
-  const [draw = 0] = crypto.getRandomValues(new Uint32Array(1));
-  return draw / 2 ** 32;
+/** A uniform random integer in [0, limit); the remainder of the uint32 range is rejected so modulo is unbiased. */
+function randomBelow(limit: number): number {
+  const cap = Math.floor(2 ** 32 / limit) * limit;
+  let draw: number;
+  do {
+    [draw = 0] = crypto.getRandomValues(new Uint32Array(1));
+  } while (draw >= cap);
+  return draw % limit;
 }
 
 /** Draw from a filtered game list and let users inspect or mark a game as Playing. */
@@ -182,11 +186,7 @@ export default function BacklogRoulette({
     setSkippedIds(skipped);
     const biasToUse = overrides.bias ?? bias;
     const now = Date.now();
-    const pick = pickWeighted(
-      choices,
-      (game) => rouletteWeight(game, biasToUse, now),
-      randomUnit()
-    );
+    const pick = pickWeighted(choices, (game) => rouletteWeight(game, biasToUse, now), randomBelow);
     setSelectedId(pick?.id ?? null);
   }
 
@@ -201,7 +201,7 @@ export default function BacklogRoulette({
     const fresh = eligible.filter((game) => !skippedIds.has(game.id));
     const choices = fresh.length ? fresh : eligible;
     const now = Date.now();
-    const pick = pickWeighted(choices, (game) => rouletteWeight(game, bias, now), randomUnit());
+    const pick = pickWeighted(choices, (game) => rouletteWeight(game, bias, now), randomBelow);
     setSelectedId(pick?.id ?? null);
   }
 

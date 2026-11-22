@@ -142,27 +142,35 @@ export function rouletteWeight(game: RouletteGame, bias: RouletteBias, now = Dat
   }
 }
 
+/** Weights are scaled so the heaviest game gets this many tickets, keeping the draw integer. */
+const MAX_TICKETS = 1000;
+
 /**
- * Pick one item with probability proportional to its weight. `unit` is a random number in
- * [0, 1); with equal weights it selects index `floor(unit * length)`.
+ * Pick one item with probability proportional to its weight. Each item gets a whole number of
+ * tickets (at least one for any positive weight) and `randomBelow(n)` must return a uniform
+ * integer in [0, n), so there is no rounding bias. With equal weights the first item wins when
+ * `randomBelow` returns 0.
  */
 export function pickWeighted<T>(
   items: readonly T[],
   weightOf: (item: T) => number,
-  unit: number
+  randomBelow: (limit: number) => number
 ): T | undefined {
   if (!items.length) return undefined;
   const weights = items.map((item) => {
     const weight = weightOf(item);
     return Number.isFinite(weight) && weight > 0 ? weight : 0;
   });
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-  if (total <= 0) return items[Math.min(items.length - 1, Math.floor(unit * items.length))];
-  let target = Math.min(Math.max(unit, 0), 1 - Number.EPSILON) * total;
+  const heaviest = Math.max(...weights);
+  const tickets = weights.map((weight) =>
+    heaviest > 0 && weight > 0 ? Math.max(1, Math.round((weight / heaviest) * MAX_TICKETS)) : 1
+  );
+  const total = tickets.reduce((sum, count) => sum + count, 0);
+  let target = randomBelow(total);
   for (let index = 0; index < items.length; index += 1) {
-    const weight = weights[index] ?? 0;
-    if (target < weight) return items[index];
-    target -= weight;
+    const count = tickets[index] ?? 0;
+    if (target < count) return items[index];
+    target -= count;
   }
   return items[items.length - 1];
 }

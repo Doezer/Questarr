@@ -163,9 +163,20 @@ describe("Backlog roulette", () => {
     expect(save).toHaveBeenCalledTimes(2);
   });
 
-  it("maps the top of the random range to the last game", () => {
-    vi.mocked(crypto.getRandomValues).mockImplementation((array) => {
+  it("rejects the biased tail of a random uint32 draw", () => {
+    vi.mocked(crypto.getRandomValues).mockImplementationOnce((array) => {
       if (array instanceof Uint32Array) array[0] = 2 ** 32 - 1;
+      return array;
+    });
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(crypto.getRandomValues).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest a");
+  });
+
+  it("maps the last ticket to the last game", () => {
+    vi.mocked(crypto.getRandomValues).mockImplementation((array) => {
+      if (array instanceof Uint32Array) array[0] = 2999;
       return array;
     });
     render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);

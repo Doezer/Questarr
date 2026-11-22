@@ -85,19 +85,72 @@ describe("rouletteWeight", () => {
 });
 
 describe("pickWeighted", () => {
-  it("returns undefined for no items and index floor(unit*n) for equal weights", () => {
-    expect(pickWeighted([], () => 1, 0.5)).toBeUndefined();
-    expect(pickWeighted(["a", "b", "c"], () => 1, 0)).toBe("a");
-    expect(pickWeighted(["a", "b", "c"], () => 1, 0.5)).toBe("b");
-    expect(pickWeighted(["a", "b", "c"], () => 1, 0.999)).toBe("c");
+  it("returns undefined for no items and follows the ticket index for equal weights", () => {
+    expect(
+      pickWeighted(
+        [],
+        () => 1,
+        () => 0
+      )
+    ).toBeUndefined();
+    // Equal weights give 1000 tickets each: 0-999 a, 1000-1999 b, 2000-2999 c.
+    expect(
+      pickWeighted(
+        ["a", "b", "c"],
+        () => 1,
+        () => 0
+      )
+    ).toBe("a");
+    expect(
+      pickWeighted(
+        ["a", "b", "c"],
+        () => 1,
+        () => 1000
+      )
+    ).toBe("b");
+    expect(
+      pickWeighted(
+        ["a", "b", "c"],
+        () => 1,
+        () => 2999
+      )
+    ).toBe("c");
+  });
+  it("asks for a draw below the total ticket count", () => {
+    let seen = 0;
+    pickWeighted(
+      ["a", "b"],
+      () => 1,
+      (limit) => ((seen = limit), 0)
+    );
+    expect(seen).toBe(2000);
   });
   it("follows the weights", () => {
     const weights: Record<string, number> = { a: 1, b: 9 };
-    expect(pickWeighted(["a", "b"], (k) => weights[k] ?? 0, 0.05)).toBe("a");
-    expect(pickWeighted(["a", "b"], (k) => weights[k] ?? 0, 0.2)).toBe("b");
+    // a gets ~111 tickets, b gets 1000.
+    expect(
+      pickWeighted(
+        ["a", "b"],
+        (k) => weights[k] ?? 0,
+        () => 50
+      )
+    ).toBe("a");
+    expect(
+      pickWeighted(
+        ["a", "b"],
+        (k) => weights[k] ?? 0,
+        () => 500
+      )
+    ).toBe("b");
   });
   it("falls back to uniform when no weight is usable", () => {
-    expect(pickWeighted(["a", "b"], () => NaN, 0.9)).toBe("b");
+    expect(
+      pickWeighted(
+        ["a", "b"],
+        () => NaN,
+        (limit) => limit - 1
+      )
+    ).toBe("b");
   });
 });
 

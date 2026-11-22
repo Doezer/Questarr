@@ -333,6 +333,7 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       const times = (await storage().getUserGameStatusEvents(user.id))
         .filter((e) => e.gameId === game.id)
         .map((e) => e.createdAt.getTime());
+      expect(times).toHaveLength(3);
       expect(new Set(times).size).toBe(times.length);
       expect(times).toEqual([...times].sort((a, b) => a - b));
       await storage().removeGame(game.id);

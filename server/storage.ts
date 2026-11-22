@@ -3554,38 +3554,47 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  /** Tail of the pending status-event writes of each game, so those writes run one at a time. */
-  private statusEventQueues = new Map<string, Promise<void>>();
+  /** Tail of the pending status writes of each game, so those writes run one at a time. */
+  private statusEventQueues = new Map<string, Promise<unknown>>();
+
+  /** Runs `task` after the earlier status writes of the same game, keeping their order. */
+  private runPerGame<T>(gameId: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.statusEventQueues.get(gameId) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    const tail = run.catch(() => undefined);
+    this.statusEventQueues.set(gameId, tail);
+    void tail.then(() => {
+      if (this.statusEventQueues.get(gameId) === tail) this.statusEventQueues.delete(gameId);
+    });
+    return run;
+  }
+
+  /** Writes one status-history row, queued behind the other status writes of the game. */
+  private recordStatusEvent(game: Game): Promise<void> {
+    return this.runPerGame(game.id, () => this.writeStatusEvent(game));
+  }
 
   /** Writes one status-history row; a game with no owner has no history. */
-  private async recordStatusEvent(game: Game): Promise<void> {
+  private async writeStatusEvent(game: Game): Promise<void> {
     if (!game.userId) return;
-    const userId = game.userId;
-    // Reading the latest timestamp and inserting the next one must not interleave for the same
-    // game, or two quick changes could share a timestamp and lose their order.
-    const previous = this.statusEventQueues.get(game.id) ?? Promise.resolve();
-    const write = previous.then(async () => {
-      try {
-        const [latest] = await db
-          .select({ at: max(gameStatusEvents.createdAt) })
-          .from(gameStatusEvents)
-          .where(eq(gameStatusEvents.gameId, game.id));
-        const last = latest?.at ? new Date(latest.at).getTime() : 0;
-        await db.insert(gameStatusEvents).values({
-          id: randomUUID(),
-          gameId: game.id,
-          userId,
-          status: game.status,
-          createdAt: new Date(Math.max(Date.now(), last + 1)),
-        });
-      } catch (error) {
-        // The history is a nice-to-have; never fail the status change because of it.
-        logger.warn({ error, gameId: game.id }, "Could not record the game status change");
-      }
-    });
-    this.statusEventQueues.set(game.id, write);
-    await write;
-    if (this.statusEventQueues.get(game.id) === write) this.statusEventQueues.delete(game.id);
+    try {
+      // Strictly increasing per game, so changes made within the same millisecond keep their order.
+      const [latest] = await db
+        .select({ at: max(gameStatusEvents.createdAt) })
+        .from(gameStatusEvents)
+        .where(eq(gameStatusEvents.gameId, game.id));
+      const last = latest?.at ? new Date(latest.at).getTime() : 0;
+      await db.insert(gameStatusEvents).values({
+        id: randomUUID(),
+        gameId: game.id,
+        userId: game.userId,
+        status: game.status,
+        createdAt: new Date(Math.max(Date.now(), last + 1)),
+      });
+    } catch (error) {
+      // The history is a nice-to-have; never fail the status change because of it.
+      logger.warn({ error, gameId: game.id }, "Could not record the game status change");
+    }
   }
 
   async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {
@@ -3683,6 +3692,15 @@ export class DatabaseStorage implements IStorage {
     statusUpdate: UpdateGameStatus,
     options?: { preserveCurated?: boolean; syncSource?: string; allowWanted?: boolean }
   ): Promise<Game | undefined> {
+    // The UPDATE and its history row share one queue entry, so the history follows the commit order.
+    return this.runPerGame(id, () => this.applyGameStatus(id, statusUpdate, options));
+  }
+
+  private async applyGameStatus(
+    id: string,
+    statusUpdate: UpdateGameStatus,
+    options?: { preserveCurated?: boolean; syncSource?: string; allowWanted?: boolean }
+  ): Promise<Game | undefined> {
     const existingGame = await this.getGame(id);
     const leavingWanted = existingGame?.status === "wanted" && statusUpdate.status !== "wanted";
 
@@ -3726,7 +3744,7 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     if (updatedGame && existingGame?.status !== updatedGame.status) {
-      await this.recordStatusEvent(updatedGame);
+      await this.writeStatusEvent(updatedGame);
     }
     return updatedGame || undefined;
   }

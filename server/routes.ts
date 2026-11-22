@@ -4011,7 +4011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Downloader not found" });
         }
         // Switched to link-only: copies still running would keep filling the staging folder.
-        if (isLinkOnlyDownloader(downloader)) cancelStagingJobs(downloader.id);
+        if (isLinkOnlyDownloader(downloader)) await cancelStagingJobs(downloader.id);
         else setStagingBlocked(downloader.id, false);
         return res.json(maskDownloader(downloader));
       } catch (error) {

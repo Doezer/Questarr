@@ -348,21 +348,22 @@ export function stagingProgress(job: StagingJob) {
  * Aborts every running staging copy of a downloader (it was switched to link-only: nothing
  * may keep filling the staging folder). Jobs are dropped, so their torrents are not copied again.
  */
-export function cancelStagingJobs(downloaderId: string): number {
+export async function cancelStagingJobs(downloaderId: string): Promise<number> {
   setStagingBlocked(downloaderId, true);
-  let cancelled = 0;
+  const settling: Promise<void>[] = [];
   for (const [key, job] of stagingJobs) {
     if (!key.startsWith(`${downloaderId}:`)) continue;
     job.cancelled = true;
     job.abort.abort();
     // Keep the cancelled entry until the aborted copy settles so a status poll cannot restart it
     // and removeWithCleanup still waits on it.
-    void job.done.finally(() => {
+    const settled = job.done.finally(() => {
       if (stagingJobs.get(key) === job) stagingJobs.delete(key);
     });
-    cancelled++;
+    settling.push(settled.catch(() => undefined));
   }
-  return cancelled;
+  await Promise.all(settling);
+  return settling.length;
 }
 
 export async function removeWithCleanup(

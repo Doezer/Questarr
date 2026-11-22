@@ -9,7 +9,7 @@ import {
 describe("staging block after switching to link-only", () => {
   it("refuses new copies from stale callers until unblocked", async () => {
     const run = vi.fn().mockResolvedValue(undefined);
-    cancelStagingJobs("dl-block");
+    await cancelStagingJobs("dl-block");
     const job = beginStagingJob({
       downloaderId: "dl-block",
       id: "1",

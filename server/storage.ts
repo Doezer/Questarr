@@ -878,6 +878,12 @@ export class MemStorage implements IStorage {
     if (!user) return undefined;
     const updatedUser = { ...user, steamId64: steamId };
     this.users.set(userId, updatedUser);
+    if (user.steamId64 !== steamId) {
+      // Another account's achievement counts must not become this account's baseline.
+      for (const [key, row] of this.achievementProgress) {
+        if (row.userId === userId && row.provider === "steam") this.achievementProgress.delete(key);
+      }
+    }
     return updatedUser;
   }
 
@@ -3340,11 +3346,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserSteamId(userId: string, steamId: string): Promise<User | undefined> {
+    const [before] = await db.select().from(users).where(eq(users.id, userId));
     const [user] = await db
       .update(users)
       .set({ steamId64: steamId })
       .where(eq(users.id, userId))
       .returning();
+    if (before && before.steamId64 !== steamId) {
+      // Another account's achievement counts must not become this account's baseline.
+      await db
+        .delete(gameAchievementProgress)
+        .where(
+          and(
+            eq(gameAchievementProgress.userId, userId),
+            eq(gameAchievementProgress.provider, "steam")
+          )
+        );
+    }
     return user;
   }
 
@@ -3509,7 +3527,12 @@ export class DatabaseStorage implements IStorage {
   async upsertAchievementProgress(
     progress: Omit<InsertGameAchievementProgress, "id">
   ): Promise<GameAchievementProgress> {
-    const values = { ...progress, syncedAt: progress.syncedAt ?? new Date() };
+    const values = {
+      ...progress,
+      unlocked: progress.unlocked ?? 0,
+      total: progress.total ?? 0,
+      syncedAt: progress.syncedAt ?? new Date(),
+    };
     const rows = await db
       .insert(gameAchievementProgress)
       .values({ id: randomUUID(), ...values })

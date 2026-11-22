@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { storage } from "./storage.js";
 import { config } from "./config.js";
@@ -6,7 +7,7 @@ import { routesLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { appriseClient } from "./apprise.js";
 import { resolvePrefs } from "./notification-prefs.js";
-import { OWNED_GAME_STATUSES, type Game } from "../shared/schema.js";
+import { OWNED_GAME_STATUSES, type Game, type Notification } from "../shared/schema.js";
 
 /**
  * Steam achievements sync.
@@ -154,30 +155,31 @@ export async function syncSteamAchievements(
     let failed = 0;
     const unlockedNow: { title: string; added: number }[] = [];
     for (const game of games.filter(isTracked)) {
-      let achievements: SteamAchievement[];
+      let summary: ReturnType<typeof summarizeAchievements>;
       try {
-        achievements = await steamService.getPlayerAchievements(
+        const achievements = await steamService.getPlayerAchievements(
           config.steam.apiKey!,
           user.steamId64,
           game.steamAppId!
         );
+        if (achievements.length === 0) continue;
+        summary = summarizeAchievements(achievements);
+        await storage.upsertAchievementProgress({
+          gameId: game.id,
+          userId,
+          provider: PROVIDER,
+          ...summary,
+          syncedAt: now,
+        });
       } catch {
-        // Do not log the error: Steam request URLs contain the API key.
+        // Do not log the error: Steam request URLs contain the API key. A game deleted while its
+        // request was pending also lands here and must not stop the others.
         failed++;
         continue;
       }
-      if (achievements.length === 0) continue;
-      const summary = summarizeAchievements(achievements);
-      const before = previous.get(game.id);
-      await storage.upsertAchievementProgress({
-        gameId: game.id,
-        userId,
-        provider: PROVIDER,
-        ...summary,
-        syncedAt: now,
-      });
       changed = true;
       gamesSynced++;
+      const before = previous.get(game.id);
       if (before && summary.unlocked > before.unlocked) {
         unlockedNow.push({ title: game.title, added: summary.unlocked - before.unlocked });
       }
@@ -213,21 +215,26 @@ async function notifyUnlocks(
 ): Promise<void> {
   try {
     const prefs = resolvePrefs(await storage.getUserSettings(userId));
-    if (!prefs.achievementUnlocked.inApp) return;
+    const { inApp, apprise } = prefs.achievementUnlocked;
+    if (!inApp && !apprise) return;
     const first = games[0]!;
     const message =
       games.length === 1
         ? `${first.added} new achievement${first.added === 1 ? "" : "s"} unlocked in ${first.title}.`
         : `${total} new achievements unlocked across ${games.length} games, including ${first.title}.`;
-    const notification = await storage.addNotification({
+    const content = {
       userId,
-      type: "success",
+      type: "success" as const,
       title: "Achievements unlocked",
       message,
       link: "/stats",
-    });
-    notifyUser("notification", notification, notification.userId);
-    if (prefs.achievementUnlocked.apprise) void appriseClient.send(notification);
+    };
+    // The in-app switch only controls the stored row and the live event; Apprise has its own.
+    const notification = inApp
+      ? await storage.addNotification(content)
+      : ({ id: randomUUID(), read: false, createdAt: new Date(), ...content } as Notification);
+    if (inApp) notifyUser("notification", notification, notification.userId);
+    if (apprise) void appriseClient.send(notification);
   } catch {
     routesLogger.warn({ userId }, "Could not send the achievements notification");
   }

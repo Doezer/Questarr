@@ -670,6 +670,7 @@ export default function SettingsPage() {
     onSuccess: (_data, apiKey) => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings/steam"] });
       queryClient.invalidateQueries({ queryKey: ["/api/steam/playtime"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steam/achievements"] });
       setSteamApiKey("");
       toast({ title: apiKey ? "Steam API key saved" : "Steam API key removed" });
     },

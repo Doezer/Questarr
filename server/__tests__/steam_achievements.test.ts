@@ -136,6 +136,37 @@ describe.each(activeTestDialects())("Steam achievements sync (%s)", (dialect) =>
     expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(0);
   });
 
+  it("drops the stored progress when the linked Steam account changes", async () => {
+    fixtures.achievements.mockResolvedValue([entry("a", true, 1)]);
+    await sync.syncSteamAchievements(userId, { now: T0 });
+    expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+    await ctx.storage.updateUserSteamId(userId, "76561198000000000");
+    expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+    await ctx.storage.updateUserSteamId(userId, "76561198000000001");
+    expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(0);
+    await ctx.storage.updateUserSteamId(userId, "76561198000000000");
+  });
+
+  it("keeps the other games when one fails to save", async () => {
+    const other = await ctx.storage.addGame({
+      userId,
+      igdbId: Math.floor(Math.random() * 1e9),
+      title: "Celeste",
+      status: "owned",
+      steamAppId: 504230,
+    });
+    fixtures.achievements.mockImplementation(async (_key, _id, appId: number) => {
+      if (appId === 1145360) {
+        await ctx.storage.removeGame(gameId);
+      }
+      return [entry("a", true, 1)];
+    });
+    const result = await sync.syncSteamAchievements(userId, { now: T0 });
+    expect(result.gamesSynced).toBe(1);
+    const rows = await ctx.storage.getUserAchievementProgress(userId);
+    expect(rows.map((r) => r.gameId)).toEqual([other.id]);
+  });
+
   it("respects the minimum gap unless forced", async () => {
     fixtures.achievements.mockResolvedValue([entry("a", true, 1)]);
     await sync.syncSteamAchievements(userId, { now: T0 });

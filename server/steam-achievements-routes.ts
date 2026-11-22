@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authenticateToken } from "./auth.js";
 import { sensitiveEndpointLimiter } from "./middleware.js";
 import { storage } from "./storage.js";
+import { excludeFilteredContent, getContentFilterFlags } from "./content-filter.js";
 import {
   getSteamAchievementsStatus,
   setSteamAchievementsEnabled,
@@ -74,10 +75,12 @@ steamAchievementsRoutes.get("/api/achievements/progress", authenticateToken, asy
   res.set("Cache-Control", "no-store");
   try {
     const userId = (req.user as User).id;
-    const [rows, games] = await Promise.all([
+    const [rows, allGames, flags] = await Promise.all([
       storage.getUserAchievementProgress(userId),
       storage.getUserGames(userId, true),
+      getContentFilterFlags(userId),
     ]);
+    const games = excludeFilteredContent(allGames, flags);
     const titles = new Map(games.map((g) => [g.id, g.title]));
     const progress = rows
       .filter((r) => titles.has(r.gameId))

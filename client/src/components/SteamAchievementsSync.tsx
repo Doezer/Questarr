@@ -29,7 +29,11 @@ function formatWhen(value: string): string {
 export function SteamAchievementsSync() {
   const queryClient = useQueryClient();
 
-  const { data: status } = useQuery<SteamAchievementsStatus>({
+  const {
+    data: status,
+    error: statusError,
+    refetch,
+  } = useQuery<SteamAchievementsStatus>({
     queryKey: STATUS_KEY,
     queryFn: async () => (await apiRequest("GET", "/api/steam/achievements")).json(),
   });
@@ -69,7 +73,8 @@ export function SteamAchievementsSync() {
         id="steam-achievements-enabled"
         label="Sync Steam achievements"
         checked={status?.enabled ?? false}
-        disabled={!status?.available || toggle.isPending}
+        // An unavailable status only blocks turning the sync on; it can always be turned off.
+        disabled={!status || toggle.isPending || (!status.available && !status.enabled)}
         onCheckedChange={(enabled) => toggle.mutate(enabled)}
       />
 
@@ -100,6 +105,17 @@ export function SteamAchievementsSync() {
           )}
           <Button variant="outline" disabled={syncNow.isPending} onClick={() => syncNow.mutate()}>
             {syncNow.isPending ? "Syncing…" : "Sync now"}
+          </Button>
+        </div>
+      )}
+
+      {statusError && !status && (
+        <div className="space-y-2">
+          <p role="alert" className="text-sm text-destructive">
+            Could not load the Steam achievements status.
+          </p>
+          <Button variant="outline" onClick={() => void refetch()}>
+            Retry
           </Button>
         </div>
       )}

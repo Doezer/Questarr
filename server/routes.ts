@@ -51,11 +51,13 @@ import { cancelStagingJobs, setStagingBlocked } from "./downloaders/debrid-stagi
 
 const stagingModeQueue = new Map<string, Promise<void>>();
 
-function applyStagingMode(downloaderId: string): Promise<void> {
+function applyStagingMode(saved: Downloader): Promise<void> {
+  const downloaderId = saved.id;
   const run = (stagingModeQueue.get(downloaderId) ?? Promise.resolve())
     .catch(() => undefined)
     .then(async () => {
-      const current = await storage.getDownloader(downloaderId);
+      // If the re-read fails, fall back to the mode this request just saved.
+      const current = await storage.getDownloader(downloaderId).catch(() => saved);
       if (!current) return;
       if (isLinkOnlyDownloader(current)) await cancelStagingJobs(downloaderId);
       else setStagingBlocked(downloaderId, false);
@@ -4034,7 +4036,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Effects run one at a time per downloader and follow the latest saved mode, so
         // overlapping PATCH requests cannot leave the staging block out of step with it.
         try {
-          await applyStagingMode(downloader.id);
+          await applyStagingMode(downloader);
         } catch (error) {
           routesLogger.error({ error, downloaderId: downloader.id }, "staging mode update failed");
         }

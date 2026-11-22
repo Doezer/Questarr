@@ -17,7 +17,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, videos.name, videos.video_id, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type, expansions.url, game_modes.name";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, videos.name, videos.video_id, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.category, expansions.game_type, expansions.url, game_modes.name";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -39,7 +39,8 @@ function hasEroticTheme(igdbGame: ContentFlagSource): boolean {
 
 function mapIGDBGameType(gameType?: number): DownloadCategory {
   if (gameType === 14) return "update";
-  if ([1, 2, 4, 6, 7, 13].includes(gameType ?? -1)) return "dlc";
+  if (gameType === 13) return "packs";
+  if ([1, 2, 4, 6, 7].includes(gameType ?? -1)) return "dlc";
   if ([5].includes(gameType ?? -1)) return "extra";
   return "main";
 }
@@ -117,6 +118,7 @@ export interface IGDBGame {
     name: string;
     cover?: { url: string };
     first_release_date?: number;
+    category?: number;
     game_type?: number;
     url?: string;
   }>;
@@ -131,11 +133,16 @@ export interface TimeToBeat {
 export interface IGDBContentRef {
   id: number;
   name: string;
+  summary?: string;
   cover?: { url: string };
   first_release_date?: number;
+  category?: number;
   game_type?: number;
+  rating?: number;
+  aggregated_rating?: number;
   themes?: IGDBGame["themes"] | undefined;
   age_ratings?: IGDBGame["age_ratings"] | undefined;
+  videos?: IGDBGame["videos"] | undefined;
 }
 
 /** A game with the add-on content IGDB links to it (expansions, DLC, standalone expansions). */
@@ -144,6 +151,7 @@ export interface IGDBGameContent extends IGDBContentRef {
   expansions?: IGDBContentRef[];
   dlcs?: IGDBContentRef[];
   standalone_expansions?: IGDBContentRef[];
+  expanded_games?: IGDBContentRef[];
 }
 
 export interface DiscoverFilters {
@@ -913,10 +921,22 @@ class IGDBClient {
     return { isAdultContent: hasEroticTheme(game), isAgeRestricted: hasAdultAgeRating(game) };
   }
 
-  /** The base game with its linked add-ons, and the editions that name it as `version_parent`. */
+  /**
+   * The base game with its linked add-ons, and the editions that name it as
+   * `version_parent`.
+   *
+   * The legacy content option keeps the old Content-tab coverage available
+   * without adding extra IGDB requests to the SeerrNG edition endpoints.
+   */
   async getGameEditions(
-    id: number
-  ): Promise<{ base: IGDBGameContent | null; editions: IGDBGameContent[] }> {
+    id: number,
+    options: { includeLegacyContent?: boolean } = {}
+  ): Promise<{
+    base: IGDBGameContent | null;
+    editions: IGDBGameContent[];
+    expandedGames?: IGDBContentRef[];
+    parentGames?: IGDBContentRef[];
+  }> {
     if (!(await this.ensureConfigured())) return { base: null, editions: [] };
 
     const refFields = (field: string) =>
@@ -924,7 +944,10 @@ class IGDBClient {
         "name",
         "cover.url",
         "first_release_date",
+        "category",
         "game_type",
+        "rating",
+        "aggregated_rating",
         "themes.name",
         "age_ratings.category",
         "age_ratings.rating",
@@ -932,22 +955,41 @@ class IGDBClient {
         .map((name) => `${field}.${name}`)
         .join(", ");
     const fields = [
-      "name, summary, first_release_date, game_type, themes.name, age_ratings.category, age_ratings.rating",
+      "name, summary, first_release_date, category, game_type, rating, aggregated_rating, themes.name, age_ratings.category, age_ratings.rating",
+      "videos.name, videos.video_id",
       refFields("expansions"),
       refFields("dlcs"),
       refFields("standalone_expansions"),
     ].join(", ");
+    const baseFields = options.includeLegacyContent
+      ? `${fields}, ${refFields("expanded_games")}`
+      : fields;
     const ttl = 24 * 60 * 60 * 1000;
 
-    const [bases, editions] = await Promise.all([
-      this.makeRequest<IGDBGameContent[]>("games", `fields ${fields}; where id = ${id};`, ttl),
+    const [bases, editions, parentGames] = await Promise.all([
+      this.makeRequest<IGDBGameContent[]>("games", `fields ${baseFields}; where id = ${id};`, ttl),
       this.makeRequest<IGDBGameContent[]>(
         "games",
         `fields ${fields}; where version_parent = ${id}; sort first_release_date asc; limit 30;`,
         ttl
       ),
+      options.includeLegacyContent
+        ? this.makeRequest<IGDBContentRef[]>(
+            "games",
+            `fields ${fields}; where parent_game = ${id}; limit 50;`,
+            ttl
+          ).catch((error) => {
+            igdbLogger.warn({ error, igdbId: id }, "Failed to fetch legacy parent-game content");
+            return [];
+          })
+        : Promise.resolve([] as IGDBContentRef[]),
     ]);
-    return { base: bases[0] ?? null, editions };
+    return {
+      base: bases[0] ?? null,
+      editions,
+      expandedGames: bases[0]?.expanded_games ?? [],
+      parentGames,
+    };
   }
 
   /**
@@ -1654,6 +1696,13 @@ class IGDBClient {
     }
   }
 
+  /** Drop all in-memory IGDB response entries so the next lookup fetches fresh data. */
+  clearAllCache(): number {
+    const count = this.cache.size;
+    this.cache.clear();
+    return count;
+  }
+
   formatGameData(igdbGame: IGDBGame): Record<string, unknown> {
     const releaseDate = igdbGame.first_release_date
       ? new Date(igdbGame.first_release_date * 1000)
@@ -1713,6 +1762,7 @@ class IGDBClient {
             : "",
           category: mapIGDBGameType(expansion.game_type),
           gameType: expansion.game_type,
+          ...(expansion.category != null ? { igdbCategory: expansion.category } : {}),
           igdbUrl: expansion.url,
         })) ?? [],
     };

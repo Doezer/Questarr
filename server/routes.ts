@@ -8,7 +8,8 @@ import { stripUndefined } from "./object-utils.js";
 import { normalizeDownloadHash, normalizeTrackedKey } from "./download-hash.js";
 import { igdbClient } from "./igdb.js";
 import type { IGDBGame } from "./igdb.js";
-import { pingDatabase } from "./db.js";
+import { dialect, pingDatabase } from "./db.js";
+import { createDatabaseBackup, DatabaseBackupUnsupportedError } from "./database-backup.js";
 import {
   insertGameSchema,
   insertGameDownloadSchema,
@@ -27,6 +28,8 @@ import {
   insertRssFeedSchema,
   insertReleaseBlacklistSchema,
   insertGameFileSchema,
+  importTransferModeSchema,
+  isUserCuratedGameStatus,
   claimDownloadRequestSchema,
   insertRootFolderSchema,
   updateRootFolderSchema,
@@ -118,6 +121,8 @@ import {
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
 import { notificationUrl } from "./notification-links.js";
+import { isSensitivePath } from "./path-security.js";
+import { assessLibraryTarget } from "./library-path.js";
 import { prowlarrClient } from "./prowlarr.js";
 import {
   loadProwlarrSyncSettings,
@@ -337,6 +342,7 @@ import {
   resolveGamePlatformPreference,
   matchesPlatformFilter,
   parseJsonStringArray,
+  CANONICAL_PLATFORMS,
 } from "../shared/title-utils.js";
 import { categorizeDownload, type DownloadCategory } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
@@ -388,11 +394,13 @@ import { normalizeInitialReleaseStatus } from "./game-status.js";
 import { quickAddGameByTitle } from "./game-quick-add.js";
 import { importRouter } from "./routes/import.js";
 import { rommRouter } from "./routes/romm.js";
+import { libraryMigrationRouter } from "./routes/library-migration.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { setupChecksRouter } from "./routes/setup-checks.js";
 import { setupWizardRouter, SETUP_WIZARD_KEY } from "./routes/setup-wizard.js";
 import { backupsRouter } from "./routes/backups.js";
+import { importManager } from "./services/index.js";
 import { activityRouter } from "./routes/activity.js";
 import { realDebridRouter } from "./routes/realdebrid.js";
 import { ddlRouter } from "./routes/ddl.js";
@@ -409,6 +417,7 @@ import {
   scanRootFolderById,
   rescanRootFolderById,
   scanAllEnabledRootFolders,
+  backfillGameFilesForGame,
   getAllScanProgress,
   getAllUnmatched,
   matchUnmatchedFolder,
@@ -1844,6 +1853,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           source,
         },
         xrel: { apiBase: xrelApiBase },
+        database: {
+          dialect,
+          backupSupported: dialect === "sqlite",
+        },
       };
       res.json(config);
     } catch (error) {
@@ -1861,6 +1874,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // already accepted the request) while doubling the per-request auth cost.
   app.use("/api/imports", importRouter);
   app.use("/api/settings/romm", rommRouter);
+  app.use("/api/library/migration", libraryMigrationRouter);
+
+  app.post(
+    "/api/library/backup",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    async (_req: Request, res: Response) => {
+      try {
+        const backupPath = await createDatabaseBackup("sqlite-backup");
+        return res.json({ success: true, backupPath });
+      } catch (error) {
+        if (error instanceof DatabaseBackupUnsupportedError) {
+          return res.status(501).json({ error: error.message });
+        }
+        routesLogger.error({ error }, "Failed to backup database");
+        return res.status(500).json({ error: "Failed to backup database" });
+      }
+    }
+  );
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system/backups", backupsRouter);
   app.use("/api/system/setup-checks", setupChecksRouter);
@@ -2327,6 +2359,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     releaseDate: z.string(),
     category: z.enum(["main", "update", "dlc", "extra", "packs"]),
     gameType: z.number().optional(),
+    igdbCategory: z.number().int().optional(),
     igdbUrl: z.string().optional(),
   });
 
@@ -2426,7 +2459,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Check library health: drifted libraryPaths and orphaned folders on disk
+  // Check library health: drifted paths, orphaned folders, and backfill game_files
   app.post("/api/games/library-health-check", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const userId = req.user!.id;
@@ -2482,7 +2515,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json({ drifted, orphaned, libraryRoot: resolvedRoot });
+      let backfilledGames = 0;
+      let backfilledFiles = 0;
+      for (const game of userGames) {
+        try {
+          const filesAdded = await backfillGameFilesForGame(game, resolvedRoot);
+          if (filesAdded > 0) {
+            backfilledGames++;
+            backfilledFiles += filesAdded;
+          }
+        } catch (error) {
+          routesLogger.warn(
+            { error, gameId: game.id, libraryPath: game.libraryPath },
+            "failed to backfill game files during library health check"
+          );
+        }
+      }
+
+      if (backfilledGames > 0) {
+        routesLogger.info(
+          { backfilledGames, backfilledFiles },
+          "library health check backfilled game files"
+        );
+      }
+
+      res.json({ drifted, orphaned, libraryRoot: resolvedRoot, backfilledGames, backfilledFiles });
     } catch (error) {
       routesLogger.error({ error }, "error running library health check");
       res.status(500).json({ error: "Failed to run library health check" });
@@ -2922,7 +2979,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Remove game from collection
   type FileDeletionResult =
     | { deleted: true; path: string | null }
-    | { deleted: false; reason: "outside-library-root" | "delete-failed"; path: string };
+    | {
+        deleted: false;
+        reason:
+          "outside-library-root" | "library-root" | "shared-platform-directory" | "delete-failed";
+        path: string;
+      };
 
   app.delete(
     "/api/games/:id",
@@ -2944,11 +3006,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (game.libraryPath) {
             const config = await storage.getImportConfig(game.userId ?? undefined);
             const resolvedRoot = path.resolve(config.libraryRoot);
-            const resolvedTarget = path.resolve(game.libraryPath);
+            const targetSafety = assessLibraryTarget(resolvedRoot, game.libraryPath);
+            const resolvedTarget = targetSafety.resolvedTarget;
             // Strictly inside: a libraryPath that IS the library root (e.g. a
             // manual import confirmed straight into it) must never let one
             // game's deletion wipe every other game's files with it.
-            const insideRoot = isStrictlyInside(resolvedRoot, resolvedTarget);
+            const insideRoot = targetSafety.safe && isStrictlyInside(resolvedRoot, resolvedTarget);
             // Games discovered by the root-folder scanner live outside the
             // configured library root by design. Allow deleting their files
             // too, but only when the user has explicitly opted that specific
@@ -3150,6 +3213,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .trim()
       .isIn(["main", "dlc", "update", "extra"])
       .withMessage("Invalid game file category"),
+    body("igdbContentId")
+      .optional({ nullable: true })
+      .isInt({ min: 1 })
+      .withMessage("Invalid IGDB content ID")
+      .toInt(),
   ];
 
   // A missing path, a path that isn't a directory, or a symlink cycle are expected
@@ -3181,8 +3249,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   ): Promise<{ libraryRoot: string; scanRoot: string } | null> => {
     if (!game.libraryPath) return null;
     const importConfig = await storage.getImportConfig(userId);
+    const targetSafety = assessLibraryTarget(importConfig.libraryRoot, game.libraryPath);
+    if (!targetSafety.safe) return null;
     const libraryRoot = await realpathOrNull(importConfig.libraryRoot);
-    const scanRoot = await realpathOrNull(game.libraryPath);
+    const scanRoot = await realpathOrNull(targetSafety.resolvedTarget);
     if (!libraryRoot || !scanRoot || !isContained(scanRoot, libraryRoot)) return null;
     return { libraryRoot, scanRoot };
   };
@@ -3259,16 +3329,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
             files.push({ name: entry.name, path: canonicalFile, category, size: stat.size });
           }
         };
-        await walk(scanRoot);
+        const scanStat = await fs.promises.stat(scanRoot);
+        if (scanStat.isFile()) {
+          const name = path.basename(scanRoot);
+          files.push({
+            name,
+            path: scanRoot,
+            category: normalizeCategory(categorizeDownload(path.parse(name).name).category),
+            size: scanStat.size,
+          });
+        } else if (scanStat.isDirectory()) {
+          await walk(scanRoot);
+        }
         // A category the user picked by hand wins over the folder/filename guess.
+        // Reuse this read for persisted IGDB associations too, so the live scan
+        // does not need a second storage query per file.
+        const trackedFiles = await storage.getGameFiles(gameId);
+        const trackedByPath = new Map(trackedFiles.map((f) => [f.filePath, f]));
         const overrides = new Map(
-          (await storage.getGameFiles(gameId))
-            .filter((f) => f.categoryOverridden)
-            .map((f) => [f.filePath, f.category])
+          trackedFiles.filter((f) => f.categoryOverridden).map((f) => [f.filePath, f.category])
         );
         for (const file of files) {
           const override = overrides.get(file.path);
           if (override) file.category = override;
+          file.tracked = trackedByPath.has(file.path);
+          file.igdbContentId = trackedByPath.get(file.path)?.igdbContentId ?? null;
         }
         return res.json({ files, truncated });
       } catch (error) {
@@ -3342,6 +3427,121 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Get game files for a specific game, grouped by category
+  type ContentItem = {
+    id: number;
+    name: string;
+    summary: string | null;
+    category: GameFileCategory | "packs";
+    coverUrl: string | null;
+    releaseDate: string | null;
+    rating: number | null;
+    aggregatedRating: number | null;
+    gameType: number | undefined;
+    igdbCategory: number | null;
+  };
+  type ContentVideo = { videoId: string; name: string };
+
+  const contentCategoryForIgdbCategory = (igdbCategory?: number): ContentItem["category"] => {
+    if (igdbCategory === 14) return "update";
+    if (igdbCategory === 13) return "packs";
+    if ([1, 2, 4, 6, 7].includes(igdbCategory ?? -1)) return "dlc";
+    return "extra";
+  };
+
+  const contentCategoryMatchesFile = (
+    contentCategory: ContentItem["category"],
+    fileCategory: GameFileCategory
+  ): boolean => {
+    if (contentCategory === "update") return fileCategory === "update";
+    if (contentCategory === "dlc") return fileCategory === "dlc";
+    if (contentCategory === "packs" || contentCategory === "extra") {
+      return fileCategory === "extra";
+    }
+    return false;
+  };
+
+  const normalizeIgdbCoverUrl = (url?: string): string | null => {
+    if (!url) return null;
+    return `${url.startsWith("//") ? "https:" : ""}${url.replace("t_thumb", "t_cover_big")}`;
+  };
+
+  const getContentItemsForGame = async (
+    game: Game
+  ): Promise<{ items: ContentItem[]; videos: ContentVideo[] }> => {
+    const byId = new Map<number, ContentItem>();
+    const videos: ContentVideo[] = [];
+    for (const item of game.expansions ?? []) {
+      if (!Number.isInteger(item.id) || item.id <= 0) continue;
+      const cachedIgdbCategory =
+        item.igdbCategory ??
+        item.gameType ??
+        (item.category === "update" ? 14 : item.category === "packs" ? 13 : 2);
+      byId.set(item.id, {
+        id: item.id,
+        name: item.name,
+        summary: null,
+        category: contentCategoryForIgdbCategory(cachedIgdbCategory),
+        coverUrl: item.coverUrl || null,
+        releaseDate: item.releaseDate || null,
+        rating: null,
+        aggregatedRating: null,
+        gameType: item.gameType,
+        igdbCategory: cachedIgdbCategory,
+      });
+    }
+
+    if (!game.igdbId) return { items: Array.from(byId.values()), videos };
+    try {
+      const { base, editions, expandedGames, parentGames } = await igdbClient.getGameEditions(
+        game.igdbId,
+        { includeLegacyContent: true }
+      );
+      for (const video of base?.videos ?? []) {
+        if (typeof video.video_id === "string" && /^[A-Za-z0-9_-]{6,20}$/.test(video.video_id)) {
+          videos.push({ videoId: video.video_id, name: video.name ?? "" });
+        }
+      }
+      const liveGroups = [
+        ...(base?.expansions ?? []).map((item) => ({ item, fallbackCategory: 2 })),
+        ...(base?.dlcs ?? []).map((item) => ({ item, fallbackCategory: 1 })),
+        ...(base?.standalone_expansions ?? []).map((item) => ({ item, fallbackCategory: 4 })),
+        ...(expandedGames ?? base?.expanded_games ?? [])
+          .filter((item) => item.category !== 10 && item.category !== 11)
+          .map((item) => ({ item, fallbackCategory: 10 })),
+        ...(parentGames ?? []).map((item) => ({ item, fallbackCategory: undefined })),
+        // Keep versioned editions visible as generic content too; their
+        // version_parent relationship is useful content coverage even when
+        // they are not linked through an add-on field.
+        ...editions.map((item) => ({ item, fallbackCategory: 10 })),
+      ];
+      for (const { item, fallbackCategory } of liveGroups) {
+        if (!Number.isInteger(item.id) || item.id <= 0) continue;
+        const cached = byId.get(item.id);
+        const igdbCategory =
+          item.category ?? item.game_type ?? cached?.igdbCategory ?? fallbackCategory;
+        const liveCoverUrl = normalizeIgdbCoverUrl(item.cover?.url);
+        const liveReleaseDate = item.first_release_date
+          ? new Date(item.first_release_date * 1000).toISOString().slice(0, 10)
+          : null;
+        byId.set(item.id, {
+          id: item.id,
+          name: item.name || cached?.name || "Unknown content",
+          summary: item.summary ?? cached?.summary ?? null,
+          category: contentCategoryForIgdbCategory(igdbCategory),
+          coverUrl: liveCoverUrl ?? cached?.coverUrl ?? null,
+          releaseDate: liveReleaseDate ?? cached?.releaseDate ?? null,
+          rating: item.rating ?? cached?.rating ?? null,
+          aggregatedRating: item.aggregated_rating ?? cached?.aggregatedRating ?? null,
+          gameType: item.game_type ?? cached?.gameType,
+          igdbCategory: igdbCategory ?? null,
+        });
+      }
+    } catch (error) {
+      routesLogger.warn({ error, igdbId: game.igdbId }, "Failed to fetch IGDB game content");
+    }
+    return { items: Array.from(byId.values()), videos };
+  };
+
   app.get(
     "/api/games/:gameId/content",
     authenticateToken,
@@ -3356,32 +3556,386 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!game) return;
 
         const gameFiles = await storage.getGameFiles(gameId);
+        const userGames = await storage.getUserGames(userId);
+        const relatedGamesByIgdbId = new Map(
+          userGames
+            .filter((userGame) => userGame.igdbId != null)
+            .map((userGame) => [userGame.igdbId!, userGame] as const)
+        );
 
-        const CATEGORIES = [
-          { category: "main", label: "Main Game" },
-          { category: "dlc", label: "DLC & Expansions" },
-          { category: "update", label: "Updates & Patches" },
-          { category: "extra", label: "Extras" },
-        ] as const;
-
-        const slots = CATEGORIES.map(({ category, label }) => {
-          const files = gameFiles
-            .filter((f) => f.category === category)
-            .map((f) => ({
-              id: f.id,
-              originalName: f.originalName,
-              storedName: f.storedName,
-              downloadId: f.downloadId,
-              fileSize: f.fileSize,
-              createdAt: f.createdAt,
-            }));
-          return { category, label, present: files.length > 0, files };
+        const toFileResponse = (file: (typeof gameFiles)[number]) => ({
+          id: file.id,
+          originalName: file.originalName,
+          storedName: file.storedName,
+          downloadId: file.downloadId,
+          fileSize: file.fileSize,
+          igdbContentId: file.igdbContentId,
+          createdAt: file.createdAt,
         });
 
-        res.json({ slots });
+        // A file linked to a specific IGDB item belongs only to that item. In
+        // particular, a generic update must never become the file for an IGDB
+        // expansion merely because both happen to use the same broad category.
+        const { items: contentItems, videos: liveVideos } = await getContentItemsForGame(game);
+        const knownContentIds = new Set(contentItems.map((item) => item.id));
+        const isKnownLinkedFile = (file: (typeof gameFiles)[number]) =>
+          file.igdbContentId != null && knownContentIds.has(file.igdbContentId);
+
+        const baseFiles = gameFiles.filter(
+          (file) => file.category === "main" && !isKnownLinkedFile(file)
+        );
+        const slots = [
+          {
+            category: "main" as const,
+            label: "Main Game",
+            igdbId: game.igdbId ?? null,
+            igdbCategory: 0,
+            coverUrl: game.coverUrl ?? null,
+            present: baseFiles.length > 0,
+            files: baseFiles.map(toFileResponse),
+          },
+          ...contentItems.map((item) => {
+            const files = gameFiles
+              .filter((file) => file.igdbContentId === item.id)
+              .map(toFileResponse);
+            return {
+              category: item.category,
+              label: item.name,
+              summary: item.summary,
+              igdbId: item.id,
+              coverUrl: item.coverUrl ?? null,
+              releaseDate: item.releaseDate ?? null,
+              rating: item.rating ?? null,
+              aggregatedRating: item.aggregatedRating ?? null,
+              igdbCategory: item.igdbCategory,
+              gameId: relatedGamesByIgdbId.get(item.id)?.id,
+              present: files.length > 0 || relatedGamesByIgdbId.has(item.id),
+              files,
+            };
+          }),
+          ...(
+            [
+              { category: "dlc", label: "Unmatched DLC & Expansions" },
+              { category: "update", label: "Unmatched Updates & Patches" },
+              { category: "extra", label: "Extras" },
+            ] as const
+          ).map(({ category, label }) => {
+            const files = gameFiles
+              .filter((file) => file.category === category && !isKnownLinkedFile(file))
+              .map(toFileResponse);
+            return { category, label, present: files.length > 0, files };
+          }),
+        ];
+
+        let videos: ContentVideo[] = liveVideos;
+        if (videos.length === 0 && Array.isArray(game.videos)) {
+          videos = game.videos;
+        }
+        videos = videos.filter(
+          (video): video is { videoId: string; name: string } =>
+            typeof video?.videoId === "string" && /^[A-Za-z0-9_-]{6,20}$/.test(video.videoId)
+        );
+
+        res.json({ slots, videos });
       } catch (error) {
         routesLogger.error({ error }, "error fetching game content");
         res.status(500).json({ error: "Failed to fetch game content" });
+      }
+    }
+  );
+
+  // Match or unlink a persisted file against one specific IGDB content item.
+  // This is deliberately file-scoped: the caller must already know the file id,
+  // and ownership is checked through the parent game before any mutation.
+  app.patch(
+    "/api/game-files/:id/content",
+    authenticateToken,
+    gameFileIdParamValidation,
+    body("igdbContentId")
+      .optional({ nullable: true })
+      .isInt({ min: 1 })
+      .withMessage("Invalid IGDB content ID")
+      .toInt(),
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params as { id: string };
+        const gameFile = await storage.getGameFile(id);
+        if (!gameFile) {
+          return res.status(404).json({ error: "Game file not found" });
+        }
+        const game = await resolveOwnedGame(gameFile.gameId, req.user!.id, res);
+        if (!game) return;
+
+        const igdbContentId =
+          req.body.igdbContentId == null ? null : Number(req.body.igdbContentId);
+        if (igdbContentId != null) {
+          const { items: contentItems } = await getContentItemsForGame(game);
+          const matched = contentItems.find((item) => item.id === igdbContentId);
+          if (!matched) {
+            return res.status(400).json({ error: "IGDB content does not belong to this game" });
+          }
+          if (!contentCategoryMatchesFile(matched.category, gameFile.category)) {
+            return res.status(400).json({ error: "File category does not match IGDB content" });
+          }
+        }
+        const updated = await storage.updateGameFileContentId(id, igdbContentId);
+        if (!updated) {
+          return res.status(404).json({ error: "Game file not found" });
+        }
+        return res.json({
+          id: updated.id,
+          gameId: updated.gameId,
+          igdbContentId: updated.igdbContentId,
+        });
+      } catch (error) {
+        routesLogger.error({ error }, "error updating game file content association");
+        return res.status(500).json({ error: "Failed to update game file content association" });
+      }
+    }
+  );
+
+  // Platform choices are exposed only for standalone manual import. Game Details
+  // imports pass their locked game/slot context instead.
+  app.get("/api/platform-folders", authenticateToken, (_req: Request, res: Response) => {
+    return res.json([...CANONICAL_PLATFORMS]);
+  });
+
+  app.post("/api/import/manual/scan", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const scanPath = z.object({ path: z.string().min(1) }).parse(req.body).path;
+      if (await isSensitivePath(scanPath)) {
+        return res.status(400).json({ error: "Refusing to scan a sensitive system path" });
+      }
+      const stats = await fs.promises.stat(scanPath);
+      const supportedExtensions = new Set([
+        ".7z",
+        ".bin",
+        ".chd",
+        ".cue",
+        ".gdi",
+        ".gz",
+        ".iso",
+        ".nca",
+        ".nsp",
+        ".pkg",
+        ".pup",
+        ".rar",
+        ".rvz",
+        ".tar",
+        ".wad",
+        ".wbfs",
+        ".xci",
+        ".zip",
+      ]);
+      const entries = stats.isDirectory()
+        ? await fs.promises.readdir(scanPath, { withFileTypes: true })
+        : [
+            {
+              name: path.basename(scanPath),
+              isFile: () => true,
+              isDirectory: () => false,
+            } as fs.Dirent,
+          ];
+      const files: Array<{ name: string; path: string; size: number; isDirectory: false }> = [];
+      let truncated = false;
+      for (const entry of entries) {
+        if (files.length >= SCAN_MAX_FILES) {
+          truncated = true;
+          break;
+        }
+        if (!entry.isFile()) continue;
+        if (!supportedExtensions.has(path.extname(entry.name).toLowerCase())) continue;
+        const absolutePath = stats.isDirectory() ? path.join(scanPath, entry.name) : scanPath;
+        try {
+          const fileStats = await fs.promises.stat(absolutePath);
+          if (!fileStats.isFile()) continue;
+          files.push({
+            name: entry.name,
+            path: absolutePath,
+            size: fileStats.size,
+            isDirectory: false,
+          });
+        } catch (error) {
+          if (isExpectedFsError(error)) continue;
+          throw error;
+        }
+      }
+      return res.json({ files, truncated });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues });
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code === "ENOENT" || code === "ENOTDIR") {
+        return res.status(400).json({ error: "Selected path does not exist" });
+      }
+      if (code === "EACCES" || code === "EPERM") {
+        return res.status(403).json({ error: "Selected path is not readable" });
+      }
+      routesLogger.error({ error }, "error scanning for manual import");
+      return res.status(500).json({ error: "Failed to scan path" });
+    }
+  });
+
+  app.post(
+    "/api/games/:gameId/manual-import",
+    authenticateToken,
+    gameIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const body = z
+          .object({
+            filePath: z.string().min(1),
+            category: z.enum(["main", "dlc", "update", "extra", "packs"]),
+            platformDir: z.string().trim().min(1).optional(),
+            targetDir: z.string().trim().min(1).optional(),
+            transferMode: importTransferModeSchema.optional(),
+            scanDisk: z.boolean().optional(),
+            igdbContentId: z.number().int().positive().optional(),
+          })
+          .parse(req.body);
+        const { gameId } = req.params as { gameId: string };
+        const game = await resolveOwnedGame(gameId, req.user!.id, res);
+        if (!game) return;
+
+        if (body.igdbContentId != null) {
+          const { items: contentItems } = await getContentItemsForGame(game);
+          if (!contentItems.some((item) => item.id === body.igdbContentId)) {
+            return res.status(400).json({ error: "IGDB content does not belong to this game" });
+          }
+          const matched = contentItems.find((item) => item.id === body.igdbContentId)!;
+          const storedCategory: GameFileCategory =
+            body.category === "packs" ? "extra" : body.category;
+          const categoryMatches = contentCategoryMatchesFile(matched.category, storedCategory);
+          if (!categoryMatches) {
+            return res.status(400).json({ error: "File category does not match IGDB content" });
+          }
+        }
+
+        if (body.scanDisk && body.transferMode && body.transferMode !== "move") {
+          return res.status(400).json({ error: "Scan Disk imports must use move transfer mode" });
+        }
+
+        if (game.libraryPath) {
+          const config = await storage.getImportConfig(req.user!.id);
+          const targetSafety = assessLibraryTarget(config.libraryRoot, game.libraryPath);
+          // Extra root folders are allowed by the current import workflow; for
+          // paths under the configured library root, reject the root itself and
+          // shared platform directories as game targets.
+          if (!targetSafety.safe && targetSafety.reason !== "outside-library-root") {
+            return res.status(409).json({
+              error: "Game library path is unsafe and requires repair",
+              reason: targetSafety.reason,
+            });
+          }
+        }
+
+        if (body.targetDir && !game.libraryPath) {
+          return res.status(409).json({ error: "Game does not have a library path" });
+        }
+        if (body.targetDir && game.libraryPath) {
+          const expected = path.resolve(game.libraryPath);
+          const requested = path.resolve(body.targetDir);
+          const expectedStats = await fs.promises.stat(expected).catch(() => null);
+          const expectedDir = expectedStats?.isDirectory() ? expected : path.dirname(expected);
+          if (requested !== expectedDir) {
+            return res.status(400).json({ error: "targetDir must match the game's library path" });
+          }
+        }
+
+        let matchedDownloadId: string | null = null;
+        try {
+          const [downloads, downloaders] = await Promise.all([
+            storage.getDownloadsByGameId(game.id),
+            storage.getAllDownloaders(),
+          ]);
+          const sourcePath = path.resolve(body.filePath);
+          for (const download of downloads) {
+            if (!download.downloaderId || !download.downloadHash) continue;
+            const downloader = downloaders.find((item) => item.id === download.downloaderId);
+            if (!downloader) continue;
+            const details = await DownloaderManager.getDownloadDetails(
+              downloader,
+              download.downloadHash
+            );
+            const roots = [details?.contentPath, details?.downloadDir].filter(
+              (root): root is string => typeof root === "string" && root.length > 0
+            );
+            if (
+              roots.some((root) => {
+                const relative = path.relative(path.resolve(root), sourcePath);
+                return (
+                  relative !== "" &&
+                  !relative.startsWith(`..${path.sep}`) &&
+                  !path.isAbsolute(relative)
+                );
+              })
+            ) {
+              matchedDownloadId = download.id;
+              break;
+            }
+          }
+        } catch {
+          // Download association is optional; the file import itself remains valid.
+        }
+
+        const result = await importManager.manualImportFile(body.filePath, game, {
+          category: body.category,
+          platformDir: body.platformDir,
+          targetDir: body.targetDir,
+          transferMode: body.transferMode,
+          scanDisk: body.scanDisk,
+        });
+        const category: GameFileCategory = body.category === "packs" ? "extra" : body.category;
+        const originalName = path.basename(body.filePath);
+        const existing = (await storage.getGameFiles(game.id)).find(
+          (file) => path.resolve(file.filePath) === path.resolve(result.newPath)
+        );
+        if (existing)
+          return res.status(409).json({ error: "That destination file is already tracked" });
+
+        const gameFile = await storage.addGameFile({
+          gameId: game.id,
+          originalName,
+          storedName: originalName,
+          category,
+          filePath: result.newPath,
+          fileSize: result.fileSize,
+          downloadId: matchedDownloadId,
+          ...(body.igdbContentId != null ? { igdbContentId: body.igdbContentId } : {}),
+        });
+        await storage.updateGameFileCategory(gameFile.id, category);
+        await importManager.setLibraryPathOnce(game, result.destDir);
+        if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
+          await storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
+        }
+
+        return res.status(201).json({
+          success: true,
+          gameFile: { ...gameFile, categoryOverridden: true },
+          destDir: result.destDir,
+          modeUsed: result.modeUsed,
+        });
+      } catch (error) {
+        if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues });
+        const message = error instanceof Error ? error.message : String(error);
+        const code = (error as NodeJS.ErrnoException)?.code;
+        if (code === "ENOENT" || code === "ENOTDIR") {
+          return res
+            .status(400)
+            .json({ error: "Selected file or game library path does not exist" });
+        }
+        if (code === "EACCES" || code === "EPERM") {
+          return res.status(403).json({ error: "Selected file or destination is not accessible" });
+        }
+        if (message.includes("already exists") || message.includes("already tracked")) {
+          return res.status(409).json({ error: message });
+        }
+        if (message === "Game library path does not exist") {
+          return res.status(409).json({ error: message });
+        }
+        routesLogger.error({ error }, "error in manual import");
+        return res.status(500).json({ error: "Failed to import file", details: message });
       }
     }
   );
@@ -3425,7 +3979,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return res.status(404).json({ error: "Download not found for game" });
           }
         }
-        const gameFile = await storage.addGameFile(parsed);
+        if (parsed.igdbContentId != null) {
+          const { items: contentItems } = await getContentItemsForGame(game);
+          const matched = contentItems.find((item) => item.id === parsed.igdbContentId);
+          if (!matched) {
+            return res.status(400).json({ error: "IGDB content does not belong to this game" });
+          }
+          if (!contentCategoryMatchesFile(matched.category, parsed.category)) {
+            return res.status(400).json({ error: "File category does not match IGDB content" });
+          }
+        }
+        const importConfig = await storage.getImportConfig(req.user!.id);
+        const targetSafety = assessLibraryTarget(importConfig.libraryRoot, parsed.filePath);
+        if (!targetSafety.safe) {
+          return res.status(400).json({ error: "Game file path must be inside the game library" });
+        }
+        const libraryRoot = await realpathOrNull(importConfig.libraryRoot);
+        const filePath = await realpathOrNull(targetSafety.resolvedTarget);
+        if (!libraryRoot || !filePath || !isContained(filePath, libraryRoot)) {
+          return res.status(400).json({ error: "Game file path must be inside the game library" });
+        }
+        const fileStat = await fs.promises.stat(filePath);
+        if (!fileStat.isFile()) {
+          return res.status(400).json({ error: "Game file path must point to a file" });
+        }
+        const gameFile = await storage.addGameFile({ ...parsed, filePath });
         return res.status(201).json(gameFile);
       } catch (error) {
         if (error instanceof z.ZodError) {
@@ -3464,6 +4042,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // IGDB discovery routes
+
+  app.post(
+    "/api/igdb/clear-cache",
+    sensitiveEndpointLimiter,
+    async (_req: Request, res: Response) => {
+      const cleared = igdbClient.clearAllCache();
+      return res.json({ success: true, cleared });
+    }
+  );
 
   // Search IGDB for games
   app.get(

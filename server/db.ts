@@ -92,6 +92,23 @@ export const db: AppDatabase = connection.db;
 /** The underlying driver handle. Only SQLite-pinned tests use this. */
 export const pool = connection.pool;
 
+/** Absolute path of the backing store when the active driver has one. */
+export const databaseStoragePath = connection.storagePath;
+
+/**
+ * Create a consistent database backup through the active driver.
+ *
+ * SQLite is the only backend with an in-process backup implementation. Other
+ * backends deliberately fail explicitly so callers never report a backup that
+ * was not actually created.
+ */
+export async function backupDatabase(destination: string): Promise<void> {
+  if (!connection.backup) {
+    throw new Error(`Database backups are not supported for the ${dialect} backend`);
+  }
+  await connection.backup(destination);
+}
+
 /**
  * Verify the database is reachable.
  *

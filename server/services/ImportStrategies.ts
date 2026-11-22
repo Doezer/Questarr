@@ -23,6 +23,7 @@ export interface ImportResult {
   platformDir?: string;
   destDir: string;
   filesPlaced: string[];
+  placedFileCategories?: FileCategoryEntry[] | undefined;
   modeUsed: TransferMode;
   conflictsResolved: string[];
   // The game's own entry in the library when it is not destDir: an update or DLC placed in
@@ -49,6 +50,7 @@ export interface ImportReview {
 export interface FileCategoryEntry {
   name: string;
   category: DownloadCategory;
+  igdbContentId?: number | undefined;
 }
 
 export interface PlanImportOptions {
@@ -858,6 +860,7 @@ export class PCImportStrategy implements ImportStrategy {
 
     if (review.fileCategories && review.fileCategories.length > 0) {
       const filesPlaced: string[] = [];
+      const placedFileCategories: FileCategoryEntry[] = [];
       const conflictsResolved: string[] = [];
       // Keep modeUsed as the originally-requested batch mode: a per-file fallback
       // (e.g. hardlink -> copy for one file among many) is recorded per-entry in
@@ -923,6 +926,7 @@ export class PCImportStrategy implements ImportStrategy {
           review.proposedPath
         );
         filesPlaced.push(destinationFile);
+        placedFileCategories.push(entry);
         if (entryMode !== transferMode) {
           conflictsResolved.push(`${entry.name} (mode fallback: ${entryMode})`);
         }
@@ -942,6 +946,7 @@ export class PCImportStrategy implements ImportStrategy {
       return {
         destDir: review.proposedPath,
         filesPlaced,
+        placedFileCategories,
         modeUsed,
         conflictsResolved,
       };

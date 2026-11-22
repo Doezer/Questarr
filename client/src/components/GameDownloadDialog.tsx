@@ -141,6 +141,10 @@ interface GameDownloadDialogProps {
   game: Game | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Restricts a Content-tab search to one release category. */
+  contentCategory?: DownloadCategory;
+  /** Content-tab searches download one release directly instead of offering a base-game bundle. */
+  contentOnly?: boolean;
 }
 
 type ReleaseMetadata = ReturnType<typeof parseReleaseMetadata>;
@@ -252,7 +256,13 @@ function ReleaseMetadataBadges({
 }
 
 /** Renders release search, filtering, and download controls for a game. */
-export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
+export default function GameDownloadDialog({
+  game,
+  open,
+  onOpenChange,
+  contentCategory,
+  contentOnly = false,
+}: GameDownloadDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -424,19 +434,21 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   useEffect(() => {
     if (open && game) {
       setSearchQuery(game.title);
+      if (contentCategory) setVisibleCategories(new Set([contentCategory]));
     } else if (!open) {
       setDefaults();
     }
-  }, [open, game, setDefaults]);
+  }, [open, game, contentCategory, setDefaults]);
 
   // Apply settings-derived defaults only once per dialog session so later refetches
   // do not overwrite manual adjustments the user makes in the UI.
   useEffect(() => {
     if (open && game && userSettings && !defaultsAppliedRef.current) {
       applyDownloadRules();
+      if (contentCategory) setVisibleCategories(new Set([contentCategory]));
       defaultsAppliedRef.current = true;
     }
-  }, [open, game, userSettings, applyDownloadRules]);
+  }, [open, game, userSettings, applyDownloadRules, contentCategory]);
 
   const buildSearchQueryKey = (gameId: string | undefined) =>
     gameId
@@ -903,6 +915,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   ).length;
 
   const handleDownload = (download: DownloadItem) => {
+    if (contentOnly) {
+      setDownloadingGuid(download.guid || download.link);
+      downloadMutation.mutate([download]);
+      return;
+    }
     if (filteredCategorizedDownloads.update.length > 0 || suggestedExtrasFor(download).length > 0) {
       const downloadCategory = groupDownloadsByCategory([download]);
       if (downloadCategory.main.length > 0) {

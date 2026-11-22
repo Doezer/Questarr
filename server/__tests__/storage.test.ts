@@ -230,6 +230,41 @@ describe("MemStorage", () => {
       await expect(storage.getGameFiles(game.id)).resolves.toEqual([]);
     });
 
+    it("groups game files by game id in one lookup", async () => {
+      const gameOne = await storage.addGame({
+        title: "Game One",
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+      const gameTwo = await storage.addGame({
+        title: "Game Two",
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+      await storage.addGameFile({
+        gameId: gameOne.id,
+        originalName: "one.iso",
+        storedName: "one.iso",
+        category: "main",
+        filePath: "/library/one.iso",
+      } as InsertGameFile);
+      await storage.addGameFile({
+        gameId: gameTwo.id,
+        originalName: "two.iso",
+        storedName: "two.iso",
+        category: "main",
+        filePath: "/library/two.iso",
+      } as InsertGameFile);
+
+      const grouped = await storage.getGameFilesByGameIds([gameOne.id, gameTwo.id]);
+
+      expect(grouped.get(gameOne.id)).toHaveLength(1);
+      expect(grouped.get(gameTwo.id)).toHaveLength(1);
+      expect(await storage.getGameFilesByGameIds([])).toEqual(new Map());
+    });
+
     it("should filter games by status", async () => {
       await storage.addGame({
         title: "G1",

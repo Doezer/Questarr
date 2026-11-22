@@ -1482,8 +1482,32 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.status).toBe(200);
       expect(response.body.fileDeletion).toEqual({
         deleted: false,
-        reason: "outside-library-root",
+        reason: "library-root",
         path: "/data/library",
+      });
+      expect(fsExtra.remove).not.toHaveBeenCalled();
+    });
+
+    it("should never delete a shared platform directory", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/data/library/PC",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([]);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.fileDeletion).toEqual({
+        deleted: false,
+        reason: "shared-platform-directory",
+        path: "/data/library/PC",
       });
       expect(fsExtra.remove).not.toHaveBeenCalled();
     });
@@ -1687,6 +1711,16 @@ describe("API Routes - Extended Coverage", () => {
           releaseYear: 2005,
         });
       });
+    });
+
+    it("clears the in-memory IGDB cache", async () => {
+      vi.mocked(igdbClient.clearAllCache).mockReturnValue(4);
+
+      const response = await request(app).post("/api/igdb/clear-cache");
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true, cleared: 4 });
+      expect(igdbClient.clearAllCache).toHaveBeenCalledTimes(1);
     });
 
     describe("GET /api/igdb/popular", () => {

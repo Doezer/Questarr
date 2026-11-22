@@ -369,6 +369,8 @@ export interface IStorage {
     availability: { updates: boolean; packs: boolean }
   ): Promise<void>;
   updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
+  /** Sets libraryPath only when it is currently empty, preserving the first import target. */
+  setGameLibraryPathIfUnset(id: string, libraryPath: string): Promise<Game | undefined>;
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
   removeGame(id: string): Promise<boolean>;
   assignOrphanGamesToUser(userId: string): Promise<number>;
@@ -667,10 +669,15 @@ export interface IStorage {
   getGameFiles(gameId: string): Promise<GameFile[]>;
   getGameFile(id: string): Promise<GameFile | undefined>;
   getGameFilesByDownload(downloadId: string): Promise<GameFile[]>;
+  getGameFilesByGameIds(gameIds: string[]): Promise<Map<string, GameFile[]>>;
   addGameFile(file: InsertGameFile): Promise<GameFile>;
   addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]>;
+  /** Rewrites a tracked file path after a library-folder migration. */
+  updateGameFilePath(id: string, filePath: string): Promise<GameFile | undefined>;
   /** Sets a user-chosen category and marks it so later scans keep it. */
   updateGameFileCategory(id: string, category: GameFileCategory): Promise<GameFile | undefined>;
+  /** Associates a file with one specific IGDB content item, or clears that association. */
+  updateGameFileContentId(id: string, igdbContentId: number | null): Promise<GameFile | undefined>;
   removeGameFile(id: string): Promise<boolean>;
   removeGameFilesByGameId(gameId: string): Promise<number>;
 
@@ -1690,6 +1697,15 @@ export class MemStorage implements IStorage {
       ...updates,
     };
 
+    this.games.set(id, updatedGame);
+    return updatedGame;
+  }
+
+  async setGameLibraryPathIfUnset(id: string, libraryPath: string): Promise<Game | undefined> {
+    const game = this.games.get(id);
+    if (!game || game.libraryPath) return undefined;
+
+    const updatedGame: Game = { ...game, libraryPath };
     this.games.set(id, updatedGame);
     return updatedGame;
   }
@@ -2751,6 +2767,18 @@ export class MemStorage implements IStorage {
     return Array.from(this.gameFiles.values()).filter((f) => f.downloadId === downloadId);
   }
 
+  async getGameFilesByGameIds(gameIds: string[]): Promise<Map<string, GameFile[]>> {
+    const wanted = new Set(gameIds);
+    const filesByGameId = new Map<string, GameFile[]>();
+    for (const file of this.gameFiles.values()) {
+      if (!wanted.has(file.gameId)) continue;
+      const files = filesByGameId.get(file.gameId) ?? [];
+      files.push(file);
+      filesByGameId.set(file.gameId, files);
+    }
+    return filesByGameId;
+  }
+
   async addGameFile(file: InsertGameFile): Promise<GameFile> {
     if (!this.games.has(file.gameId)) throw new Error(`Game ${file.gameId} not found`);
     if (file.downloadId && !this.gameDownloads.has(file.downloadId)) {
@@ -2762,6 +2790,7 @@ export class MemStorage implements IStorage {
       id,
       downloadId: file.downloadId ?? null,
       category: file.category as GameFile["category"],
+      igdbContentId: file.igdbContentId ?? null,
       fileSize: file.fileSize ?? null,
       categoryOverridden: false,
       createdAt: new Date(),
@@ -2778,6 +2807,14 @@ export class MemStorage implements IStorage {
     return result;
   }
 
+  async updateGameFilePath(id: string, filePath: string): Promise<GameFile | undefined> {
+    const existing = this.gameFiles.get(id);
+    if (!existing) return undefined;
+    const updated: GameFile = { ...existing, filePath };
+    this.gameFiles.set(id, updated);
+    return updated;
+  }
+
   async updateGameFileCategory(
     id: string,
     category: GameFileCategory
@@ -2785,6 +2822,17 @@ export class MemStorage implements IStorage {
     const existing = this.gameFiles.get(id);
     if (!existing) return undefined;
     const updated: GameFile = { ...existing, category, categoryOverridden: true };
+    this.gameFiles.set(id, updated);
+    return updated;
+  }
+
+  async updateGameFileContentId(
+    id: string,
+    igdbContentId: number | null
+  ): Promise<GameFile | undefined> {
+    const existing = this.gameFiles.get(id);
+    if (!existing) return undefined;
+    const updated: GameFile = { ...existing, igdbContentId };
     this.gameFiles.set(id, updated);
     return updated;
   }
@@ -4348,6 +4396,16 @@ export class DatabaseStorage implements IStorage {
     return updatedGame || undefined;
   }
 
+  async setGameLibraryPathIfUnset(id: string, libraryPath: string): Promise<Game | undefined> {
+    const [updatedGame] = await db
+      .update(games)
+      .set({ libraryPath })
+      .where(and(eq(games.id, id), or(isNull(games.libraryPath), eq(games.libraryPath, ""))))
+      .returning();
+
+    return updatedGame || undefined;
+  }
+
   async updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void> {
     return transactionalOps.updateGamesBatch(updates);
   }
@@ -5492,6 +5550,18 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(gameFiles).where(eq(gameFiles.downloadId, downloadId));
   }
 
+  async getGameFilesByGameIds(gameIds: string[]): Promise<Map<string, GameFile[]>> {
+    if (gameIds.length === 0) return new Map();
+    const rows = await db.select().from(gameFiles).where(inArray(gameFiles.gameId, gameIds));
+    const filesByGameId = new Map<string, GameFile[]>();
+    for (const file of rows) {
+      const files = filesByGameId.get(file.gameId) ?? [];
+      files.push(file);
+      filesByGameId.set(file.gameId, files);
+    }
+    return filesByGameId;
+  }
+
   async addGameFile(file: InsertGameFile): Promise<GameFile> {
     const id = randomUUID();
     const rows = await db
@@ -5511,6 +5581,15 @@ export class DatabaseStorage implements IStorage {
     return db.insert(gameFiles).values(values).returning();
   }
 
+  async updateGameFilePath(id: string, filePath: string): Promise<GameFile | undefined> {
+    const [updated] = await db
+      .update(gameFiles)
+      .set({ filePath })
+      .where(eq(gameFiles.id, id))
+      .returning();
+    return updated;
+  }
+
   async updateGameFileCategory(
     id: string,
     category: GameFileCategory
@@ -5518,6 +5597,18 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db
       .update(gameFiles)
       .set({ category, categoryOverridden: true })
+      .where(eq(gameFiles.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updateGameFileContentId(
+    id: string,
+    igdbContentId: number | null
+  ): Promise<GameFile | undefined> {
+    const [updated] = await db
+      .update(gameFiles)
+      .set({ igdbContentId })
       .where(eq(gameFiles.id, id))
       .returning();
     return updated;

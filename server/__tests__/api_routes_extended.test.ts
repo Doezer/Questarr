@@ -737,6 +737,7 @@ describe("API Routes - Additional Coverage", () => {
             releaseDate: "2024-01-01",
             category: "dlc",
             gameType: 2,
+            igdbCategory: 2,
             igdbUrl: "https://www.igdb.com/games/some-expansion",
           },
         ],
@@ -750,7 +751,12 @@ describe("API Routes - Additional Coverage", () => {
           id: "g1",
           data: expect.objectContaining({
             expansions: [
-              expect.objectContaining({ id: 7, name: "Some Expansion", category: "dlc" }),
+              expect.objectContaining({
+                id: 7,
+                name: "Some Expansion",
+                category: "dlc",
+                igdbCategory: 2,
+              }),
             ],
           }),
         }),

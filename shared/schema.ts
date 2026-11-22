@@ -230,6 +230,8 @@ export type GameExpansion = {
   releaseDate: string;
   category: "main" | "update" | "dlc" | "extra" | "packs";
   gameType?: number | undefined;
+  /** IGDB's specific content category (for example 2 = Expansion, 4 = Standalone). */
+  igdbCategory?: number | undefined;
   igdbUrl?: string | undefined;
 };
 
@@ -1704,6 +1706,10 @@ export interface Config {
   discord?: {
     webhookConfigured: boolean;
   };
+  database?: {
+    dialect: "sqlite" | "postgres";
+    backupSupported: boolean;
+  };
 }
 
 // Download-related types shared between frontend and backend
@@ -2006,6 +2012,10 @@ export const gameFiles = sqliteTable(
     categoryOverridden: integer("category_overridden", { mode: "boolean" })
       .notNull()
       .default(false),
+    // Nullable IGDB id for a specific expansion, DLC, or update. A null value
+    // means the file is only categorized generically and has not been matched
+    // to one of the game's IGDB content entries.
+    igdbContentId: integer("igdb_content_id"),
     filePath: text("file_path").notNull(),
     fileSize: integer("file_size"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
@@ -2015,6 +2025,7 @@ export const gameFiles = sqliteTable(
   (t) => [
     index("game_files_game_id_idx").on(t.gameId),
     index("game_files_download_id_idx").on(t.downloadId),
+    index("game_files_igdb_content_id_idx").on(t.igdbContentId),
   ]
 );
 
@@ -2158,6 +2169,10 @@ export interface ScannedGameFile {
   path: string;
   category: GameFileCategory;
   size: number;
+  /** Whether a matching game_files row already exists for this path. */
+  tracked?: boolean;
+  /** Existing persisted association, when this path has been matched to IGDB content. */
+  igdbContentId?: number | null;
 }
 
 // Response contract for GET/PUT /api/downloaders/debug-logging, shared so the

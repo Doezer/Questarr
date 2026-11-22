@@ -1,5 +1,5 @@
 {
-  "id": "3c833f52-406b-46e0-9499-8bf6ee151a21",
+  "id": "145c6082-e1ce-4008-be09-1d6442f3460e",
   "prevId": "ab134e8e-34c3-4d72-aab0-969e91fec555",
   "version": "7",
   "dialect": "postgresql",
@@ -1064,8 +1064,8 @@
           "primaryKey": true,
           "notNull": true
         },
-        "provider": {
-          "name": "provider",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1076,8 +1076,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
+        "provider": {
+          "name": "provider",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -1167,12 +1167,12 @@
         }
       },
       "foreignKeys": {
-        "game_achievement_progress_game_id_games_id_fk": {
-          "name": "game_achievement_progress_game_id_games_id_fk",
+        "game_achievement_progress_user_id_users_id_fk": {
+          "name": "game_achievement_progress_user_id_users_id_fk",
           "tableFrom": "game_achievement_progress",
-          "tableTo": "games",
+          "tableTo": "users",
           "columnsFrom": [
-            "game_id"
+            "user_id"
           ],
           "columnsTo": [
             "id"
@@ -1180,12 +1180,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "game_achievement_progress_user_id_users_id_fk": {
-          "name": "game_achievement_progress_user_id_users_id_fk",
+        "game_achievement_progress_game_id_games_id_fk": {
+          "name": "game_achievement_progress_game_id_games_id_fk",
           "tableFrom": "game_achievement_progress",
-          "tableTo": "users",
+          "tableTo": "games",
           "columnsFrom": [
-            "user_id"
+            "game_id"
           ],
           "columnsTo": [
             "id"

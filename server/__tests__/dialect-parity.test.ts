@@ -319,6 +319,25 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(left.some((e) => e.gameId === game.id)).toBe(false);
     });
 
+    it("keeps status events of one game strictly ordered even when changes overlap", async () => {
+      const [user] = await storage().getAllUsers();
+      const game = await storage().addGame({
+        title: "Overlap",
+        userId: user.id,
+        status: "owned",
+      } as Parameters<ReturnType<typeof storage>["addGame"]>[0]);
+      await Promise.all([
+        storage().updateGameStatus(game.id, { status: "playing" }),
+        storage().updateGameStatus(game.id, { status: "completed" }),
+      ]);
+      const times = (await storage().getUserGameStatusEvents(user.id))
+        .filter((e) => e.gameId === game.id)
+        .map((e) => e.createdAt.getTime());
+      expect(new Set(times).size).toBe(times.length);
+      expect(times).toEqual([...times].sort((a, b) => a - b));
+      await storage().removeGame(game.id);
+    });
+
     it("stores a direct-download job with its links as JSON and cascades with the game", async () => {
       const [user] = await storage().getAllUsers();
       const game = await storage().addGame({

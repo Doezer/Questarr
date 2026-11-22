@@ -3554,27 +3554,38 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  /** Tail of the pending status-event writes of each game, so those writes run one at a time. */
+  private statusEventQueues = new Map<string, Promise<void>>();
+
   /** Writes one status-history row; a game with no owner has no history. */
   private async recordStatusEvent(game: Game): Promise<void> {
     if (!game.userId) return;
-    try {
-      // Strictly increasing per game, so changes made within the same millisecond keep their order.
-      const [latest] = await db
-        .select({ at: max(gameStatusEvents.createdAt) })
-        .from(gameStatusEvents)
-        .where(eq(gameStatusEvents.gameId, game.id));
-      const last = latest?.at ? new Date(latest.at).getTime() : 0;
-      await db.insert(gameStatusEvents).values({
-        id: randomUUID(),
-        gameId: game.id,
-        userId: game.userId,
-        status: game.status,
-        createdAt: new Date(Math.max(Date.now(), last + 1)),
-      });
-    } catch (error) {
-      // The history is a nice-to-have; never fail the status change because of it.
-      logger.warn({ error, gameId: game.id }, "Could not record the game status change");
-    }
+    const userId = game.userId;
+    // Reading the latest timestamp and inserting the next one must not interleave for the same
+    // game, or two quick changes could share a timestamp and lose their order.
+    const previous = this.statusEventQueues.get(game.id) ?? Promise.resolve();
+    const write = previous.then(async () => {
+      try {
+        const [latest] = await db
+          .select({ at: max(gameStatusEvents.createdAt) })
+          .from(gameStatusEvents)
+          .where(eq(gameStatusEvents.gameId, game.id));
+        const last = latest?.at ? new Date(latest.at).getTime() : 0;
+        await db.insert(gameStatusEvents).values({
+          id: randomUUID(),
+          gameId: game.id,
+          userId,
+          status: game.status,
+          createdAt: new Date(Math.max(Date.now(), last + 1)),
+        });
+      } catch (error) {
+        // The history is a nice-to-have; never fail the status change because of it.
+        logger.warn({ error, gameId: game.id }, "Could not record the game status change");
+      }
+    });
+    this.statusEventQueues.set(game.id, write);
+    await write;
+    if (this.statusEventQueues.get(game.id) === write) this.statusEventQueues.delete(game.id);
   }
 
   async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {

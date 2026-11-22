@@ -3064,6 +3064,55 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  // ─── Link-only download link route ───
+  describe("GET /api/downloaders/:id/downloads/:downloadId/link", () => {
+    const linkOnlyDownloader = {
+      id: "tb-1",
+      type: "torbox",
+      settings: JSON.stringify({ fetchMode: "linkOnly" }),
+    } as unknown as Downloader;
+
+    it("returns a fresh link without caching it", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(linkOnlyDownloader);
+      vi.mocked(DownloaderManager.getRemoteDownloadUrl).mockResolvedValue("https://cdn.example/x");
+
+      const response = await request(app).get("/api/downloaders/tb-1/downloads/7/link");
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ url: "https://cdn.example/x" });
+      expect(response.headers["cache-control"]).toBe("no-store");
+    });
+
+    it("returns 404 for a missing downloader", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(null as any);
+      const response = await request(app).get("/api/downloaders/nope/downloads/7/link");
+      expect(response.status).toBe(404);
+    });
+
+    it("refuses downloaders that are not link-only", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue({
+        id: "tb-2",
+        type: "torbox",
+        settings: null,
+      } as unknown as Downloader);
+      const response = await request(app).get("/api/downloaders/tb-2/downloads/7/link");
+      expect(response.status).toBe(400);
+    });
+
+    it("returns 404 while no link is available", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(linkOnlyDownloader);
+      vi.mocked(DownloaderManager.getRemoteDownloadUrl).mockResolvedValue(null);
+      const response = await request(app).get("/api/downloaders/tb-1/downloads/7/link");
+      expect(response.status).toBe(404);
+    });
+
+    it("returns 500 when the lookup fails", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(linkOnlyDownloader);
+      vi.mocked(DownloaderManager.getRemoteDownloadUrl).mockRejectedValue(new Error("boom"));
+      const response = await request(app).get("/api/downloaders/tb-1/downloads/7/link");
+      expect(response.status).toBe(500);
+    });
+  });
+
   // ─── Prowlarr sync ───
   describe("POST /api/indexers/prowlarr/sync", () => {
     it("should return 400 for missing url/apiKey", async () => {

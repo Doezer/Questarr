@@ -93,6 +93,8 @@ import {
   DEFAULT_UPGRADE_POLICY,
   type DetectedVersionSource,
   type GameStatusEvent,
+  type Quest,
+  type InsertQuest,
   type DdlJob,
   type InsertDdlJob,
 } from "../shared/schema.js";
@@ -130,6 +132,7 @@ import {
   gameMilestones,
   gamePlaySessions,
   gameStatusEvents,
+  quests,
   ddlJobs,
   gameScreenshots,
   classificationCache,
@@ -401,6 +404,16 @@ export interface IStorage {
   getUserPlaySessions(userId: string): Promise<GamePlaySession[]>;
   /** The user's status history (one row per status change), oldest first. */
   getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]>;
+
+  // Backlog quests
+  /** The user's quests, newest period first. */
+  getUserQuests(userId: string): Promise<Quest[]>;
+  /** Adds quests; one that already exists for the same user, period and kind is left alone. */
+  addQuests(rows: InsertQuest[]): Promise<void>;
+  updateQuest(
+    id: string,
+    patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
+  ): Promise<void>;
 
   // Direct-download (DDL) jobs
   addDdlJob(job: InsertDdlJob): Promise<DdlJob>;
@@ -780,6 +793,7 @@ export class MemStorage implements IStorage {
   private gameMilestones: Map<string, GameMilestone>;
   private gamePlaySessions: Map<string, GamePlaySession>;
   private gameStatusEvents: GameStatusEvent[];
+  private quests: Quest[];
   private ddlJobs = new Map<string, DdlJob>();
   private gameScreenshots: Map<string, GameScreenshot>;
 
@@ -819,6 +833,7 @@ export class MemStorage implements IStorage {
     this.gameMilestones = new Map();
     this.gamePlaySessions = new Map();
     this.gameStatusEvents = [];
+    this.quests = [];
     this.gameScreenshots = new Map();
   }
 
@@ -1008,6 +1023,46 @@ export class MemStorage implements IStorage {
 
   async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {
     return this.gameStatusEvents.filter((e) => e.userId === userId);
+  }
+
+  async getUserQuests(userId: string): Promise<Quest[]> {
+    return this.quests
+      .filter((q) => q.userId === userId)
+      .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+  }
+
+  async addQuests(rows: InsertQuest[]): Promise<void> {
+    for (const row of rows) {
+      const exists = this.quests.some(
+        (q) =>
+          q.userId === row.userId &&
+          q.period === row.period &&
+          q.periodStart === row.periodStart &&
+          q.kind === row.kind
+      );
+      if (exists) continue;
+      this.quests.push({
+        id: row.id,
+        userId: row.userId,
+        period: row.period,
+        periodStart: row.periodStart,
+        kind: row.kind,
+        gameId: row.gameId ?? null,
+        target: row.target,
+        progress: row.progress ?? 0,
+        status: row.status ?? "active",
+        completedAt: row.completedAt ?? null,
+        createdAt: new Date(),
+      });
+    }
+  }
+
+  async updateQuest(
+    id: string,
+    patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
+  ): Promise<void> {
+    const quest = this.quests.find((q) => q.id === id);
+    if (quest) Object.assign(quest, patch);
   }
 
   async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {
@@ -2266,6 +2321,7 @@ export class MemStorage implements IStorage {
       hideShelvedByDefault: insertSettings.hideShelvedByDefault ?? true,
       hideOwnedInHasResults: insertSettings.hideOwnedInHasResults ?? true,
       telemetryEnabled: insertSettings.telemetryEnabled ?? false,
+      questsEnabled: insertSettings.questsEnabled ?? true,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -3461,6 +3517,26 @@ export class DatabaseStorage implements IStorage {
       .from(gameStatusEvents)
       .where(eq(gameStatusEvents.userId, userId))
       .orderBy(asc(gameStatusEvents.createdAt), asc(gameStatusEvents.id));
+  }
+
+  async getUserQuests(userId: string): Promise<Quest[]> {
+    return db
+      .select()
+      .from(quests)
+      .where(eq(quests.userId, userId))
+      .orderBy(desc(quests.periodStart), asc(quests.kind));
+  }
+
+  async addQuests(rows: InsertQuest[]): Promise<void> {
+    if (rows.length === 0) return;
+    await db.insert(quests).values(rows).onConflictDoNothing();
+  }
+
+  async updateQuest(
+    id: string,
+    patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
+  ): Promise<void> {
+    await db.update(quests).set(patch).where(eq(quests.id, id));
   }
 
   async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {

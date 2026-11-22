@@ -35,6 +35,7 @@ import ShareDiscordDialog from "@/components/ShareDiscordDialog";
 import DiscordWebhookSettings from "@/components/DiscordWebhookSettings";
 import PlayTimeStats from "@/components/PlayTimeStats";
 import BacklogBurndown from "@/components/BacklogBurndown";
+import QuestsCard from "@/components/QuestsCard";
 
 export default function StatsPage() {
   const [shareOpen, setShareOpen] = useState(false);
@@ -252,6 +253,8 @@ export default function StatsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <QuestsCard showHistory />
 
       <PlayTimeStats />
 

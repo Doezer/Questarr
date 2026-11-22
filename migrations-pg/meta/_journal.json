@@ -232,6 +232,13 @@
       "when": 1795286679900,
       "tag": "0032_ddl_feeds",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795355387203,
+      "tag": "0033_quests",
+      "breakpoints": true
     }
   ]
 }

@@ -101,6 +101,8 @@ export const userSettings = sqliteTable("user_settings", {
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: integer("telemetry_enabled", { mode: "boolean" }).notNull().default(false),
+  // Backlog quests and their medals; players who find them noisy can switch them off.
+  questsEnabled: integer("quests_enabled", { mode: "boolean" }).notNull().default(true),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -553,6 +555,34 @@ export const gameStatusEvents = sqliteTable(
   (t) => [
     index("game_status_events_game_idx").on(t.gameId),
     index("game_status_events_user_created_idx").on(t.userId, t.createdAt),
+  ]
+);
+
+// Backlog quests: optional weekly and monthly challenges picked from the user's library (see
+// shared/quests.ts). A row is one quest of one period; `periodStart` is the first local day of
+// that week or month (`YYYY-MM-DD`), which with the kind makes it unique. History is these rows.
+export const quests = sqliteTable(
+  "quests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    period: text("period").notNull(), // QUEST_PERIODS
+    periodStart: text("period_start").notNull(),
+    kind: text("kind").notNull(), // QUEST_KINDS
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    target: integer("target").notNull(),
+    progress: integer("progress").notNull().default(0),
+    status: text("status").notNull().default("active"), // QUEST_STATUSES
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(strftime('%s', 'now') * 1000)`),
+  },
+  (t) => [
+    uniqueIndex("quests_user_period_kind_idx").on(t.userId, t.period, t.periodStart, t.kind),
+    index("quests_user_start_idx").on(t.userId, t.periodStart),
   ]
 );
 
@@ -1526,6 +1556,8 @@ export type GameTag = typeof gameTags.$inferSelect;
 export type InsertGameTag = z.infer<typeof insertGameTagSchema>;
 export type DdlJob = typeof ddlJobs.$inferSelect;
 export type InsertDdlJob = typeof ddlJobs.$inferInsert;
+export type Quest = typeof quests.$inferSelect;
+export type InsertQuest = typeof quests.$inferInsert;
 export type GameStatusEvent = typeof gameStatusEvents.$inferSelect;
 export type InsertGameStatusEvent = typeof gameStatusEvents.$inferInsert;
 export type GamePlaySession = typeof gamePlaySessions.$inferSelect;

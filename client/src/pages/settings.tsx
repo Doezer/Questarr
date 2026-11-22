@@ -30,6 +30,7 @@ import {
   FlaskConical,
   Archive,
   Filter,
+  Trophy,
 } from "lucide-react";
 import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -270,7 +271,7 @@ function SettingsPanel({
 }
 
 type SettingsSectionId =
-  "auto-search" | "content-filter" | "library-filter" | "steam-sync" | "telemetry";
+  "auto-search" | "content-filter" | "library-filter" | "quests" | "steam-sync" | "telemetry";
 
 interface SettingsSection {
   id: SettingsSectionId;
@@ -430,6 +431,7 @@ export default function SettingsPage() {
   const [hideShelvedByDefault, setHideShelvedByDefault] = useState(true);
   const [hideOwnedInHasResults, setHideOwnedInHasResults] = useState(true);
   const [telemetryEnabled, setTelemetryEnabled] = useState(false);
+  const [questsEnabled, setQuestsEnabled] = useState(true);
   const [xrelApiBase, setXrelApiBase] = useState("");
   const [nexusApiKey, setNexusApiKey] = useState("");
   const [showNexusApiKey, setShowNexusApiKey] = useState(false);
@@ -493,6 +495,7 @@ export default function SettingsPage() {
       setHideShelvedByDefault(userSettings.hideShelvedByDefault ?? true);
       setHideOwnedInHasResults(userSettings.hideOwnedInHasResults ?? true);
       setTelemetryEnabled(userSettings.telemetryEnabled ?? false);
+      setQuestsEnabled(userSettings.questsEnabled ?? true);
       settingsLoadedRef.current = true;
     }
     if (config?.xrel?.apiBase !== undefined) {
@@ -1273,6 +1276,14 @@ export default function SettingsPage() {
         },
       },
       {
+        id: "quests",
+        label: "Backlog quests",
+        dirty: questsEnabled !== (saved.questsEnabled ?? true),
+        updates: { questsEnabled },
+        successMessage: questsEnabled ? "Backlog quests enabled." : "Backlog quests disabled.",
+        reset: () => setQuestsEnabled(saved.questsEnabled ?? true),
+      },
+      {
         id: "steam-sync",
         label: "Steam Wishlist sync",
         dirty:
@@ -1308,6 +1319,7 @@ export default function SettingsPage() {
     hideAgeRestrictedContent,
     hideShelvedByDefault,
     hideOwnedInHasResults,
+    questsEnabled,
     steamSyncEnabled,
     steamSyncIntervalHours,
     telemetryEnabled,
@@ -1358,6 +1370,7 @@ export default function SettingsPage() {
   const handleSaveAutoSearch = () => saveSection("auto-search");
   const handleSaveContentFilter = () => saveSection("content-filter");
   const handleSaveLibraryFilters = () => saveSection("library-filter");
+  const handleSaveQuests = () => saveSection("quests");
   const handleSaveSteamSync = () => saveSection("steam-sync");
   const handleSaveTelemetry = () => saveSection("telemetry");
 
@@ -1447,6 +1460,28 @@ export default function SettingsPage() {
       {libraryFilterRows.map((row) => (
         <SettingsToggleRow key={row.id} {...row} />
       ))}
+    </SettingsFilterCard>
+  );
+
+  const questsCard = (
+    <SettingsFilterCard
+      icon={Trophy}
+      title="Backlog quests"
+      description="Optional weekly and monthly challenges picked from your backlog, with medals"
+      onSave={handleSaveQuests}
+      savePending={isSectionSaving("quests")}
+      saveDisabled={settingsSavesInFlight > 0}
+      saveDirty={isSectionDirty("quests")}
+      saveIcon={Archive}
+      saveLabel="Save Backlog quests"
+    >
+      <SettingsToggleRow
+        id="quests-enabled"
+        label="Show backlog quests"
+        description="Turn the quests, medals and backlog progress off if you would rather not see them"
+        checked={questsEnabled}
+        onCheckedChange={setQuestsEnabled}
+      />
     </SettingsFilterCard>
   );
 
@@ -1595,6 +1630,8 @@ export default function SettingsPage() {
           {contentFilteringCard}
 
           {libraryFilteringCard}
+
+          {questsCard}
 
           <PlatformsSettings />
 

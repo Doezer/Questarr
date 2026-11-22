@@ -36,6 +36,7 @@ import DiscordWebhookSettings from "@/components/DiscordWebhookSettings";
 import PlayTimeStats from "@/components/PlayTimeStats";
 import BacklogBurndown from "@/components/BacklogBurndown";
 import QuestsCard from "@/components/QuestsCard";
+import AchievementStats from "@/components/AchievementStats";
 
 export default function StatsPage() {
   const [shareOpen, setShareOpen] = useState(false);
@@ -255,6 +256,7 @@ export default function StatsPage() {
       </div>
 
       <QuestsCard showHistory />
+      <AchievementStats />
 
       <PlayTimeStats />
 

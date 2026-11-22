@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3996d3fe-6042-4e6c-a4bd-12ecdb7ef50e",
+  "id": "5762cf19-f1b0-4944-970a-6c7ec6e22fd9",
   "prevId": "16622c83-8229-4190-bb2c-e74458ec175b",
   "tables": {
     "ai_auto_download_holds": {
@@ -1021,6 +1021,133 @@
       },
       "indexes": {},
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "game_achievement_progress": {
+      "name": "game_achievement_progress",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "game_id": {
+          "name": "game_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "unlocked": {
+          "name": "unlocked",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "total": {
+          "name": "total",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "rarest_name": {
+          "name": "rarest_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rarest_percent": {
+          "name": "rarest_percent",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_unlocked_at": {
+          "name": "last_unlocked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "synced_at": {
+          "name": "synced_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
+        }
+      },
+      "indexes": {
+        "game_achievement_progress_unique_idx": {
+          "name": "game_achievement_progress_unique_idx",
+          "columns": [
+            "game_id",
+            "user_id",
+            "provider"
+          ],
+          "isUnique": true
+        },
+        "game_achievement_progress_user_idx": {
+          "name": "game_achievement_progress_user_idx",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "game_achievement_progress_game_id_games_id_fk": {
+          "name": "game_achievement_progress_game_id_games_id_fk",
+          "tableFrom": "game_achievement_progress",
+          "tableTo": "games",
+          "columnsFrom": [
+            "game_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "game_achievement_progress_user_id_users_id_fk": {
+          "name": "game_achievement_progress_user_id_users_id_fk",
+          "tableFrom": "game_achievement_progress",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -2882,142 +3009,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "quests": {
-      "name": "quests",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "period": {
-          "name": "period",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "period_start": {
-          "name": "period_start",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "game_id": {
-          "name": "game_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "target": {
-          "name": "target",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "progress": {
-          "name": "progress",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'active'"
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(strftime('%s', 'now') * 1000)"
-        }
-      },
-      "indexes": {
-        "quests_user_period_kind_idx": {
-          "name": "quests_user_period_kind_idx",
-          "columns": [
-            "user_id",
-            "period",
-            "period_start",
-            "kind"
-          ],
-          "isUnique": true
-        },
-        "quests_user_start_idx": {
-          "name": "quests_user_start_idx",
-          "columns": [
-            "user_id",
-            "period_start"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "quests_user_id_users_id_fk": {
-          "name": "quests_user_id_users_id_fk",
-          "tableFrom": "quests",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "quests_game_id_games_id_fk": {
-          "name": "quests_game_id_games_id_fk",
-          "tableFrom": "quests",
-          "tableTo": "games",
-          "columnsFrom": [
-            "game_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "release_blacklist": {
       "name": "release_blacklist",
       "columns": {
@@ -3925,14 +3916,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
-        },
-        "quests_enabled": {
-          "name": "quests_enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
         },
         "updated_at": {
           "name": "updated_at",

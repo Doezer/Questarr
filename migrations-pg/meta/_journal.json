@@ -236,8 +236,15 @@
     {
       "idx": 33,
       "version": "7",
-      "when": 1795355387203,
-      "tag": "0033_quests",
+      "when": 1795370510751,
+      "tag": "0033_game_achievement_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795379470036,
+      "tag": "0034_quests",
       "breakpoints": true
     }
   ]

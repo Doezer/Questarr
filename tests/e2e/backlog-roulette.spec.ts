@@ -41,6 +41,30 @@ test.describe("Backlog roulette", () => {
     await page.getByRole("option", { name: "Any length", exact: true }).click();
     await expect(dialog.getByText("Chosen from 3 matching games.")).toBeVisible();
   });
+  test("offers bias, mood and genre controls and snoozes a game", async ({ page }, testInfo) => {
+    const id = uniqueId();
+    const prefix = `Mood ${id}`;
+    await page.goto("/");
+    await seedGame(page, { title: `${prefix} Alpha`, igdbId: id, status: "owned" });
+    await seedGame(page, { title: `${prefix} Beta`, igdbId: id + 1, status: "owned" });
+    await page.reload();
+    await page.getByPlaceholder("Search your library...").fill(prefix);
+    await page.getByRole("button", { name: "Pick a game", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Backlog roulette" });
+    await dialog.getByRole("combobox", { name: "Favour" }).click();
+    await page.getByRole("option", { name: "Oldest first" }).click();
+    await dialog.getByRole("combobox", { name: "Genre" }).click();
+    await page.getByRole("option", { name: "Adventure" }).click();
+    await expect(dialog.getByText("Chosen from 2 matching games.")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("roulette-filters-desktop.png") });
+    await dialog.getByRole("button", { name: /Not now/ }).click();
+    await expect(dialog.getByText("Chosen from 1 matching game.")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("roulette-snoozed-desktop.png") });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: testInfo.outputPath("roulette-filters-mobile.png") });
+    await dialog.getByRole("button", { name: "Bring them back" }).click();
+    await expect(dialog.getByText("Chosen from 2 matching games.")).toBeVisible();
+  });
   test("draws owned games, rerolls, opens details and saves Mark as Playing", async ({
     page,
   }, testInfo) => {

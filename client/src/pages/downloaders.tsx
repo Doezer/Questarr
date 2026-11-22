@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -37,7 +38,7 @@ import {
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertDownloaderSchema, type Downloader, type InsertDownloader } from "@shared/schema";
-import { isUsenetDownloaderType } from "@shared/downloader-types";
+import { getTorBoxFetchMode, isUsenetDownloaderType } from "@shared/downloader-types";
 import { parseJsonObject } from "@shared/json-object-utils";
 import { useToast } from "@/hooks/use-toast";
 import { getDownloadTypeColor } from "@/lib/downloads-utils";
@@ -559,6 +560,19 @@ export default function DownloadersPage() {
   const isRealDebrid = form.watch("type") === "realdebrid";
   const isTorBox = form.watch("type") === "torbox";
   const isCloud = isRealDebrid || isTorBox;
+  const settingsValue = form.watch("settings");
+  const torBoxLinkOnly = isTorBox && getTorBoxFetchMode(settingsValue) === "linkOnly";
+
+  // A new TorBox downloader starts in link-only mode: most people use TorBox to avoid local
+  // storage and bandwidth.
+  useEffect(() => {
+    if (isTorBox && !editingDownloader && !parseJsonObject(settingsValue).fetchMode) {
+      form.setValue(
+        "settings",
+        JSON.stringify({ ...parseJsonObject(settingsValue), fetchMode: "linkOnly" })
+      );
+    }
+  }, [isTorBox, editingDownloader, settingsValue, form]);
 
   const onSubmit = (data: InsertDownloader) => {
     if (editingDownloader) {
@@ -1256,7 +1270,35 @@ export default function DownloadersPage() {
                     connected={!!editingDownloader?.password}
                   />
                 )}
-                {!isUsenetDownloader(form.watch("type")) && (
+                {isTorBox && (
+                  <div className="flex flex-row items-center justify-between gap-3 rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="torbox-fetch-mode" className="text-sm">
+                        Fetch files to this server
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        {torBoxLinkOnly
+                          ? "Off: finished downloads stay on TorBox. Questarr gives you a download link and does not import anything."
+                          : "On: finished files are copied to the staging path, then imported like any other download."}
+                      </p>
+                    </div>
+                    <Switch
+                      id="torbox-fetch-mode"
+                      checked={!torBoxLinkOnly}
+                      onCheckedChange={(checked) =>
+                        form.setValue(
+                          "settings",
+                          JSON.stringify({
+                            ...parseJsonObject(form.getValues("settings")),
+                            fetchMode: checked ? "local" : "linkOnly",
+                          })
+                        )
+                      }
+                      data-testid="switch-torbox-fetch-mode"
+                    />
+                  </div>
+                )}
+                {!isUsenetDownloader(form.watch("type")) && !torBoxLinkOnly && (
                   <FormField
                     control={form.control}
                     name="downloadPath"

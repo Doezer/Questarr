@@ -245,6 +245,18 @@ export type _SelectQuests = Expect<
 export type _InsertQuests = Expect<
   Equal<typeof sqliteSchema.quests.$inferInsert, typeof pgSchema.quests.$inferInsert>
 >;
+export type _SelectGameAchievementProgress = Expect<
+  Equal<
+    typeof sqliteSchema.gameAchievementProgress.$inferSelect,
+    typeof pgSchema.gameAchievementProgress.$inferSelect
+  >
+>;
+export type _InsertGameAchievementProgress = Expect<
+  Equal<
+    typeof sqliteSchema.gameAchievementProgress.$inferInsert,
+    typeof pgSchema.gameAchievementProgress.$inferInsert
+  >
+>;
 export type _SelectDdlJobs = Expect<
   Equal<typeof sqliteSchema.ddlJobs.$inferSelect, typeof pgSchema.ddlJobs.$inferSelect>
 >;

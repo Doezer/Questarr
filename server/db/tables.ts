@@ -35,6 +35,7 @@ export const {
   gamePlaySessions,
   gameStatusEvents,
   quests,
+  gameAchievementProgress,
   ddlJobs,
   gameScreenshots,
   importTaskItems,

@@ -906,6 +906,7 @@ export default function SettingsPage() {
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/achievements/progress"] });
       // The PATCH answers with the saved settings: make the fields this save sent the baseline
       // right away so Discard never restores stale values, even if the refetch below fails.
       // Only those keys are merged, so an overlapping save is never overwritten by an older reply.
@@ -972,6 +973,7 @@ export default function SettingsPage() {
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/achievements/progress"] });
     },
     onError: (error: Error) => {
       console.error("Settings update error:", error);
@@ -1105,6 +1107,7 @@ export default function SettingsPage() {
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/achievements/progress"] });
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
     },
     onError: (error: Error) => {
@@ -1200,6 +1203,7 @@ export default function SettingsPage() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       queryClient.invalidateQueries({ queryKey: ["/api/steam/achievements"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/achievements/progress"] });
     },
     onError: (error: Error) => {
       toast({

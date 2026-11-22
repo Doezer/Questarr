@@ -351,18 +351,36 @@ async function removeSourceUnlessNested(
   // when the import was planned: the tree has been moved since, and a recursive delete of a
   // system directory must never be possible from this helper.
   if (await isSensitivePath(resolvedSource)) return;
-  // The same containment check planImport and executeImport already applied to this path.
-  // The transfer has already succeeded, so refuse only the delete, not the import.
-  try {
-    await assertWithinRoots(
-      resolvedSource,
-      sourceRoots,
-      "Refusing to process a path outside the configured downloader roots"
-    );
-  } catch {
-    return;
+  // The containment check planImport and executeImport already applied to this path, repeated
+  // here and written inline: CodeQL's path-injection sanitizer (path.relative against a root,
+  // then a ".." / isAbsolute test) only covers a sink inside the guarded branch of the same
+  // function. The transfer has already succeeded, so a failed check skips only the delete.
+  // With no roots configured there is no containment policy to apply (see the constructor
+  // note on PCImportStrategy), so the source's own parent stands in as the root.
+  const roots = sourceRoots.length > 0 ? sourceRoots : [path.dirname(resolvedSource)];
+  for (const root of roots.map((r) => path.resolve(r))) {
+    const relative = path.relative(root, resolvedSource);
+    if (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative)) {
+      // A symlink inside the root could still lead outside it: check the real paths too.
+      let realSource: string;
+      let realRoot: string;
+      try {
+        realSource = await fs.realpath(resolvedSource);
+        realRoot = await fs.realpath(root);
+      } catch {
+        return;
+      }
+      const realRelative = path.relative(realRoot, realSource);
+      if (
+        realRelative !== ".." &&
+        !realRelative.startsWith(".." + path.sep) &&
+        !path.isAbsolute(realRelative)
+      ) {
+        await fs.remove(realSource).catch(() => undefined);
+      }
+      return;
+    }
   }
-  await fs.remove(resolvedSource).catch(() => undefined);
 }
 
 // Hardlinks can't target a directory as one call, and excluding specific

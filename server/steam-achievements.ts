@@ -153,7 +153,6 @@ export async function syncSteamAchievements(
 
     let gamesSynced = 0;
     let failed = 0;
-    let empty = 0;
     const unlockedNow: { title: string; added: number }[] = [];
     for (const game of games.filter(isTracked)) {
       let summary: ReturnType<typeof summarizeAchievements>;
@@ -161,13 +160,10 @@ export async function syncSteamAchievements(
         const achievements = await steamService.getPlayerAchievements(
           config.steam.apiKey!,
           user.steamId64,
-          game.steamAppId!
+          game.steamAppId!,
+          { throwIfPrivate: true }
         );
-        if (achievements.length === 0) {
-          // No achievements, or private Game details: Steam answers the same way for both.
-          empty++;
-          continue;
-        }
+        if (achievements.length === 0) continue; // the game has no achievements
         summary = summarizeAchievements(achievements);
         // The Steam ID changed during the run: these counts belong to the old account.
         if ((await storage.getUser(userId))?.steamId64 !== user.steamId64) break;
@@ -202,7 +198,7 @@ export async function syncSteamAchievements(
         lastGamesSynced: gamesSynced,
         lastNewUnlocks: newUnlocks,
         lastError:
-          (failed > 0 || empty > 0) && gamesSynced === 0
+          failed > 0 && gamesSynced === 0
             ? "Could not read your Steam achievements. Check the API key and make Game details public."
             : null,
       });

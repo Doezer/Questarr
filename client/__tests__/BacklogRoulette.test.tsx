@@ -243,6 +243,19 @@ describe("Backlog roulette", () => {
     expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
   });
 
+  it("skips a game another tab snoozed when drawing after Not now", () => {
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest a");
+    localStorage.setItem(
+      "questarr:roulette-snoozed",
+      JSON.stringify({ b: Date.now() + 86_400_000 })
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Not now/ }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest c");
+    localStorage.clear();
+  });
+
   it("filters by installed games and snoozes a game with Not now", async () => {
     localStorage.clear();
     render(

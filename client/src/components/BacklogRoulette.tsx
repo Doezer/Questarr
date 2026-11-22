@@ -211,8 +211,9 @@ export default function BacklogRoulette({
     });
     saveSnoozed(next);
     setSnoozed(next);
-    // The state update is not visible to roll() yet, so draw around the snoozed game explicitly.
-    const eligible = eligibleGames(pool, maxHours).filter((game) => game.id !== selected.id);
+    // The state update is not visible yet: draw with the merged snoozes, which already
+    // exclude the current game and anything another tab snoozed.
+    const eligible = eligibleGames(pool, maxHours, { snoozed: next });
     const fresh = eligible.filter((game) => !skippedIds.has(game.id));
     const choices = fresh.length ? fresh : eligible;
     const now = Date.now();

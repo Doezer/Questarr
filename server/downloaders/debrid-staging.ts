@@ -118,6 +118,15 @@ export function resolveStagedPaths(rawPaths: string[], label = "Real-Debrid"): s
  * or exhausted job is returned as is. Retrying resumes: files already fully copied are skipped
  * by copyRemoteFile.
  */
+/** Downloaders switched to link-only: stale callers holding the old settings must not start copies. */
+const stagingBlocked = new Set<string>();
+
+/** Allow or forbid new staging copies for a downloader (forbidden once it is link-only). */
+export function setStagingBlocked(downloaderId: string, blocked: boolean): void {
+  if (blocked) stagingBlocked.add(downloaderId);
+  else stagingBlocked.delete(downloaderId);
+}
+
 export function beginStagingJob(input: {
   downloaderId: string;
   id: string;
@@ -129,6 +138,20 @@ export function beginStagingJob(input: {
   const { downloaderId, id, bytesTotal, run, label } = input;
   const key = jobKey(downloaderId, id);
   const existing = stagingJobs.get(key);
+  if (stagingBlocked.has(downloaderId)) {
+    return (
+      existing ?? {
+        state: "failed",
+        bytesDone: 0,
+        bytesTotal,
+        startedAt: Date.now(),
+        attempts: 0,
+        cancelled: true,
+        abort: new AbortController(),
+        done: Promise.resolve(),
+      }
+    );
+  }
   if (existing) {
     if (existing.cancelled) return existing;
     const retryable =
@@ -326,6 +349,7 @@ export function stagingProgress(job: StagingJob) {
  * may keep filling the staging folder). Jobs are dropped, so their torrents are not copied again.
  */
 export function cancelStagingJobs(downloaderId: string): number {
+  setStagingBlocked(downloaderId, true);
   let cancelled = 0;
   for (const [key, job] of stagingJobs) {
     if (!key.startsWith(`${downloaderId}:`)) continue;

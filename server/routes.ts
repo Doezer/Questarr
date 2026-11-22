@@ -47,7 +47,7 @@ import { torznabClient } from "./torznab.js";
 import { newznabClient, type NewznabResult } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
-import { cancelStagingJobs } from "./downloaders/debrid-staging.js";
+import { cancelStagingJobs, setStagingBlocked } from "./downloaders/debrid-staging.js";
 import {
   DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
   isDownloaderDebugLoggingEnabled,
@@ -4012,6 +4012,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         // Switched to link-only: copies still running would keep filling the staging folder.
         if (isLinkOnlyDownloader(downloader)) cancelStagingJobs(downloader.id);
+        else setStagingBlocked(downloader.id, false);
         return res.json(maskDownloader(downloader));
       } catch (error) {
         routesLogger.error({ error }, "error updating downloader");

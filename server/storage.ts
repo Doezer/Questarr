@@ -1062,7 +1062,7 @@ export class MemStorage implements IStorage {
     patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
   ): Promise<void> {
     const quest = this.quests.find((q) => q.id === id);
-    if (quest) Object.assign(quest, patch);
+    if (quest?.status === "active") Object.assign(quest, patch);
   }
 
   async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {
@@ -3536,7 +3536,11 @@ export class DatabaseStorage implements IStorage {
     id: string,
     patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
   ): Promise<void> {
-    await db.update(quests).set(patch).where(eq(quests.id, id));
+    // Only an open quest changes: a completed or missed one is final, even if two syncs overlap.
+    await db
+      .update(quests)
+      .set(patch)
+      .where(and(eq(quests.id, id), eq(quests.status, "active")));
   }
 
   async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {

@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { storage } from "./storage.js";
 import { notifyUser } from "./socket.js";
-import { computeBacklogBurndown } from "../shared/backlog-burndown.js";
-import type { PlayStatsZone } from "../shared/play-stats.js";
+import { localDayNumber, type PlayStatsZone } from "../shared/play-stats.js";
 import {
   currentPeriod,
   generateQuests,
+  monthBacklogProgress,
+  periodFromStart,
   QUEST_PERIODS,
   questProgress,
   unlockedMedals,
@@ -51,10 +52,11 @@ export async function syncQuests(
   const eventInputs = events.map((e) => ({ gameId: e.gameId, status: e.status, at: e.createdAt }));
   const sessionInputs = sessions.map((s) => ({ gameId: s.gameId, startedAt: s.startedAt }));
 
+  const today = localDayNumber(zone)(now);
   const periods = QUEST_PERIODS.map((p) => currentPeriod(p, now, zone));
   const created = periods.flatMap((p) => {
     if (existing.some((q) => q.period === p.period && q.periodStart === p.start)) return [];
-    return generateQuests(userId, games, p).map((draft) => ({
+    return generateQuests(userId, games, p, zone).map((draft) => ({
       id: randomUUID(),
       userId,
       period: draft.period,
@@ -89,10 +91,8 @@ export async function syncQuests(
         zone
       )
     );
-    const isCurrentPeriod = periods.some(
-      (p) => p.period === period && p.start === quest.periodStart
-    );
-    const status = progress >= quest.target ? "completed" : isCurrentPeriod ? "active" : "missed";
+    const ended = today >= periodFromStart(period, quest.periodStart).endDay;
+    const status = progress >= quest.target ? "completed" : ended ? "missed" : "active";
     if (progress === quest.progress && status === quest.status) {
       synced.push(quest);
       continue;
@@ -123,15 +123,6 @@ export async function syncQuests(
     synced.filter((q) => q.status === "completed").map((q) => q.kind as QuestKind)
   );
 
-  const burndown = computeBacklogBurndown(
-    games,
-    eventInputs,
-    sessions.map((s) => ({ gameId: s.gameId, startedAt: s.startedAt, endedAt: s.endedAt })),
-    now,
-    zone
-  );
-  const month = burndown.perMonth.at(-1);
-  const total = month ? month.backlog + month.completed : 0;
   return {
     enabled: true,
     current: synced.filter(isCurrent).map(view),
@@ -140,13 +131,6 @@ export async function syncQuests(
       .slice(0, HISTORY_LIMIT)
       .map(view),
     medals,
-    backlogProgress:
-      month && total > 0
-        ? {
-            completed: month.completed,
-            total,
-            percent: Math.round((month.completed / total) * 100),
-          }
-        : null,
+    backlogProgress: monthBacklogProgress(games, eventInputs, now, zone),
   };
 }

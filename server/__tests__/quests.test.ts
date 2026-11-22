@@ -47,6 +47,16 @@ describe.each(activeTestDialects())("backlog quests on %s", (dialect) => {
     expect(done.backlogProgress?.percent).toBe(100);
   });
 
+  it("keeps a completed quest final when a later write comes in", async () => {
+    const storage = ctx.storage;
+    const [user] = await storage.getAllUsers();
+    const quest = (await storage.getUserQuests(user!.id)).find((q) => q.status === "completed");
+    expect(quest).toBeDefined();
+    await storage.updateQuest(quest!.id, { progress: 0, status: "active", completedAt: null });
+    const after = (await storage.getUserQuests(user!.id)).find((q) => q.id === quest!.id);
+    expect(after?.status).toBe("completed");
+  });
+
   it("returns nothing when quests are switched off", async () => {
     const storage = ctx.storage;
     const [user] = await storage.getAllUsers();

@@ -157,16 +157,22 @@ function isRetro(game: QuestGameInput): boolean {
   return year !== null && year < RETRO_BEFORE_YEAR;
 }
 
-function isOld(game: QuestGameInput, periodStartDay: number): boolean {
+/** Added at least a year before the period began, by the viewer's calendar. */
+function isOld(
+  game: QuestGameInput,
+  periodStartDay: number,
+  toDay: (date: Date) => number
+): boolean {
   if (!game.addedAt) return false;
-  return game.addedAt.getTime() <= periodStartDay * DAY_MS - SLAYER_MIN_AGE_DAYS * DAY_MS;
+  return toDay(game.addedAt) <= periodStartDay - SLAYER_MIN_AGE_DAYS;
 }
 
 /** The quests a period can offer for this library, before the seeded pick. */
 function eligibleDrafts(
   games: readonly QuestGameInput[],
   p: Period,
-  random: () => number
+  random: () => number,
+  toDay: (date: Date) => number
 ): QuestDraft[] {
   const backlog = games.filter(inBacklog);
   if (backlog.length === 0) return [];
@@ -186,7 +192,7 @@ function eligibleDrafts(
     }
     drafts.push({ ...base, kind: "backlog_cleanup", gameId: null, target: 1 });
   } else {
-    const old = backlog.filter((g) => isOld(g, p.startDay));
+    const old = backlog.filter((g) => isOld(g, p.startDay, toDay));
     if (old.length >= SLAYER_TARGET) {
       drafts.push({ ...base, kind: "backlog_slayer", gameId: null, target: SLAYER_TARGET });
     }
@@ -207,11 +213,71 @@ function eligibleDrafts(
 export function generateQuests(
   userId: string,
   games: readonly QuestGameInput[],
-  p: Period
+  p: Period,
+  zone: PlayStatsZone = 0
 ): QuestDraft[] {
   const random = seededRandom(`${userId}:${p.period}:${p.start}`);
-  const drafts = eligibleDrafts(games, p, random);
+  const drafts = eligibleDrafts(games, p, random, localDayNumber(zone));
   return shuffle(drafts, random).slice(0, QUESTS_PER_PERIOD);
+}
+
+/**
+ * Games completed within a period that were in the backlog just before: a game added as
+ * completed, or taken from the wishlist straight to completed, never was in it.
+ */
+export function eligibleCompletions(
+  events: readonly QuestEventInput[],
+  within: (date: Date) => boolean
+): Set<string> {
+  const completed = new Set<string>();
+  const previous = new Map<string, string>();
+  for (const e of [...events].sort((a, b) => a.at.getTime() - b.at.getTime())) {
+    const before = previous.get(e.gameId);
+    if (e.status === "completed" && within(e.at) && before && BACKLOG_STATUSES.includes(before)) {
+      completed.add(e.gameId);
+    }
+    previous.set(e.gameId, e.status);
+  }
+  return completed;
+}
+
+/** Whether a game was in the backlog at a moment, from its status history (unknown counts as yes). */
+function backlogOnDate(events: readonly QuestEventInput[]): (gameId: string, at: Date) => boolean {
+  const byGame = new Map<string, QuestEventInput[]>();
+  for (const e of [...events].sort((a, b) => a.at.getTime() - b.at.getTime())) {
+    const list = byGame.get(e.gameId) ?? [];
+    list.push(e);
+    byGame.set(e.gameId, list);
+  }
+  return (gameId, at) => {
+    let status: string | null = null;
+    for (const e of byGame.get(gameId) ?? []) {
+      if (e.at.getTime() > at.getTime()) break;
+      status = e.status;
+    }
+    return status === null || BACKLOG_STATUSES.includes(status);
+  };
+}
+
+/**
+ * The month's backlog progress: games finished out of the backlog this month, against what is
+ * left in it plus those finished.
+ */
+export function monthBacklogProgress(
+  games: readonly QuestGameInput[],
+  events: readonly QuestEventInput[],
+  now: Date,
+  zone: PlayStatsZone = 0
+): { completed: number; total: number; percent: number } | null {
+  const p = currentPeriod("month", now, zone);
+  const toDay = localDayNumber(zone);
+  const completed = eligibleCompletions(events, (d) => {
+    const day = toDay(d);
+    return day >= p.startDay && day < p.endDay;
+  }).size;
+  const total = games.filter(inBacklog).length + completed;
+  if (total === 0) return null;
+  return { completed, total, percent: Math.round((completed / total) * 100) };
 }
 
 /**
@@ -233,18 +299,15 @@ export function questProgress(
   };
   const gameById = new Map(games.map((g) => [g.id, g]));
 
-  // A completion counts when the game was in the backlog just before it: a game added as
-  // completed, or taken from the wishlist straight to completed, never was.
-  const completed = new Set<string>();
-  const previous = new Map<string, string>();
-  for (const e of [...events].sort((a, b) => a.at.getTime() - b.at.getTime())) {
-    const before = previous.get(e.gameId);
-    if (e.status === "completed" && within(e.at) && before && BACKLOG_STATUSES.includes(before)) {
-      completed.add(e.gameId);
-    }
-    previous.set(e.gameId, e.status);
-  }
-  const played = new Set(sessions.filter((s) => within(s.startedAt)).map((s) => s.gameId));
+  const completed = eligibleCompletions(events, within);
+  const wasInBacklog = backlogOnDate(events);
+  // A session counts when the game was in the backlog when it began, so replaying a finished
+  // game earns nothing.
+  const played = new Set(
+    sessions
+      .filter((x) => within(x.startedAt) && wasInBacklog(x.gameId, x.startedAt))
+      .map((x) => x.gameId)
+  );
   const touched = new Set([...completed, ...played]);
 
   switch (quest.kind) {
@@ -257,7 +320,7 @@ export function questProgress(
       let count = 0;
       for (const id of touched) {
         const game = gameById.get(id);
-        if (game && isOld(game, p.startDay)) count++;
+        if (game && isOld(game, p.startDay, toDay)) count++;
       }
       return count;
     }

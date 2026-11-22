@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   currentPeriod,
   generateQuests,
+  monthBacklogProgress,
   questProgress,
   unlockedMedals,
   type QuestGameInput,
@@ -155,6 +156,56 @@ describe("completions that count", () => {
       { gameId: "c", status: "completed", at: at("2026-11-17T12:00:00Z") },
     ];
     expect(questProgress(q, [], events, [])).toBe(1);
+  });
+});
+
+describe("sessions that count", () => {
+  const at = (iso: string) => new Date(iso);
+  const q = {
+    kind: "retro_explorer" as const,
+    period: "month" as const,
+    periodStart: month.start,
+    gameId: null,
+  };
+  const games = [game("a", { status: "completed", releaseDate: "1998-05-01" })];
+  const events = [
+    { gameId: "a", status: "owned", at: at("2026-10-01T10:00:00Z") },
+    { gameId: "a", status: "completed", at: at("2026-11-10T10:00:00Z") },
+  ];
+  it("credits play before the completion, not a replay after it", () => {
+    const before = [{ gameId: "a", startedAt: at("2026-11-05T10:00:00Z") }];
+    const after = [{ gameId: "a", startedAt: at("2026-11-12T10:00:00Z") }];
+    expect(questProgress(q, games, events, before)).toBe(1);
+    expect(questProgress({ ...q }, games, [events[0]!], after)).toBe(1);
+    const replayOnly = [{ gameId: "a", startedAt: at("2026-11-12T10:00:00Z") }];
+    const done = [
+      { gameId: "a", status: "owned", at: at("2026-09-01T10:00:00Z") },
+      { gameId: "a", status: "completed", at: at("2026-10-10T10:00:00Z") },
+    ];
+    expect(questProgress(q, games, done, replayOnly)).toBe(0);
+  });
+});
+
+describe("monthBacklogProgress", () => {
+  it("counts only completions out of the backlog", () => {
+    const at = (iso: string) => new Date(iso);
+    const games = [
+      game("a", { status: "completed" }),
+      game("b", { status: "completed" }),
+      game("c"),
+      game("d"),
+    ];
+    const events = [
+      { gameId: "a", status: "owned", at: at("2026-10-01T10:00:00Z") },
+      { gameId: "a", status: "completed", at: at("2026-11-05T10:00:00Z") },
+      { gameId: "b", status: "completed", at: at("2026-11-06T10:00:00Z") },
+    ];
+    expect(monthBacklogProgress(games, events, NOW)).toEqual({
+      completed: 1,
+      total: 3,
+      percent: 33,
+    });
+    expect(monthBacklogProgress([], [], NOW)).toBeNull();
   });
 });
 

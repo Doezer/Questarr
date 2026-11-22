@@ -115,7 +115,7 @@ export default function QuestsCard({ showHistory = false }: { showHistory?: bool
   const [historyOpen, setHistoryOpen] = useState(false);
   const { tz, timeZone, search } = useViewerZone();
 
-  const { data } = useQuery<QuestsData>({
+  const { data, isError, refetch } = useQuery<QuestsData>({
     queryKey: ["/api/quests", tz, timeZone],
     queryFn: async () => (await apiRequest("GET", `/api/quests?${search}`)).json(),
     // The card follows play and status changes made elsewhere, so it reloads each time it shows.
@@ -123,6 +123,18 @@ export default function QuestsCard({ showHistory = false }: { showHistory?: bool
     refetchOnMount: "always",
   });
 
+  if (isError && !data) {
+    return (
+      <Card data-testid="card-quests">
+        <CardContent className="flex items-center justify-between gap-3 p-4">
+          <p className="text-sm text-muted-foreground">Could not load the backlog quests.</p>
+          <Button variant="outline" size="sm" className="min-h-11" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
   if (!data?.enabled) return null;
   const { current, history, medals, backlogProgress } = data;
 

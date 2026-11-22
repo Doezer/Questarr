@@ -15,6 +15,7 @@ export function useGameStatusMutation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quests"] });
       toast({ description: "Game status updated successfully" });
     },
     onError: () => {

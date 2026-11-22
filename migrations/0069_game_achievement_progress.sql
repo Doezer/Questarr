@@ -1,8 +1,8 @@
 CREATE TABLE `game_achievement_progress` (
 	`id` text PRIMARY KEY NOT NULL,
+	`provider` text NOT NULL,
 	`game_id` text NOT NULL,
 	`user_id` text NOT NULL,
-	`provider` text NOT NULL,
 	`unlocked` integer DEFAULT 0 NOT NULL,
 	`total` integer DEFAULT 0 NOT NULL,
 	`rarest_name` text,

@@ -1,5 +1,5 @@
 {
-  "id": "e30d523d-0259-4859-ad6b-17291f334f4d",
+  "id": "3c833f52-406b-46e0-9499-8bf6ee151a21",
   "prevId": "ab134e8e-34c3-4d72-aab0-969e91fec555",
   "version": "7",
   "dialect": "postgresql",
@@ -1064,6 +1064,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "game_id": {
           "name": "game_id",
           "type": "text",
@@ -1072,12 +1078,6 @@
         },
         "user_id": {
           "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "provider": {
-          "name": "provider",
           "type": "text",
           "primaryKey": false,
           "notNull": true

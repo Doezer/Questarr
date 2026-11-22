@@ -562,13 +562,13 @@ export const gameAchievementProgress = sqliteTable(
   "game_achievement_progress",
   {
     id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
     gameId: text("game_id")
       .notNull()
       .references(() => games.id, { onDelete: "cascade" }),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    provider: text("provider").notNull(),
     unlocked: integer("unlocked").notNull().default(0),
     total: integer("total").notNull().default(0),
     rarestName: text("rarest_name"),

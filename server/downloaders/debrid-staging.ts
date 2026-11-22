@@ -331,7 +331,11 @@ export function cancelStagingJobs(downloaderId: string): number {
     if (!key.startsWith(`${downloaderId}:`)) continue;
     job.cancelled = true;
     job.abort.abort();
-    stagingJobs.delete(key);
+    // Keep the cancelled entry until the aborted copy settles so a status poll cannot restart it
+    // and removeWithCleanup still waits on it.
+    void job.done.finally(() => {
+      if (stagingJobs.get(key) === job) stagingJobs.delete(key);
+    });
     cancelled++;
   }
   return cancelled;

@@ -556,6 +556,35 @@ export const gameStatusEvents = sqliteTable(
   ]
 );
 
+// Achievement progress of a game for one user and provider (Steam today), refreshed by the
+// achievements sync. Only the totals and the rarest unlock are kept, not every achievement.
+export const gameAchievementProgress = sqliteTable(
+  "game_achievement_progress",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    unlocked: integer("unlocked").notNull().default(0),
+    total: integer("total").notNull().default(0),
+    rarestName: text("rarest_name"),
+    // Share of players (0-100) who unlocked the rarest achievement this user has.
+    rarestPercent: real("rarest_percent"),
+    lastUnlockedAt: integer("last_unlocked_at", { mode: "timestamp_ms" }),
+    syncedAt: integer("synced_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(strftime('%s', 'now') * 1000)`),
+  },
+  (t) => [
+    uniqueIndex("game_achievement_progress_unique_idx").on(t.gameId, t.userId, t.provider),
+    index("game_achievement_progress_user_idx").on(t.userId),
+  ]
+);
+
 // Direct-download (DDL) jobs: a list of file-hoster links a debrid downloader fetches into local
 // staging. Progress lives on disk and in memory; this row only keeps what a restart needs to
 // resume (the links and the archive password).
@@ -1526,6 +1555,8 @@ export type GameTag = typeof gameTags.$inferSelect;
 export type InsertGameTag = z.infer<typeof insertGameTagSchema>;
 export type DdlJob = typeof ddlJobs.$inferSelect;
 export type InsertDdlJob = typeof ddlJobs.$inferInsert;
+export type GameAchievementProgress = typeof gameAchievementProgress.$inferSelect;
+export type InsertGameAchievementProgress = typeof gameAchievementProgress.$inferInsert;
 export type GameStatusEvent = typeof gameStatusEvents.$inferSelect;
 export type InsertGameStatusEvent = typeof gameStatusEvents.$inferInsert;
 export type GamePlaySession = typeof gamePlaySessions.$inferSelect;
@@ -1559,6 +1590,7 @@ export type NotificationEvent =
   | "gameUpdates"
   | "xrelRelease"
   | "steamSync"
+  | "achievementUnlocked"
   | "errorDetected"
   | "securityAlert";
 
@@ -1586,6 +1618,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   gameUpdates: { inApp: true, apprise: true, includeShelved: true, includeCompleted: true },
   xrelRelease: { inApp: true, apprise: true },
   steamSync: { inApp: true, apprise: false },
+  achievementUnlocked: { inApp: true, apprise: false },
   errorDetected: { inApp: true, apprise: false },
   securityAlert: { inApp: true, apprise: true },
 };

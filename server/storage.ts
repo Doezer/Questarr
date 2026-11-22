@@ -93,6 +93,8 @@ import {
   DEFAULT_UPGRADE_POLICY,
   type DetectedVersionSource,
   type GameStatusEvent,
+  type GameAchievementProgress,
+  type InsertGameAchievementProgress,
   type DdlJob,
   type InsertDdlJob,
 } from "../shared/schema.js";
@@ -130,6 +132,7 @@ import {
   gameMilestones,
   gamePlaySessions,
   gameStatusEvents,
+  gameAchievementProgress,
   ddlJobs,
   gameScreenshots,
   classificationCache,
@@ -401,6 +404,13 @@ export interface IStorage {
   getUserPlaySessions(userId: string): Promise<GamePlaySession[]>;
   /** The user's status history (one row per status change), oldest first. */
   getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]>;
+
+  // Achievement progress (one row per game, user and provider)
+  getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]>;
+  /** Insert or replace the row for (gameId, userId, provider). */
+  upsertAchievementProgress(
+    progress: Omit<InsertGameAchievementProgress, "id">
+  ): Promise<GameAchievementProgress>;
 
   // Direct-download (DDL) jobs
   addDdlJob(job: InsertDdlJob): Promise<DdlJob>;
@@ -780,6 +790,7 @@ export class MemStorage implements IStorage {
   private gameMilestones: Map<string, GameMilestone>;
   private gamePlaySessions: Map<string, GamePlaySession>;
   private gameStatusEvents: GameStatusEvent[];
+  private achievementProgress: Map<string, GameAchievementProgress>;
   private ddlJobs = new Map<string, DdlJob>();
   private gameScreenshots: Map<string, GameScreenshot>;
 
@@ -819,6 +830,7 @@ export class MemStorage implements IStorage {
     this.gameMilestones = new Map();
     this.gamePlaySessions = new Map();
     this.gameStatusEvents = [];
+    this.achievementProgress = new Map();
     this.gameScreenshots = new Map();
   }
 
@@ -1008,6 +1020,30 @@ export class MemStorage implements IStorage {
 
   async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {
     return this.gameStatusEvents.filter((e) => e.userId === userId);
+  }
+
+  async getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]> {
+    return [...this.achievementProgress.values()].filter((r) => r.userId === userId);
+  }
+
+  async upsertAchievementProgress(
+    progress: Omit<InsertGameAchievementProgress, "id">
+  ): Promise<GameAchievementProgress> {
+    const key = `${progress.gameId}:${progress.userId}:${progress.provider}`;
+    const row: GameAchievementProgress = {
+      id: this.achievementProgress.get(key)?.id ?? randomUUID(),
+      gameId: progress.gameId,
+      userId: progress.userId,
+      provider: progress.provider,
+      unlocked: progress.unlocked ?? 0,
+      total: progress.total ?? 0,
+      rarestName: progress.rarestName ?? null,
+      rarestPercent: progress.rarestPercent ?? null,
+      lastUnlockedAt: progress.lastUnlockedAt ?? null,
+      syncedAt: progress.syncedAt ?? new Date(),
+    };
+    this.achievementProgress.set(key, row);
+    return row;
   }
 
   async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {
@@ -3461,6 +3497,39 @@ export class DatabaseStorage implements IStorage {
       .from(gameStatusEvents)
       .where(eq(gameStatusEvents.userId, userId))
       .orderBy(asc(gameStatusEvents.createdAt), asc(gameStatusEvents.id));
+  }
+
+  async getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]> {
+    return db
+      .select()
+      .from(gameAchievementProgress)
+      .where(eq(gameAchievementProgress.userId, userId));
+  }
+
+  async upsertAchievementProgress(
+    progress: Omit<InsertGameAchievementProgress, "id">
+  ): Promise<GameAchievementProgress> {
+    const values = { ...progress, syncedAt: progress.syncedAt ?? new Date() };
+    const rows = await db
+      .insert(gameAchievementProgress)
+      .values({ id: randomUUID(), ...values })
+      .onConflictDoUpdate({
+        target: [
+          gameAchievementProgress.gameId,
+          gameAchievementProgress.userId,
+          gameAchievementProgress.provider,
+        ],
+        set: {
+          unlocked: values.unlocked,
+          total: values.total,
+          rarestName: values.rarestName ?? null,
+          rarestPercent: values.rarestPercent ?? null,
+          lastUnlockedAt: values.lastUnlockedAt ?? null,
+          syncedAt: values.syncedAt,
+        },
+      })
+      .returning();
+    return firstOrThrow(rows);
   }
 
   async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {

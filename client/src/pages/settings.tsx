@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
+import { SteamAchievementsSync } from "@/components/SteamAchievementsSync";
 import { PlayniteSyncStatus } from "@/components/PlayniteSyncStatus";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
@@ -118,6 +119,7 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "gameUpdates", label: "Game Updates and New Packs/Add-ons", group: "downloads" },
   { key: "xrelRelease", label: "Scene/P2P Release (xREL)", group: "integrations" },
   { key: "steamSync", label: "Steam Wishlist Synced", group: "integrations" },
+  { key: "achievementUnlocked", label: "Achievements Unlocked", group: "integrations" },
   { key: "errorDetected", label: "Error Detected", group: "system" },
 ];
 
@@ -2422,6 +2424,7 @@ export default function SettingsPage() {
           <SteamLibraryImport />
 
           <SteamPlaytimeSync />
+          <SteamAchievementsSync />
 
           <PlayniteSyncStatus />
 

@@ -502,6 +502,32 @@ export const gameStatusEvents = pgTable(
   ]
 );
 
+export const gameAchievementProgress = pgTable(
+  "game_achievement_progress",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    unlocked: integer("unlocked").notNull().default(0),
+    total: integer("total").notNull().default(0),
+    rarestName: text("rarest_name"),
+    rarestPercent: doublePrecision("rarest_percent"),
+    lastUnlockedAt: timestampMs("last_unlocked_at"),
+    syncedAt: timestampMs("synced_at")
+      .notNull()
+      .default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [
+    uniqueIndex("game_achievement_progress_unique_idx").on(t.gameId, t.userId, t.provider),
+    index("game_achievement_progress_user_idx").on(t.userId),
+  ]
+);
+
 // Direct-download (DDL) jobs: a list of file-hoster links a debrid downloader fetches into local
 // staging. Progress lives on disk and in memory; this row only keeps what a restart needs to
 // resume (the links and the archive password).

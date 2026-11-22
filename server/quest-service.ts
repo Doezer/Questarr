@@ -98,8 +98,8 @@ export async function syncQuests(
       continue;
     }
     const completedAt = status === "completed" ? now : null;
-    await storage.updateQuest(quest.id, { progress, status, completedAt });
-    if (status === "completed") {
+    const changed = await storage.updateQuest(quest.id, { progress, status, completedAt });
+    if (changed && status === "completed") {
       const notification = await storage.addNotification({
         userId,
         type: "success",

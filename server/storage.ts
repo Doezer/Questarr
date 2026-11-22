@@ -413,7 +413,7 @@ export interface IStorage {
   updateQuest(
     id: string,
     patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
-  ): Promise<void>;
+  ): Promise<boolean>;
 
   // Direct-download (DDL) jobs
   addDdlJob(job: InsertDdlJob): Promise<DdlJob>;
@@ -1060,9 +1060,11 @@ export class MemStorage implements IStorage {
   async updateQuest(
     id: string,
     patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
-  ): Promise<void> {
+  ): Promise<boolean> {
     const quest = this.quests.find((q) => q.id === id);
-    if (quest?.status === "active") Object.assign(quest, patch);
+    if (quest?.status !== "active") return false;
+    Object.assign(quest, patch);
+    return true;
   }
 
   async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {
@@ -3535,12 +3537,15 @@ export class DatabaseStorage implements IStorage {
   async updateQuest(
     id: string,
     patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
-  ): Promise<void> {
+  ): Promise<boolean> {
     // Only an open quest changes: a completed or missed one is final, even if two syncs overlap.
-    await db
+    const rows = await db
       .update(quests)
       .set(patch)
-      .where(and(eq(quests.id, id), eq(quests.status, "active")));
+      .where(and(eq(quests.id, id), eq(quests.status, "active")))
+      .returning({ id: quests.id });
+    // False when another sync already changed it, so only one of them notifies.
+    return rows.length > 0;
   }
 
   async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {

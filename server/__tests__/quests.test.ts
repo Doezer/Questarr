@@ -52,7 +52,12 @@ describe.each(activeTestDialects())("backlog quests on %s", (dialect) => {
     const [user] = await storage.getAllUsers();
     const quest = (await storage.getUserQuests(user!.id)).find((q) => q.status === "completed");
     expect(quest).toBeDefined();
-    await storage.updateQuest(quest!.id, { progress: 0, status: "active", completedAt: null });
+    const changed = await storage.updateQuest(quest!.id, {
+      progress: 0,
+      status: "active",
+      completedAt: null,
+    });
+    expect(changed).toBe(false);
     const after = (await storage.getUserQuests(user!.id)).find((q) => q.id === quest!.id);
     expect(after?.status).toBe("completed");
   });

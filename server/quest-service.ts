@@ -109,7 +109,13 @@ export async function syncQuests(
       });
       notifyUser("notification", notification, userId);
     }
-    synced.push({ ...quest, progress, status, completedAt });
+    if (changed) {
+      synced.push({ ...quest, progress, status, completedAt });
+    } else {
+      // Another sync already settled this quest; show what is stored.
+      const stored = (await storage.getUserQuests(userId)).find((q) => q.id === quest.id);
+      synced.push(stored ?? quest);
+    }
   }
 
   const currentStarts = new Set(periods.map((p) => `${p.period}:${p.start}`));

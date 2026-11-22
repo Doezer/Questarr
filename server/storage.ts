@@ -156,6 +156,7 @@ import {
   not,
   inArray,
   count,
+  max,
   isNull,
   isNotNull,
   type SQL,
@@ -1012,12 +1013,16 @@ export class MemStorage implements IStorage {
 
   private recordStatusEvent(game: Game): void {
     if (!game.userId) return;
+    // Strictly increasing per game, so quick successive changes keep their order.
+    const last = this.gameStatusEvents
+      .filter((e) => e.gameId === game.id)
+      .reduce((max, e) => Math.max(max, e.createdAt.getTime()), 0);
     this.gameStatusEvents.push({
       id: randomUUID(),
       gameId: game.id,
       userId: game.userId,
       status: game.status,
-      createdAt: new Date(),
+      createdAt: new Date(Math.max(Date.now(), last + 1)),
     });
   }
 
@@ -3500,12 +3505,18 @@ export class DatabaseStorage implements IStorage {
   private async recordStatusEvent(game: Game): Promise<void> {
     if (!game.userId) return;
     try {
+      // Strictly increasing per game, so changes made within the same millisecond keep their order.
+      const [latest] = await db
+        .select({ at: max(gameStatusEvents.createdAt) })
+        .from(gameStatusEvents)
+        .where(eq(gameStatusEvents.gameId, game.id));
+      const last = latest?.at ? new Date(latest.at).getTime() : 0;
       await db.insert(gameStatusEvents).values({
         id: randomUUID(),
         gameId: game.id,
         userId: game.userId,
         status: game.status,
-        createdAt: new Date(),
+        createdAt: new Date(Math.max(Date.now(), last + 1)),
       });
     } catch (error) {
       // The history is a nice-to-have; never fail the status change because of it.

@@ -359,6 +359,14 @@ describe("TorBoxClient", () => {
       await expect(fs.stat(dir)).rejects.toThrow();
     });
 
+    it("never reports an unfinished torrent as 100 %", async () => {
+      safeFetchMock.mockImplementation(async () =>
+        reply(torrent({ progress: 0.996, download_finished: false }))
+      );
+      const status = await new TorBoxClient(linkOnly()).getDownloadStatus("7");
+      expect(status).toMatchObject({ status: "downloading", progress: 99 });
+    });
+
     it("keeps the local flow when the setting is absent", async () => {
       const client = new TorBoxClient(createDownloader());
       safeFetchMock.mockResolvedValue(reply(torrent({ download_state: "downloading" })));

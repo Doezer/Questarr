@@ -352,18 +352,40 @@ export default function Downloads() {
   };
 
   const handleOpenLink = async (download: DownloadStatus) => {
+    // The tab is opened from the click itself: after the request the browser may no longer
+    // treat it as a user action and block the popup.
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
     const url = await requestDownloadLink(download);
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    if (!url) {
+      tab?.close();
+      return;
+    }
+    if (tab) tab.location.href = url;
+    else window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const handleCopyLink = async (download: DownloadStatus) => {
-    const url = await requestDownloadLink(download);
-    if (!url) return;
+    // Handing the clipboard a pending value keeps the write tied to the click (Safari rejects
+    // a write made after an await); older browsers fall back to writing once the link is known.
+    const link = { url: null as string | null };
+    const pending = requestDownloadLink(download).then((url) => {
+      link.url = url;
+      if (!url) throw new Error("No link");
+      return new Blob([url], { type: "text/plain" });
+    });
     try {
-      await navigator.clipboard.writeText(url);
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": pending })]);
+      } else {
+        await pending;
+        await navigator.clipboard.writeText(link.url ?? "");
+      }
       toast({ title: "Link copied", description: "The download link is on your clipboard." });
     } catch {
-      toast({ title: "Copy failed", description: url });
+      await pending.catch(() => undefined);
+      // No link means the request already explained why; otherwise show it for manual copy.
+      if (link.url) toast({ title: "Copy failed", description: link.url });
     }
   };
 
@@ -828,16 +850,18 @@ export default function Downloads() {
                               Ratio: {download.ratio?.toFixed(2) ?? "0.00"}
                             </Badge>
                           )}
-                        {importConfig?.enablePostProcessing && download.gameStatus === "owned" && (
-                          <Badge
-                            className="text-xs bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                            data-testid={`badge-imported-${download.id}`}
-                            aria-label="Files have been imported to your library"
-                            title="Files have been imported to your library"
-                          >
-                            Imported
-                          </Badge>
-                        )}
+                        {importConfig?.enablePostProcessing &&
+                          !download.linkOnly &&
+                          download.gameStatus === "owned" && (
+                            <Badge
+                              className="text-xs bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                              data-testid={`badge-imported-${download.id}`}
+                              aria-label="Files have been imported to your library"
+                              title="Files have been imported to your library"
+                            >
+                              Imported
+                            </Badge>
+                          )}
                       </div>
                     </CardDescription>
                   </div>

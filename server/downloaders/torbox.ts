@@ -310,7 +310,7 @@ export class TorBoxClient implements DownloaderClient {
       return {
         ...base,
         status: "paused",
-        progress: this.linkOnly ? percent : Math.min(50, Math.round(percent / 2)),
+        progress: this.linkOnly ? Math.min(99, percent) : Math.min(50, Math.round(percent / 2)),
       };
     }
     return {
@@ -318,7 +318,8 @@ export class TorBoxClient implements DownloaderClient {
       status: "downloading",
       // TorBox's own phase fills the first half of the bar, local staging the rest (the whole
       // bar when nothing is staged).
-      progress: this.linkOnly ? percent : Math.min(50, Math.round(percent / 2)),
+      // Link-only: never 100 before TorBox reports the files ready, which cron would read as done.
+      progress: this.linkOnly ? Math.min(99, percent) : Math.min(50, Math.round(percent / 2)),
       downloadSpeed: torrent.download_speed,
       downloaded: Math.round(torrent.size * (torrent.progress ?? 0)),
       eta: torrent.eta && torrent.eta > 0 ? torrent.eta : undefined,

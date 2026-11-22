@@ -152,6 +152,26 @@ describe("Downloads page", () => {
       open.mockRestore();
     });
 
+    it("navigates a tab opened from the click, and closes it when there is no link", async () => {
+      const tab = { opener: {}, location: { href: "" }, close: vi.fn() };
+      const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+      mockLinkFetch({ ok: true, json: async () => ({ url: "https://cdn.example/one" }) });
+
+      renderPage();
+
+      fireEvent.click(await screen.findByTestId("button-download-link-7"));
+      await waitFor(() => expect(tab.location.href).toBe("https://cdn.example/one"));
+      expect(open).toHaveBeenCalledWith("", "_blank");
+      expect(tab.opener).toBeNull();
+
+      mockLinkFetch({ ok: false, json: async () => ({ error: "nope" }) });
+      tab.location.href = "";
+      fireEvent.click(await screen.findByTestId("button-download-link-7"));
+      await waitFor(() => expect(tab.close).toHaveBeenCalled());
+      expect(tab.location.href).toBe("");
+      open.mockRestore();
+    });
+
     it("tells the user when no link is available", async () => {
       mockLinkFetch({
         ok: false,

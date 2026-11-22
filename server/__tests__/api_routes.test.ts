@@ -3083,7 +3083,7 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     it("returns 404 for a missing downloader", async () => {
-      vi.mocked(storage.getDownloader).mockResolvedValue(null as any);
+      vi.mocked(storage.getDownloader).mockResolvedValue(undefined);
       const response = await request(app).get("/api/downloaders/nope/downloads/7/link");
       expect(response.status).toBe(404);
     });

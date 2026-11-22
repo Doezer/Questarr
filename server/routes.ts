@@ -4033,7 +4033,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Switched to link-only: copies still running would keep filling the staging folder.
         // Effects run one at a time per downloader and follow the latest saved mode, so
         // overlapping PATCH requests cannot leave the staging block out of step with it.
-        await applyStagingMode(downloader.id);
+        try {
+          await applyStagingMode(downloader.id);
+        } catch (error) {
+          routesLogger.error({ error, downloaderId: downloader.id }, "staging mode update failed");
+        }
         return res.json(maskDownloader(downloader));
       } catch (error) {
         routesLogger.error({ error }, "error updating downloader");

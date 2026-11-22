@@ -233,9 +233,17 @@ export function questProgress(
   };
   const gameById = new Map(games.map((g) => [g.id, g]));
 
-  const completed = new Set(
-    events.filter((e) => e.status === "completed" && within(e.at)).map((e) => e.gameId)
-  );
+  // A completion counts when the game was in the backlog just before it: a game added as
+  // completed, or taken from the wishlist straight to completed, never was.
+  const completed = new Set<string>();
+  const previous = new Map<string, string>();
+  for (const e of [...events].sort((a, b) => a.at.getTime() - b.at.getTime())) {
+    const before = previous.get(e.gameId);
+    if (e.status === "completed" && within(e.at) && before && BACKLOG_STATUSES.includes(before)) {
+      completed.add(e.gameId);
+    }
+    previous.set(e.gameId, e.status);
+  }
   const played = new Set(sessions.filter((s) => within(s.startedAt)).map((s) => s.gameId));
   const touched = new Set([...completed, ...played]);
 

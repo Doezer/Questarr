@@ -906,6 +906,7 @@ export default function SettingsPage() {
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/quests"] });
       // The PATCH answers with the saved settings: make the fields this save sent the baseline
       // right away so Discard never restores stale values, even if the refetch below fails.
       // Only those keys are merged, so an overlapping save is never overwritten by an older reply.

@@ -118,6 +118,9 @@ export default function QuestsCard({ showHistory = false }: { showHistory?: bool
   const { data } = useQuery<QuestsData>({
     queryKey: ["/api/quests", tz, timeZone],
     queryFn: async () => (await apiRequest("GET", `/api/quests?${search}`)).json(),
+    // The card follows play and status changes made elsewhere, so it reloads each time it shows.
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   if (!data?.enabled) return null;

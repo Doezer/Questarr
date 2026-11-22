@@ -89,7 +89,10 @@ describe("questProgress", () => {
       questProgress(
         q,
         games,
-        [{ gameId: "a", status: "completed", at: at("2026-11-17T10:00:00Z") }],
+        [
+          { gameId: "a", status: "owned", at: at("2026-11-01T10:00:00Z") },
+          { gameId: "a", status: "completed", at: at("2026-11-17T10:00:00Z") },
+        ],
         []
       )
     ).toBe(1);
@@ -109,7 +112,10 @@ describe("questProgress", () => {
       { gameId: "a", startedAt: at("2026-11-06T10:00:00Z") },
       { gameId: "c", startedAt: at("2026-11-06T10:00:00Z") },
     ];
-    const events = [{ gameId: "b", status: "completed", at: at("2026-11-07T10:00:00Z") }];
+    const events = [
+      { gameId: "b", status: "owned", at: at("2026-11-01T10:00:00Z") },
+      { gameId: "b", status: "completed", at: at("2026-11-07T10:00:00Z") },
+    ];
     expect(questProgress(q, games, events, sessions)).toBe(2);
   });
 
@@ -129,6 +135,26 @@ describe("questProgress", () => {
       { gameId: "b", startedAt: at("2026-11-05T10:00:00Z") },
     ];
     expect(questProgress(q, games, [], sessions)).toBe(1);
+  });
+});
+
+describe("completions that count", () => {
+  const q = {
+    kind: "backlog_cleanup" as const,
+    period: "week" as const,
+    periodStart: week.start,
+    gameId: null,
+  };
+  const at = (iso: string) => new Date(iso);
+  it("ignores games added as completed or taken from the wishlist", () => {
+    const events = [
+      { gameId: "a", status: "completed", at: at("2026-11-17T10:00:00Z") },
+      { gameId: "b", status: "wanted", at: at("2026-11-01T10:00:00Z") },
+      { gameId: "b", status: "completed", at: at("2026-11-17T11:00:00Z") },
+      { gameId: "c", status: "playing", at: at("2026-11-01T10:00:00Z") },
+      { gameId: "c", status: "completed", at: at("2026-11-17T12:00:00Z") },
+    ];
+    expect(questProgress(q, [], events, [])).toBe(1);
   });
 });
 

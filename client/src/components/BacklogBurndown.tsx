@@ -36,6 +36,17 @@ function formatDay(iso: string): string {
   });
 }
 
+function describeProjection(
+  remainingHours: number,
+  projection: { clearedOn?: string | null; hoursPerDay: number }
+): string {
+  if (remainingHours <= 0) return "Nothing left to play with a Time to Beat estimate.";
+  if (projection.clearedOn) {
+    return `At your pace of ${projection.hoursPerDay} h per day over the last 28 days, the estimated time to beat runs out around ${formatDay(projection.clearedOn)}. New games you add are not counted.`;
+  }
+  return "No projection yet: it needs some play in the last 28 days, and a backlog you could clear within ten years at that pace.";
+}
+
 /** How the backlog (owned and playing games) shrinks over time, on the Statistics page. */
 export default function BacklogBurndown() {
   const [grain, setGrain] = useState<Grain>("week");
@@ -77,15 +88,7 @@ export default function BacklogBurndown() {
   const empty =
     current.backlog === 0 && [...data.perWeek, ...data.perMonth].every((b) => b.backlog === 0);
 
-  let projectionText: string;
-  if (current.remainingHours <= 0) {
-    projectionText = "Nothing left to play with a Time to Beat estimate.";
-  } else if (projection.clearedOn) {
-    projectionText = `At your pace of ${projection.hoursPerDay} h per day over the last 28 days, the estimated time to beat runs out around ${formatDay(projection.clearedOn)}. New games you add are not counted.`;
-  } else {
-    projectionText =
-      "No projection yet: it needs some play in the last 28 days, and a backlog you could clear within ten years at that pace.";
-  }
+  const projectionText = describeProjection(current.remainingHours, projection);
 
   return (
     <section aria-labelledby="backlog-heading" className="space-y-4" data-testid="backlog-burndown">

@@ -744,6 +744,13 @@ export interface IStorage {
   ): Promise<IntegrationRequest[]>;
 }
 
+/** Whether a background status sync must leave this game's status alone. */
+function isSyncBlocked(game: Game, allowWanted: boolean | undefined): boolean {
+  if (game.status === "downloading") return true;
+  if (game.status === "wanted" && !allowWanted) return true;
+  return isUserCuratedGameStatus(game.status) && game.statusSyncSource === null;
+}
+
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private games: Map<string, Game>;
@@ -1044,11 +1051,7 @@ export class MemStorage implements IStorage {
     const game = this.games.get(id);
     if (!game) return undefined;
     if (options?.preserveCurated && isUserCuratedGameStatus(game.status)) return undefined;
-    if (options?.syncSource) {
-      if (game.status === "downloading") return undefined;
-      if (game.status === "wanted" && !options.allowWanted) return undefined;
-      if (isUserCuratedGameStatus(game.status) && game.statusSyncSource === null) return undefined;
-    }
+    if (options?.syncSource && isSyncBlocked(game, options.allowWanted)) return undefined;
 
     const leavingWanted = game.status === "wanted" && statusUpdate.status !== "wanted";
 

@@ -367,6 +367,14 @@ interface Planned extends SteamImportCandidate {
   total: number;
 }
 
+function isAlreadyTracked(
+  gameId: string,
+  own: { source?: string | null }[],
+  runningGameId: string | undefined
+): boolean {
+  return runningGameId === gameId || own.some((s) => s.source === "steam_import");
+}
+
 /** Work out what an import would add. Nothing is written. */
 async function planSteamImport(userId: string): Promise<{ planned: Planned[]; skipped: number }> {
   const user = await storage.getUser(userId);
@@ -387,12 +395,7 @@ async function planSteamImport(userId: string): Promise<{ planned: Planned[]; sk
     storage.getRunningPlaySession(userId),
     storage.getUserPlaySessions(userId),
   ]);
-  const byGame = new Map<string, typeof sessions>();
-  for (const session of sessions) {
-    const list = byGame.get(session.gameId) ?? [];
-    list.push(session);
-    byGame.set(session.gameId, list);
-  }
+  const byGame = Map.groupBy(sessions, (session) => session.gameId);
   const planned: Planned[] = [];
   let skipped = 0;
   for (const game of games) {
@@ -400,7 +403,7 @@ async function planSteamImport(userId: string): Promise<{ planned: Planned[]; sk
     const steam = totals.get(game.steamAppId);
     if (!steam || steam.minutes <= 0) continue;
     const own = byGame.get(game.id) ?? [];
-    if (runningTimer?.gameId === game.id || own.some((s) => s.source === "steam_import")) {
+    if (isAlreadyTracked(game.id, own, runningTimer?.gameId)) {
       skipped++;
       continue;
     }

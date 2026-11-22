@@ -669,6 +669,41 @@ export class TransmissionClient implements DownloaderClient {
     );
   }
 
+  /** Logs and throws for a non-OK response received after retrying with a session ID. */
+  private async throwRetryFailure(
+    retryResponse: Response,
+    url: string,
+    method: string
+  ): Promise<never> {
+    const errorText = await retryResponse.text().catch(() => "No error details available");
+    if (retryResponse.status === 401) {
+      downloadersLogger.error(
+        {
+          status: retryResponse.status,
+          url,
+          username: this.downloader.username,
+          method,
+          errorText,
+        },
+        "Transmission authentication failed - check username and password"
+      );
+      throw new Error(
+        `Authentication failed: Invalid username or password for Transmission - ${errorText}`
+      );
+    }
+    downloadersLogger.error(
+      {
+        status: retryResponse.status,
+        statusText: retryResponse.statusText,
+        url,
+        method,
+        errorText,
+      },
+      "Transmission request failed after session ID retry"
+    );
+    throw new Error(`HTTP ${retryResponse.status}: ${retryResponse.statusText} - ${errorText}`);
+  }
+
   /**
    * Sends a Transmission RPC request and retries once with a server-provided session ID.
    *
@@ -739,37 +774,7 @@ export class TransmissionClient implements DownloaderClient {
         });
         await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
 
-        if (!retryResponse.ok) {
-          const errorText = await retryResponse.text().catch(() => "No error details available");
-          if (retryResponse.status === 401) {
-            downloadersLogger.error(
-              {
-                status: retryResponse.status,
-                url,
-                username: this.downloader.username,
-                method,
-                errorText,
-              },
-              "Transmission authentication failed - check username and password"
-            );
-            throw new Error(
-              `Authentication failed: Invalid username or password for Transmission - ${errorText}`
-            );
-          }
-          downloadersLogger.error(
-            {
-              status: retryResponse.status,
-              statusText: retryResponse.statusText,
-              url,
-              method,
-              errorText,
-            },
-            "Transmission request failed after session ID retry"
-          );
-          throw new Error(
-            `HTTP ${retryResponse.status}: ${retryResponse.statusText} - ${errorText}`
-          );
-        }
+        if (!retryResponse.ok) await this.throwRetryFailure(retryResponse, url, method);
 
         return retryResponse.json();
       }

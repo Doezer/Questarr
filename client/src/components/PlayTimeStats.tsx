@@ -63,6 +63,23 @@ function TagList({
   );
 }
 
+/** The local day, kept current so a window ending "today" moves when the day rolls over. */
+function useLocalToday(): string {
+  const [today, setToday] = useState(() => localDay(new Date()));
+  useEffect(() => {
+    const refresh = () => setToday(localDay(new Date()));
+    const timer = setInterval(refresh, 60_000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
+  return today;
+}
+
 /** The "Play time" part of the Statistics page, fed by `/api/stats/play-time`. */
 export default function PlayTimeStats() {
   const [range, setRange] = useState<Range>("week");
@@ -80,19 +97,7 @@ export default function PlayTimeStats() {
   const { toast } = useToast();
   const [preset, setPreset] = useState<PlayRangePreset>("all");
   const [custom, setCustom] = useState({ from: "", to: "" });
-  // The presets end "today", so the window has to move when the local day rolls over.
-  const [today, setToday] = useState(() => localDay(new Date()));
-  useEffect(() => {
-    const refresh = () => setToday(localDay(new Date()));
-    const timer = setInterval(refresh, 60_000);
-    document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("focus", refresh);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener("focus", refresh);
-    };
-  }, []);
+  const today = useLocalToday();
   const bounds = useMemo(
     () => presetBounds(preset, new Date(), custom),
     // `today` is not read inside, it only makes the window move at midnight.

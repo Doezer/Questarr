@@ -317,6 +317,36 @@ async function isAlreadyPlacedFrom(source: string, destination: string): Promise
   }
 }
 
+// destination can already hold files by the time this runs — e.g. an archive's
+// volumes are excluded here because they were already extracted straight into
+// destination, and transferSingleFile's unconditional overwrite would otherwise
+// silently replace an extracted file with an unrelated loose one of the same name.
+async function assertNoDestinationConflicts(
+  plannedTransfers: { srcFile: string; destFile: string }[]
+): Promise<void> {
+  for (const { srcFile, destFile } of plannedTransfers) {
+    if (!(await fs.pathExists(destFile))) continue;
+    if (!(await isAlreadyPlacedFrom(srcFile, destFile))) {
+      throw new Error(`Destination already exists, refusing to overwrite: ${destFile}`);
+    }
+    // A link to the source from an interrupted run: drop it so a copy or move retry
+    // doesn't see source and destination as the same file.
+    await fs.remove(destFile);
+  }
+}
+
+// A destination nested inside its own source (e.g. hardlink/symlink extraction
+// landing inside the source directory) must not have that source removed out from
+// under it — the per-entry loop already transferred everything worth keeping.
+async function removeSourceUnlessNested(source: string, destination: string): Promise<void> {
+  const resolvedSource = path.resolve(source);
+  const resolvedDestination = path.resolve(destination);
+  const destinationInsideSource = resolvedDestination.startsWith(resolvedSource + path.sep);
+  if (resolvedSource !== resolvedDestination && !destinationInsideSource) {
+    await fs.remove(source).catch(() => undefined);
+  }
+}
+
 // Hardlinks can't target a directory as one call, and excluding specific
 // files (e.g. a raw archive whose contents were already extracted straight
 // to the destination) requires acting per-file rather than on the
@@ -336,20 +366,7 @@ async function transferDirectoryPerFile(
     }))
     .filter(({ srcFile }) => !excludePaths.has(path.resolve(srcFile)));
 
-  // destination can already hold files by the time this runs — e.g. an archive's
-  // volumes are excluded here because they were already extracted straight into
-  // destination, and transferSingleFile's unconditional overwrite would otherwise
-  // silently replace an extracted file with an unrelated loose one of the same name.
-  for (const { srcFile, destFile } of plannedTransfers) {
-    if (await fs.pathExists(destFile)) {
-      if (!(await isAlreadyPlacedFrom(srcFile, destFile))) {
-        throw new Error(`Destination already exists, refusing to overwrite: ${destFile}`);
-      }
-      // A link to the source from an interrupted run: drop it so a copy or move retry
-      // doesn't see source and destination as the same file.
-      await fs.remove(destFile);
-    }
-  }
+  await assertNoDestinationConflicts(plannedTransfers);
 
   let usedCopyFallback = false;
   let transferredAny = false;
@@ -364,17 +381,7 @@ async function transferDirectoryPerFile(
     throw new Error("No files to transfer after applying exclusions");
   }
 
-  if (mode === "move") {
-    const resolvedSource = path.resolve(source);
-    const resolvedDestination = path.resolve(destination);
-    const destinationInsideSource = resolvedDestination.startsWith(resolvedSource + path.sep);
-    // A destination nested inside its own source (e.g. hardlink/symlink extraction
-    // landing inside the source directory) must not have that source removed out from
-    // under it — the per-entry loop above already transferred everything worth keeping.
-    if (resolvedSource !== resolvedDestination && !destinationInsideSource) {
-      await fs.remove(source).catch(() => undefined);
-    }
-  }
+  if (mode === "move") await removeSourceUnlessNested(source, destination);
 
   return mode === "hardlink" && usedCopyFallback ? "copy" : mode;
 }

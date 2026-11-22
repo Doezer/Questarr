@@ -1119,6 +1119,33 @@ describe("ImportStrategies", () => {
       ).rejects.toThrow("Refusing to process a path outside the configured downloader roots");
     });
 
+    it("removes a moved source reached through a symlink into another configured root", async () => {
+      const root = tempDir();
+      const downloadsRoot = path.join(root, "downloads");
+      const otherRoot = path.join(root, "other");
+      const realGameDir = path.join(otherRoot, "game");
+      await fs.ensureDir(realGameDir);
+      await fs.writeFile(path.join(realGameDir, "game.rom"), "rom");
+      await fs.writeFile(path.join(realGameDir, "skip.zip"), "zip");
+      await fs.ensureDir(downloadsRoot);
+      const linked = path.join(downloadsRoot, "link");
+      await fs.symlink(otherRoot, linked, "dir");
+      const source = path.join(linked, "game");
+      const destination = path.join(root, "library", "My Game");
+
+      const strategy = new PCImportStrategy([downloadsRoot, otherRoot]);
+      await strategy.executeImport(
+        { needsReview: false, originalPath: source, proposedPath: destination, strategy: "pc" },
+        "move",
+        new Set([path.resolve(source, "skip.zip")])
+      );
+
+      expect(await fs.pathExists(path.join(destination, "game.rom"))).toBe(true);
+      expect(await fs.pathExists(realGameDir)).toBe(false);
+      // The configured roots themselves are never removed.
+      expect(await fs.pathExists(otherRoot)).toBe(true);
+    });
+
     it("planImport applies no restriction when no roots are configured", async () => {
       const root = tempDir();
       const source = path.join(root, "anywhere", "game.exe");

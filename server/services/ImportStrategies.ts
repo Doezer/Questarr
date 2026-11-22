@@ -358,26 +358,28 @@ async function removeSourceUnlessNested(
   // With no roots configured there is no containment policy to apply (see the constructor
   // note on PCImportStrategy), so the source's own parent stands in as the root.
   const roots = sourceRoots.length > 0 ? sourceRoots : [path.dirname(resolvedSource)];
-  for (const root of roots.map((r) => path.resolve(r))) {
-    const relative = path.relative(root, resolvedSource);
-    if (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative)) {
-      // A symlink inside the root could still lead outside it: check the real paths too.
-      let realSource: string;
-      let realRoot: string;
-      try {
-        realSource = await fs.realpath(resolvedSource);
-        realRoot = await fs.realpath(root);
-      } catch {
-        return;
-      }
-      const realRelative = path.relative(realRoot, realSource);
-      if (
-        realRelative !== ".." &&
-        !realRelative.startsWith(".." + path.sep) &&
-        !path.isAbsolute(realRelative)
-      ) {
-        await fs.remove(realSource).catch(() => undefined);
-      }
+  let realSource: string;
+  let realRoots: string[];
+  try {
+    // Real paths, so a symlink can neither lead out of a root nor hide a source that sits
+    // in a different configured root than the one it lexically appears under.
+    realSource = await fs.realpath(resolvedSource);
+    realRoots = await Promise.all(
+      roots.map((root) => fs.realpath(path.resolve(root)).catch(() => path.resolve(root)))
+    );
+  } catch {
+    return;
+  }
+  for (const realRoot of realRoots) {
+    const relative = path.relative(realRoot, realSource);
+    // An empty relative path is the root itself, which is never removed.
+    if (
+      relative !== "" &&
+      relative !== ".." &&
+      !relative.startsWith(".." + path.sep) &&
+      !path.isAbsolute(relative)
+    ) {
+      await fs.remove(realSource).catch(() => undefined);
       return;
     }
   }

@@ -524,7 +524,8 @@ export class TorBoxClient implements DownloaderClient {
       // A torrent TorBox no longer has is already gone.
       const gone = reply.status === 404 || NOT_FOUND.test(`${reply.body?.error ?? ""}`);
       if (!reply.body?.success && !gone) throw new Error(this.describeFailure(reply));
-      if (deleteFiles && !this.linkOnly) {
+      // Whatever the mode: a downloader switched to link-only may still hold earlier copies.
+      if (deleteFiles && this.downloader.downloadPath?.trim()) {
         await fs.rm(this.stagingDir(id), { recursive: true, force: true });
       }
     });

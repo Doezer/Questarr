@@ -347,6 +347,18 @@ describe("TorBoxClient", () => {
       expect(details?.downloadDir).toBeUndefined();
     });
 
+    it("still deletes earlier staged copies when removing with files", async () => {
+      const dir = path.join(stagingRoot, "7");
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(path.join(dir, "a.bin"), "x");
+      safeFetchMock.mockImplementation(async () => reply({}));
+      const client = new TorBoxClient(
+        createDownloader({ settings: JSON.stringify({ fetchMode: "linkOnly" }) })
+      );
+      expect((await client.removeDownload("7", true)).success).toBe(true);
+      await expect(fs.stat(dir)).rejects.toThrow();
+    });
+
     it("keeps the local flow when the setting is absent", async () => {
       const client = new TorBoxClient(createDownloader());
       safeFetchMock.mockResolvedValue(reply(torrent({ download_state: "downloading" })));

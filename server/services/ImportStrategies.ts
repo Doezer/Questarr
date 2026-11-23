@@ -370,8 +370,9 @@ async function removeSourceUnlessNested(
   } catch {
     return;
   }
-  // A configured root is never removed, whichever root the source is found under.
-  if (realRoots.includes(realSource)) return;
+  // A configured root, or a directory that contains one, is never removed, whichever root
+  // the source is found under.
+  if (realRoots.some((r) => r === realSource || r.startsWith(realSource + path.sep))) return;
   // The destination can sit inside the real source even when it does not lexically (the
   // source was reached through a symlink): removing it would delete what was just moved.
   const realDestination = await fs.realpath(resolvedDestination).catch(() => resolvedDestination);

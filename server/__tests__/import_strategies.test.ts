@@ -1214,6 +1214,32 @@ describe("ImportStrategies", () => {
       expect(await fs.pathExists(gameDir)).toBe(true);
     });
 
+    it("never removes a source that contains another configured root", async () => {
+      const root = tempDir();
+      const dataRoot = path.join(root, "data");
+      const torrentsDir = path.join(dataRoot, "torrents");
+      const completeRoot = path.join(torrentsDir, "complete");
+      await fs.ensureDir(completeRoot);
+      await fs.writeFile(path.join(torrentsDir, "game.rom"), "rom");
+      await fs.writeFile(path.join(torrentsDir, "skip.zip"), "zip");
+      const destination = path.join(root, "library", "My Game");
+
+      const strategy = new PCImportStrategy([dataRoot, completeRoot]);
+      await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: torrentsDir,
+          proposedPath: destination,
+          strategy: "pc",
+        },
+        "move",
+        new Set([path.resolve(torrentsDir, "skip.zip")])
+      );
+
+      expect(await fs.pathExists(path.join(destination, "game.rom"))).toBe(true);
+      expect(await fs.pathExists(completeRoot)).toBe(true);
+    });
+
     it("planImport applies no restriction when no roots are configured", async () => {
       const root = tempDir();
       const source = path.join(root, "anywhere", "game.exe");

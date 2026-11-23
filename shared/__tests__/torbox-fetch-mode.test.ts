@@ -10,12 +10,12 @@ const base = {
 };
 
 describe("TorBox fetch mode", () => {
-  it("defaults to local and reads linkOnly from the settings JSON", () => {
-    expect(getTorBoxFetchMode(null)).toBe("local");
-    expect(getTorBoxFetchMode("not json")).toBe("local");
-    expect(getTorBoxFetchMode("[]")).toBe("local");
-    expect(getTorBoxFetchMode('{"fetchMode":"linkOnly"}')).toBe("linkOnly");
-    expect(getTorBoxFetchMode('{"fetchMode":"other"}')).toBe("local");
+  it("defaults to linkOnly and reads local from the settings JSON", () => {
+    expect(getTorBoxFetchMode(null)).toBe("linkOnly");
+    expect(getTorBoxFetchMode("not json")).toBe("linkOnly");
+    expect(getTorBoxFetchMode("[]")).toBe("linkOnly");
+    expect(getTorBoxFetchMode('{"fetchMode":"local"}')).toBe("local");
+    expect(getTorBoxFetchMode('{"fetchMode":"other"}')).toBe("linkOnly");
   });
 
   it("only applies to TorBox", () => {
@@ -25,7 +25,17 @@ describe("TorBox fetch mode", () => {
   });
 
   it("asks for a staging path only when files are fetched locally", () => {
-    expect(insertDownloaderSchema.safeParse(base).success).toBe(false);
+    expect(insertDownloaderSchema.safeParse(base).success).toBe(true);
+    expect(
+      insertDownloaderSchema.safeParse({ ...base, settings: '{"fetchMode":"local"}' }).success
+    ).toBe(false);
+    expect(
+      insertDownloaderSchema.safeParse({
+        ...base,
+        settings: '{"fetchMode":"local"}',
+        downloadPath: "/data/staging",
+      }).success
+    ).toBe(true);
     expect(
       insertDownloaderSchema.safeParse({ ...base, settings: '{"fetchMode":"linkOnly"}' }).success
     ).toBe(true);

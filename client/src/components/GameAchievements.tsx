@@ -49,6 +49,11 @@ function formatUnlockDate(timestamp: number | null): string | null {
   return date.toLocaleDateString(undefined, { dateStyle: "medium" });
 }
 
+function statusLabel(achieved: boolean, unlockedOn: string | null): string {
+  if (!achieved) return "Locked";
+  return unlockedOn ? `Unlocked ${unlockedOn}` : "Unlocked";
+}
+
 interface GameAchievementsProps {
   readonly gameId: string;
 }
@@ -172,11 +177,7 @@ export default function GameAchievements({ gameId }: GameAchievementsProps) {
                         {secret ? "Hidden achievement" : achievement.description}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {achievement.achieved
-                          ? unlockedOn
-                            ? `Unlocked ${unlockedOn}`
-                            : "Unlocked"
-                          : "Locked"}
+                        {statusLabel(achievement.achieved, unlockedOn)}
                         {achievement.globalPercent !== null &&
                           ` · ${achievement.globalPercent.toFixed(1)}% of players`}
                       </p>

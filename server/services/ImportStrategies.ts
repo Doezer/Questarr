@@ -350,7 +350,8 @@ async function transferDirectoryPerFile(
   source: string,
   destination: string,
   mode: TransferMode,
-  excludePaths: Set<string>
+  excludePaths: Set<string>,
+  cleanupOnFailure = false
 ): Promise<TransferMode> {
   const relFiles = await walkRelative(source);
   const plannedTransfers = relFiles
@@ -379,10 +380,21 @@ async function transferDirectoryPerFile(
   let usedCopyFallback = false;
   let transferredAny = false;
 
-  for (const { srcFile, destFile } of plannedTransfers) {
-    const entryMode = await transferSingleFile(srcFile, destFile, mode, destination);
-    if (mode === "hardlink" && entryMode === "copy") usedCopyFallback = true;
-    transferredAny = true;
+  const placedNow: string[] = [];
+  try {
+    for (const { srcFile, destFile } of plannedTransfers) {
+      const entryMode = await transferSingleFile(srcFile, destFile, mode, destination);
+      placedNow.push(destFile);
+      if (mode === "hardlink" && entryMode === "copy") usedCopyFallback = true;
+      transferredAny = true;
+    }
+  } catch (err) {
+    // A merge into an existing folder leaves no half-placed files behind: they would make the
+    // retry refuse to overwrite them. A move already took them from the source, so they stay.
+    if (cleanupOnFailure && mode !== "move") {
+      await Promise.all(placedNow.map((file) => fs.remove(file).catch(() => undefined)));
+    }
+    throw err;
   }
 
   if (!transferredAny) {
@@ -421,7 +433,13 @@ async function transferFile(
   if (stats.isDirectory() && (hasExcludes || mergeIntoExisting)) {
     // An update or DLC joining an `update/` or `dlc/` folder is merged file by file and never
     // overwritten: the whole-tree paths below replace the destination.
-    return transferDirectoryPerFile(source, destination, mode, excludePaths ?? new Set());
+    return transferDirectoryPerFile(
+      source,
+      destination,
+      mode,
+      excludePaths ?? new Set(),
+      mergeIntoExisting
+    );
   }
 
   if (mode === "hardlink" && stats.isDirectory()) {
@@ -669,7 +687,9 @@ export class PCImportStrategy implements ImportStrategy {
     // A second update lands in the `update/` folder the first one made: files are checked one
     // by one, and never overwritten, when they are placed.
     const mergesIntoSubfolder = !!addonSubfolder && isDirectorySource;
-    const needsReview = destinationExists && !config.overwriteExisting && !mergesIntoSubfolder;
+    // An add-on never replaces a file already in its subfolder, whatever "overwrite" says.
+    const needsReview =
+      destinationExists && !mergesIntoSubfolder && (!config.overwriteExisting || !!addonSubfolder);
 
     return {
       needsReview,

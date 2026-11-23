@@ -1407,6 +1407,55 @@ describe("ImportStrategies", () => {
       }
     );
 
+    it("never replaces a single add-on file already in place, even with overwrite on", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      await fs.outputFile(path.join(lib, "win", "My Game", "dlc", "dlc1.zip"), "old");
+      const plan = await new PCImportStrategy().planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true, overwriteExisting: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      expect(plan.needsReview).toBe(true);
+    });
+
+    it("removes the files a failed merge placed so a retry is not blocked", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const source = path.join(root, "dl", "Game.Update.v1.3-GRP");
+      await fs.outputFile(path.join(source, "a.bin"), "a");
+      await fs.outputFile(path.join(source, "b.bin"), "b");
+      const dest = path.join(lib, "win", "My Game", "update");
+      await fs.ensureDir(dest);
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        source,
+        makeGame({ title: "My Game" }),
+        lib,
+        on,
+        "win",
+        { releaseCategory: "update", downloadTitle: "Game.Update.v1.3-GRP" }
+      );
+      // b.bin is replaced by a directory the transfer cannot overwrite
+      const realCopy = fs.copy;
+      let calls = 0;
+      vi.spyOn(fs, "copy").mockImplementation(((...args: Parameters<typeof fs.copy>) => {
+        calls += 1;
+        if (calls === 2) return Promise.reject(new Error("disk full"));
+        return realCopy(...args);
+      }) as typeof fs.copy);
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("disk full");
+      vi.restoreAllMocks();
+      expect(await fs.readdir(dest)).toEqual([]);
+      await strategy.executeImport(plan, "copy");
+      expect((await fs.readdir(dest)).sort()).toEqual(["a.bin", "b.bin"]);
+    });
+
     it("changes nothing when off, for a main release, or for a combined pack", () => {
       expect(addonSubfolderFor(makeImportConfig(), "update")).toBeUndefined();
       expect(addonSubfolderFor(on, "main")).toBeUndefined();

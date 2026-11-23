@@ -1782,16 +1782,21 @@ export class ImportManager {
         transferMode,
         download,
         current,
-        () =>
-          this.transferWithUnpack(
+        async () => {
+          const transferred = await this.transferWithUnpack(
             planToExecute,
             transferMode,
             archiveResolution,
             current,
             overridePlan.password,
-            config.sortExtras,
+            config.sortExtras && !planToExecute.addonGameFolder,
             progress
-          )
+          );
+          // An update or DLC in a subfolder does not move the game's own entry.
+          return planToExecute.addonGameFolder
+            ? { ...transferred, libraryEntry: current.libraryPath ?? planToExecute.addonGameFolder }
+            : transferred;
+        }
       );
       await this.reportLeftoverArchives(current, result.destDir, {
         extractionAttempted: needsExtraction,

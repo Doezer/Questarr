@@ -72,14 +72,19 @@ export function addonSubfolderFor(
 ): "update" | "dlc" | undefined {
   if (!config.addonSubfolders) return undefined;
   if (category !== "update" && category !== "dlc") return undefined;
-  if (releaseTitle && COMBINED_PACK.test(releaseTitle)) return undefined;
+  if (releaseTitle && COMBINED_PACK_PATTERNS.some((pattern) => pattern.test(releaseTitle))) {
+    return undefined;
+  }
   return category;
 }
 
 // A pack that carries the base game next to its update or DLC ("Base.Game.+.Update.v1.2",
 // "Game.incl.Update") is the game itself: it is not filed in a subfolder.
-const COMBINED_PACK =
-  /\bbase[\s._-]*game\b|\b(?:incl(?:uding|\.)?|with|\+)[\s._-]*(?:all[\s._-]*)?(?:the[\s._-]*)?(?:updates?|patch(?:es)?)\b|\b(?:game|base)[\s._-]*\+[\s._-]*(?:updates?|dlcs?)\b/i;
+const COMBINED_PACK_PATTERNS = [
+  /\bbase[\s._-]*game\b/i,
+  /\b(?:incl(?:uding|\.)?|with|\+)[\s._-]*(?:all[\s._-]*)?(?:updates?|patch(?:es)?|dlcs?)\b/i,
+  /\b(?:game|base)[\s._-]*\+/i,
+];
 
 /** Name of the library leaf (folder, or file of a single-file release) for a game. */
 export function resolveLibraryLeafName(
@@ -353,6 +358,14 @@ async function transferDirectoryPerFile(
   excludePaths: Set<string>,
   cleanupOnFailure = false
 ): Promise<TransferMode> {
+  if (cleanupOnFailure) {
+    // The update/ or dlc/ folder of an add-on merge must be a real folder: a link there would
+    // lead the files outside the library.
+    const existing = await fs.lstat(destination).catch(() => undefined);
+    if (existing && (existing.isSymbolicLink() || !existing.isDirectory())) {
+      throw new Error(`Refusing to merge into a link or a file: ${destination}`);
+    }
+  }
   const relFiles = await walkRelative(source);
   const plannedTransfers = relFiles
     .map((rel) => ({
@@ -655,7 +668,20 @@ export class PCImportStrategy implements ImportStrategy {
       options?.releaseCategory,
       options?.downloadTitle
     );
-    const gameFolder = path.join(targetRoot, platformDir ?? "PC", cleanTitle);
+    // An update goes next to the base game already in the library, whatever the new release's
+    // own name says (a "{Title} {Version}" pattern would otherwise start a new folder).
+    let gameFolder = path.join(targetRoot, platformDir ?? "PC", cleanTitle);
+    if (addonSubfolder && game.libraryPath) {
+      const existing = path.resolve(game.libraryPath);
+      const relativeToRoot = path.relative(targetRoot, existing);
+      const insideLibrary =
+        relativeToRoot !== "" &&
+        !relativeToRoot.startsWith("..") &&
+        !path.isAbsolute(relativeToRoot);
+      if (insideLibrary && (await fs.stat(existing).catch(() => undefined))?.isDirectory()) {
+        gameFolder = existing;
+      }
+    }
     const isDirectorySource = stats.isDirectory() || !!options?.treatAsDirectory;
     let destination: string;
     if (addonSubfolder) {
@@ -686,7 +712,9 @@ export class PCImportStrategy implements ImportStrategy {
     const destinationExists = await fs.pathExists(destination);
     // A second update lands in the `update/` folder the first one made: files are checked one
     // by one, and never overwritten, when they are placed.
-    const mergesIntoSubfolder = !!addonSubfolder && isDirectorySource;
+    // With auto-unpack on, an archive extracted into an existing folder could replace what is
+    // there, so that case waits for the user's review.
+    const mergesIntoSubfolder = !!addonSubfolder && isDirectorySource && !config.autoUnpack;
     // An add-on never replaces a file already in its subfolder, whatever "overwrite" says.
     const needsReview =
       destinationExists && !mergesIntoSubfolder && (!config.overwriteExisting || !!addonSubfolder);

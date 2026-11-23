@@ -1456,12 +1456,54 @@ describe("ImportStrategies", () => {
       expect((await fs.readdir(dest)).sort()).toEqual(["a.bin", "b.bin"]);
     });
 
+    it("uses the folder of the game already in the library", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const base = path.join(lib, "win", "Game 1.0");
+      await fs.ensureDir(base);
+      const source = path.join(root, "dl", "Game.Update.v1.1-GRP");
+      await fs.outputFile(path.join(source, "p.bin"), "p");
+      const plan = await new PCImportStrategy().planImport(
+        source,
+        makeGame({ title: "Game", libraryPath: base }),
+        lib,
+        { ...on, renamePattern: "{Title} {Version}" },
+        "win",
+        { releaseCategory: "update", downloadTitle: "Game.Update.v1.1-GRP" }
+      );
+      expect(plan.proposedPath).toBe(path.join(base, "update"));
+    });
+
+    it("refuses to merge into an update folder that is a link", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const outside = path.join(root, "outside");
+      await fs.ensureDir(outside);
+      const gameDir = path.join(lib, "win", "My Game");
+      await fs.ensureDir(gameDir);
+      await fs.symlink(outside, path.join(gameDir, "update"));
+      const source = path.join(root, "dl", "Game.Update.v1.1-GRP");
+      await fs.outputFile(path.join(source, "p.bin"), "p");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        source,
+        makeGame({ title: "My Game" }),
+        lib,
+        on,
+        "win",
+        { releaseCategory: "update", downloadTitle: "Game.Update.v1.1-GRP" }
+      );
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("link");
+      expect(await fs.readdir(outside)).toEqual([]);
+    });
+
     it("changes nothing when off, for a main release, or for a combined pack", () => {
       expect(addonSubfolderFor(makeImportConfig(), "update")).toBeUndefined();
       expect(addonSubfolderFor(on, "main")).toBeUndefined();
       expect(addonSubfolderFor(on, "extra")).toBeUndefined();
       expect(addonSubfolderFor(on, "update", "Game.Base.Game.+.Update.v1.2")).toBeUndefined();
       expect(addonSubfolderFor(on, "update", "Game.incl.Update.v1.2")).toBeUndefined();
+      expect(addonSubfolderFor(on, "dlc", "Game.incl.DLC-GRP")).toBeUndefined();
       expect(addonSubfolderFor(on, "update", "Game.Update.v1.2-GRP")).toBe("update");
       expect(addonSubfolderFor(on, "dlc", "Game.DLC.Pack-GRP")).toBe("dlc");
     });

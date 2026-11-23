@@ -1492,7 +1492,12 @@ describe("ImportStrategies", () => {
       let calls = 0;
       vi.spyOn(fs, "copy").mockImplementation(((...args: Parameters<typeof fs.copy>) => {
         calls += 1;
-        if (calls === 2) return Promise.reject(new Error("disk full"));
+        if (calls === 2) {
+          // some bytes are written before the failure
+          return fs.outputFile(args[1] as string, "par").then(() => {
+            throw new Error("disk full");
+          });
+        }
         return realCopy(...args);
       }) as typeof fs.copy);
       await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("disk full");

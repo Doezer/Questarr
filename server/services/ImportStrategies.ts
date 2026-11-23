@@ -429,6 +429,8 @@ async function transferDirectoryPerFile(
   const placedNow: string[] = [];
   try {
     for (const { srcFile, destFile } of plannedTransfers) {
+      // Recorded first: a copy that fails halfway leaves a partial file that must go too.
+      placedNow.push(destFile);
       const entryMode = await transferSingleFile(
         srcFile,
         destFile,
@@ -436,7 +438,6 @@ async function transferDirectoryPerFile(
         destination,
         cleanupOnFailure
       );
-      placedNow.push(destFile);
       if (mode === "hardlink" && entryMode === "copy") usedCopyFallback = true;
       transferredAny = true;
     }
@@ -444,7 +445,11 @@ async function transferDirectoryPerFile(
     // A merge into an existing folder leaves no half-placed files behind: they would make the
     // retry refuse to overwrite them. A move already took them from the source, so they stay.
     if (cleanupOnFailure && mode !== "move") {
-      await Promise.all(placedNow.map((file) => fs.remove(file).catch(() => undefined)));
+      // A file that someone else created meanwhile is not ours to remove.
+      const foreign =
+        (err as NodeJS.ErrnoException).code === "EEXIST" || /already exists/i.test(String(err));
+      const ours = foreign ? placedNow.slice(0, -1) : placedNow;
+      await Promise.all(ours.map((file) => fs.remove(file).catch(() => undefined)));
     }
     throw err;
   }

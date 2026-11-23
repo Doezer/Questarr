@@ -288,9 +288,12 @@ async function transferSingleFile(
   source: string,
   destination: string,
   mode: TransferMode,
-  root: string
+  root: string,
+  exclusive = false
 ): Promise<TransferMode> {
   await ensureParentDir(destination, root);
+
+  if (exclusive) return transferSingleFileExclusive(source, destination, mode);
 
   if (mode === "move") {
     await fs.move(source, destination, { overwrite: true });
@@ -309,6 +312,36 @@ async function transferSingleFile(
   }
 
   return linkOrCopyFallback(source, destination);
+}
+
+/**
+ * Places one file without ever replacing what is at the destination, even when something
+ * appears there after the last check: each call fails if the destination exists.
+ */
+async function transferSingleFileExclusive(
+  source: string,
+  destination: string,
+  mode: TransferMode
+): Promise<TransferMode> {
+  if (mode === "move") {
+    await fs.move(source, destination, { overwrite: false });
+    return "move";
+  }
+  if (mode === "symlink") {
+    await fs.symlink(source, destination);
+    return "symlink";
+  }
+  if (mode === "hardlink") {
+    try {
+      await fs.link(source, destination);
+      return "hardlink";
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
+      // another device or a filesystem without links: copy instead, still without replacing
+    }
+  }
+  await fs.copy(source, destination, { overwrite: false, errorOnExist: true });
+  return "copy";
 }
 
 // Resolves the directory alias but keeps the entry name, so a symlink entry is not followed.
@@ -396,7 +429,13 @@ async function transferDirectoryPerFile(
   const placedNow: string[] = [];
   try {
     for (const { srcFile, destFile } of plannedTransfers) {
-      const entryMode = await transferSingleFile(srcFile, destFile, mode, destination);
+      const entryMode = await transferSingleFile(
+        srcFile,
+        destFile,
+        mode,
+        destination,
+        cleanupOnFailure
+      );
       placedNow.push(destFile);
       if (mode === "hardlink" && entryMode === "copy") usedCopyFallback = true;
       transferredAny = true;
@@ -459,7 +498,13 @@ async function transferFile(
     return transferDirectoryHardlink(source, destination);
   }
 
-  return transferSingleFile(source, destination, mode, path.dirname(destination));
+  return transferSingleFile(
+    source,
+    destination,
+    mode,
+    path.dirname(destination),
+    mergeIntoExisting
+  );
 }
 
 export async function gatherFiles(rootPath: string, options: WalkOptions = {}): Promise<string[]> {

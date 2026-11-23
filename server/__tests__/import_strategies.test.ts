@@ -1444,6 +1444,32 @@ describe("ImportStrategies", () => {
       expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("old");
     });
 
+    it.each(["move", "hardlink", "copy", "symlink"] as const)(
+      "never replaces a single add-on file created after the execution check (%s)",
+      async (mode) => {
+        const root = tempDir();
+        const lib = path.join(root, "lib");
+        const file = path.join(root, "dl", "dlc1.zip");
+        await fs.outputFile(file, "new");
+        const strategy = new PCImportStrategy();
+        const plan = await strategy.planImport(
+          file,
+          makeGame({ title: "My Game" }),
+          lib,
+          makeImportConfig({ addonSubfolders: true }),
+          "win",
+          { releaseCategory: "dlc" }
+        );
+        // the target appears right after the "does it exist" check
+        await fs.outputFile(plan.proposedPath, "old");
+        vi.spyOn(fs, "pathExists").mockResolvedValue(false as never);
+        await expect(strategy.executeImport(plan, mode)).rejects.toThrow();
+        vi.restoreAllMocks();
+        expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("old");
+        expect(await fs.pathExists(file)).toBe(true);
+      }
+    );
+
     it("removes the files a failed merge placed so a retry is not blocked", async () => {
       const root = tempDir();
       const lib = path.join(root, "lib");

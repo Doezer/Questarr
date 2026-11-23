@@ -321,8 +321,11 @@ async function transferSingleFile(
  * exists, or that appears meanwhile, is replaced. A failure removes only what was created here.
  */
 async function copyFileExclusive(source: string, target: string): Promise<void> {
-  const claimed = await fs.open(target, "wx");
+  const sourceMode = (await fs.stat(source)).mode & 0o777;
+  const claimed = await fs.open(target, "wx", sourceMode);
   try {
+    // The create mode is cut by the umask: an updater keeps its executable bits
+    await fs.fchmod(claimed, sourceMode);
     await pipeline(fs.createReadStream(source), fs.createWriteStream(target, { fd: claimed }));
   } catch (err) {
     await fs.remove(target).catch(() => undefined);

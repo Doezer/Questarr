@@ -1480,8 +1480,11 @@ describe("ImportStrategies", () => {
       vi.spyOn(fs, "link").mockRejectedValue(
         Object.assign(new Error("not supported"), { code: "EPERM" })
       );
+      await fs.chmod(file, 0o755);
       await strategy.executeImport(plan, "copy");
       expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("new");
+      // an updater keeps its executable bits when links are not available
+      expect((await fs.stat(plan.proposedPath)).mode & 0o777).toBe(0o755);
       expect((await fs.readdir(path.dirname(plan.proposedPath))).sort()).toEqual(["dlc1.zip"]);
       // a second import of the same name is refused and the first file stays
       await fs.outputFile(file, "other");

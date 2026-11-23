@@ -323,11 +323,17 @@ async function transferSingleFile(
 async function copyFileExclusive(source: string, target: string): Promise<void> {
   const sourceMode = (await fs.stat(source)).mode & 0o777;
   const claimed = await fs.open(target, "wx", sourceMode);
+  let streamOwnsFd = false;
   try {
-    // The create mode is cut by the umask: an updater keeps its executable bits
-    await fs.fchmod(claimed, sourceMode);
-    await pipeline(fs.createReadStream(source), fs.createWriteStream(target, { fd: claimed }));
+    // The create mode is cut by the umask: an updater keeps its executable bits where the
+    // filesystem can store them (vfat and exFAT refuse mode changes, which is not an error)
+    await fs.fchmod(claimed, sourceMode).catch(() => undefined);
+    const out = fs.createWriteStream(target, { fd: claimed });
+    streamOwnsFd = true;
+    await pipeline(fs.createReadStream(source), out);
   } catch (err) {
+    // A write stream closes the descriptor itself; closing it twice could hit another file
+    if (!streamOwnsFd) await fs.close(claimed).catch(() => undefined);
     await fs.remove(target).catch(() => undefined);
     throw err;
   }

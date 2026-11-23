@@ -1444,6 +1444,31 @@ describe("ImportStrategies", () => {
       expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("old");
     });
 
+    it("removes the partial file of a failed single add-on copy so a retry works", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      vi.spyOn(fs, "copy").mockImplementationOnce((async (_src: string, dest: string) => {
+        await fs.outputFile(dest, "par");
+        throw new Error("disk full");
+      }) as unknown as typeof fs.copy);
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("disk full");
+      vi.restoreAllMocks();
+      expect(await fs.pathExists(plan.proposedPath)).toBe(false);
+      await strategy.executeImport(plan, "copy");
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("new");
+    });
+
     it.each(["move", "hardlink", "copy", "symlink"] as const)(
       "never replaces a single add-on file created after the execution check (%s)",
       async (mode) => {

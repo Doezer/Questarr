@@ -340,7 +340,15 @@ async function transferSingleFileExclusive(
       // another device or a filesystem without links: copy instead, still without replacing
     }
   }
-  await fs.copy(source, destination, { overwrite: false, errorOnExist: true });
+  try {
+    await fs.copy(source, destination, { overwrite: false, errorOnExist: true });
+  } catch (err) {
+    const foreign =
+      (err as NodeJS.ErrnoException).code === "EEXIST" || /already exists/i.test(String(err));
+    // A truncated copy would otherwise block every retry ("Destination already exists").
+    if (!foreign) await fs.remove(destination).catch(() => undefined);
+    throw err;
+  }
   return "copy";
 }
 

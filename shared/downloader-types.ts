@@ -23,19 +23,19 @@ export type TorBoxFetchMode = "local" | "linkOnly";
 /**
  * How a TorBox downloader delivers finished files, from its free-form `settings` JSON:
  * `local` copies them to the staging folder and imports them, `linkOnly` just exposes a
- * download link. A downloader saved before the setting existed keeps copying locally.
+ * download link. Link-only is the default: only an explicit `local` copies files.
  */
 export function getTorBoxFetchMode(settingsJson: string | null | undefined): TorBoxFetchMode {
-  if (!settingsJson) return "local";
+  if (!settingsJson) return "linkOnly";
   try {
     const parsed: unknown = JSON.parse(settingsJson);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return (parsed as { fetchMode?: unknown }).fetchMode === "linkOnly" ? "linkOnly" : "local";
+      return (parsed as { fetchMode?: unknown }).fetchMode === "local" ? "local" : "linkOnly";
     }
   } catch {
     // Malformed settings fall back to the default.
   }
-  return "local";
+  return "linkOnly";
 }
 
 /** Whether a downloader only exposes links: nothing is fetched to this server or imported. */

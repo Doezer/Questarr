@@ -58,7 +58,7 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader =>
     addStopped: false,
     removeCompleted: false,
     postImportCategory: null,
-    settings: null,
+    settings: JSON.stringify({ fetchMode: "local" }),
     allowSelfSignedCertificate: false,
     allowInsecureLan: false,
     createdAt: new Date(),
@@ -367,7 +367,26 @@ describe("TorBoxClient", () => {
       expect(status).toMatchObject({ status: "downloading", progress: 99 });
     });
 
-    it("keeps the local flow when the setting is absent", async () => {
+    it("is link-only when no mode is stored", async () => {
+      const client = new TorBoxClient(createDownloader({ downloadPath: null, settings: null }));
+      safeFetchMock.mockResolvedValue(
+        reply(
+          torrent({
+            download_state: "cached",
+            download_finished: true,
+            download_present: true,
+            progress: 1,
+            files: [{ id: 1, name: "a.bin", size: 10 }],
+          })
+        )
+      );
+      expect(await client.getDownloadStatus("7")).toMatchObject({
+        status: "completed",
+        linkOnly: true,
+      });
+    });
+
+    it("keeps the local flow when the mode is explicitly local", async () => {
       const client = new TorBoxClient(createDownloader());
       safeFetchMock.mockResolvedValue(reply(torrent({ download_state: "downloading" })));
       expect((await client.getDownloadStatus("7"))?.linkOnly).toBeUndefined();

@@ -1,37 +1,18 @@
 import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, CheckCircle2, Circle, Plus, Timer, Trophy, Trash2 } from "lucide-react";
+import { BookOpen, CheckCircle2, Circle, Plus, Timer, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import GameScreenshotGallery from "./GameScreenshotGallery";
 import { formatMinutes, sessionLengthMinutes } from "@/lib/play-time";
 import type { GameJournalEntry, GameMilestone, GamePlaySession } from "@shared/schema";
 
 interface GameJournalTabProps {
   gameId: string;
-  steamAppId: number | null;
   showScreenshots?: boolean;
-}
-
-interface SteamAchievement {
-  apiName: string;
-  displayName: string;
-  description: string | null;
-  icon: string;
-  iconGray: string;
-  hidden: boolean;
-  achieved: boolean;
-  unlockedAt: number | null;
-  globalPercent: number | null;
-}
-
-interface AchievementsResponse {
-  achievements: SteamAchievement[];
-  reason?: "not_configured" | "no_steam_app_id" | "no_steam_id";
 }
 
 /** Format valid journal timestamps in the reader’s locale while tolerating missing dates. */
@@ -46,12 +27,11 @@ function formatDate(value: string | Date | null): string {
 }
 
 /**
- * Manage personal notes, milestones and achievements for a saved game. Standalone uses include
+ * Manage personal notes and milestones for a saved game. Standalone uses include
  * screenshots; GameDetails places that shared gallery in Media and disables the duplicate here.
  */
 export default function GameJournalTab({
   gameId,
-  steamAppId,
   showScreenshots = true,
 }: Readonly<GameJournalTabProps>) {
   const { toast } = useToast();
@@ -70,30 +50,6 @@ export default function GameJournalTab({
     },
     onError: () => toast({ description: errorMessage, variant: "destructive" as const }),
   });
-
-  const { data: steamSettings } = useQuery<{ apiKeyConfigured: boolean }>({
-    queryKey: ["/api/settings/steam"],
-  });
-
-  const achievementsEnabled = Boolean(steamSettings?.apiKeyConfigured && steamAppId);
-
-  const { data: achievementsData } = useQuery<AchievementsResponse>({
-    queryKey: [`/api/games/${gameId}/achievements`],
-    enabled: achievementsEnabled,
-  });
-
-  const achievedCount = useMemo(() => {
-    if (!achievementsData?.achievements) return 0;
-    // ⚡ Bolt: Use a single-pass `for...of` loop to count matches instead of
-    // `.filter(...).length` to avoid O(N) array allocation overhead during renders
-    let count = 0;
-    for (const a of achievementsData.achievements) {
-      if (a.achieved) {
-        count++;
-      }
-    }
-    return count;
-  }, [achievementsData?.achievements]);
 
   const { data: journalEntries = [] } = useQuery<GameJournalEntry[]>({
     queryKey: [`/api/games/${gameId}/journal`],
@@ -195,51 +151,6 @@ export default function GameJournalTab({
   return (
     <div>
       <div className="space-y-6">
-        {/* ── Achievements (Steam, when available) ── */}
-        {achievementsEnabled && achievementsData && achievementsData.achievements.length > 0 && (
-          <section>
-            <h3 className="font-semibold mb-2 flex items-center gap-2">
-              <Trophy className="w-4 h-4" />
-              Achievements
-              <span className="text-xs font-normal text-muted-foreground">
-                {achievedCount}/{achievementsData.achievements.length}
-              </span>
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {achievementsData.achievements.map((achievement) => (
-                <Card
-                  key={achievement.apiName}
-                  className={achievement.achieved ? "" : "opacity-60"}
-                >
-                  <CardContent className="p-3 flex items-center gap-3">
-                    {achievement.icon && (
-                      <img
-                        src={achievement.achieved ? achievement.icon : achievement.iconGray}
-                        alt=""
-                        className="w-10 h-10 rounded shrink-0"
-                        aria-hidden="true"
-                      />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{achievement.displayName}</p>
-                      {achievement.description && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">
-                          {achievement.description}
-                        </p>
-                      )}
-                      {achievement.globalPercent !== null && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {achievement.globalPercent.toFixed(1)}% of players
-                        </p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </section>
-        )}
-
         {/* ── Milestones (manual "successes" checklist) ── */}
         <section>
           <h3 className="font-semibold mb-2 flex items-center gap-2">

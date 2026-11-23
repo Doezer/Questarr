@@ -217,8 +217,28 @@ describe("steamRoutes", () => {
       expect(steamService.getPlayerAchievements).toHaveBeenCalledWith(
         "test-key",
         "76561198000000000",
-        12345
+        12345,
+        { throwIfPrivate: true }
       );
+    });
+
+    it("reports a private profile with a reason", async () => {
+      config.steam.isConfigured = true;
+      config.steam.apiKey = "test-key";
+      currentUser = { id: "user-1", username: "tester", steamId64: "76561198000000000" };
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        steamAppId: 12345,
+      } as unknown as Awaited<ReturnType<typeof storage.getGame>>);
+      vi.mocked(steamService.getPlayerAchievements).mockRejectedValue(
+        new Error("Steam achievements are private")
+      );
+
+      const response = await request(app).get(`/api/games/${gameId}/achievements`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ achievements: [], reason: "private" });
     });
 
     it("returns 500 when fetching achievements throws", async () => {

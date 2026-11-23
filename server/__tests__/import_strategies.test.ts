@@ -1511,6 +1511,58 @@ describe("ImportStrategies", () => {
       expect(await fs.readdir(outside)).toEqual([]);
     });
 
+    it("moves a single add-on file across devices by copying, then drops the source", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      vi.spyOn(fs, "link").mockRejectedValue(
+        Object.assign(new Error("cross-device"), { code: "EXDEV" })
+      );
+      await strategy.executeImport(plan, "move");
+      vi.restoreAllMocks();
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("new");
+      expect(await fs.pathExists(file)).toBe(false);
+    });
+
+    it("never replaces a file that appears while a link-less copy is under way", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      vi.spyOn(fs, "link").mockRejectedValue(
+        Object.assign(new Error("no links"), { code: "EPERM" })
+      );
+      const realCopy = fs.copy;
+      vi.spyOn(fs, "copy").mockImplementation((async (...args: Parameters<typeof fs.copy>) => {
+        await realCopy(...args);
+        // the target is created after the copy, before the name is claimed
+        await fs.outputFile(plan.proposedPath, "old");
+      }) as typeof fs.copy);
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow();
+      vi.restoreAllMocks();
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("old");
+      expect((await fs.readdir(path.dirname(plan.proposedPath))).sort()).toEqual(["dlc1.zip"]);
+    });
+
     it("removes the partial file of a failed single add-on copy so a retry works", async () => {
       const root = tempDir();
       const lib = path.join(root, "lib");

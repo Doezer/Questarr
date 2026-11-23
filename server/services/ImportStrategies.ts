@@ -317,6 +317,20 @@ async function transferSingleFile(
 }
 
 /**
+ * Copies a file into a name that is claimed with an exclusive create (`wx`), so nothing that
+ * exists, or that appears meanwhile, is replaced. A failure removes only what was created here.
+ */
+async function copyFileExclusive(source: string, target: string): Promise<void> {
+  const claimed = await fs.open(target, "wx");
+  try {
+    await pipeline(fs.createReadStream(source), fs.createWriteStream(target, { fd: claimed }));
+  } catch (err) {
+    await fs.remove(target).catch(() => undefined);
+    throw err;
+  }
+}
+
+/**
  * Places one file without ever replacing what is at the destination, even when something
  * appears there after the last check: each call fails if the destination exists.
  */
@@ -331,18 +345,17 @@ async function transferSingleFileExclusive(
   const target = path.resolve(destination);
   const relative = path.relative(path.resolve(guardRoot), target);
   if (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative)) {
-    if (mode === "move") {
-      await fs.move(source, target, { overwrite: false });
-      return "move";
-    }
     if (mode === "symlink") {
       await fs.symlink(source, target);
       return "symlink";
     }
-    if (mode === "hardlink") {
+    if (mode === "move" || mode === "hardlink") {
+      // A hard link is an atomic create-if-absent; a move is that link followed by dropping
+      // the source. fs.move would check, then rename over whatever appeared in between.
       try {
         await fs.link(source, target);
-        return "hardlink";
+        if (mode === "move") await fs.remove(source);
+        return mode;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
         // another device or a filesystem without links: copy instead, still without replacing
@@ -358,22 +371,15 @@ async function transferSingleFileExclusive(
         await fs.link(partial, target);
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
-        // A filesystem without links: the name is claimed with an exclusive create and filled
-        // in place. Nothing that exists is replaced; a failure removes only what was created.
         await fs.remove(partial).catch(() => undefined);
-        const claimed = await fs.open(target, "wx");
-        try {
-          await pipeline(
-            fs.createReadStream(source),
-            fs.createWriteStream(target, { fd: claimed })
-          );
-        } catch (copyErr) {
-          await fs.remove(target).catch(() => undefined);
-          throw copyErr;
-        }
+        await copyFileExclusive(source, target);
       }
     } finally {
       await fs.remove(partial).catch(() => undefined);
+    }
+    if (mode === "move") {
+      await fs.remove(source);
+      return "move";
     }
     return "copy";
   }

@@ -22,15 +22,14 @@ its staging code.
 
 ## Link-only or local copy
 
-A new TorBox downloader starts in **link-only** mode (**Fetch files to this server** off):
+TorBox downloaders use **link-only** mode by default (**Fetch files to this server** off):
 finished downloads stay on TorBox, nothing is copied or imported, and no staging folder is needed.
 On the **Downloads** page a finished TorBox download shows **Copy link** and **Download**
 buttons. The link is requested when you press the button because TorBox links are short-lived:
 one file's direct link, or a zip when the torrent holds several files.
 
 Turn **Fetch files to this server** on to copy the files to the staging folder and import them like
-any other download, as described below. Downloaders created before this option existed keep
-copying locally.
+any other download, as described below. A downloader without an explicit choice is link-only.
 
 ## How it behaves
 

@@ -82,10 +82,6 @@ export function parseXmlRpcValue(
 
   const rec = obj as Record<string, unknown>;
 
-  // With parseTagValue: false and textNodeName: "_text", values can be wrapped.
-  const getText = (v: unknown) =>
-    v && typeof v === "object" && "_text" in v ? (v as Record<string, unknown>)._text : v;
-
   if ("string" in rec) return getText(rec.string);
   if ("int" in rec) return Number.parseInt(getText(rec.int) as string);
   if ("i4" in rec) return Number.parseInt(getText(rec.i4) as string);
@@ -96,34 +92,8 @@ export function parseXmlRpcValue(
     return boolVal == 1 || boolVal === "1";
   }
   if ("base64" in rec) return getText(rec.base64);
-
-  if ("array" in rec) {
-    const arrayObj = rec["array"] as Record<string, unknown>;
-    const data = arrayObj["data"];
-    if (!data) return [];
-
-    const dataBlock = Array.isArray(data) ? data[0] : data;
-    if (!dataBlock || typeof dataBlock !== "object" || !("value" in dataBlock)) return [];
-
-    const values = Array.isArray((dataBlock as Record<string, unknown>).value)
-      ? (dataBlock as Record<string, unknown>).value
-      : [(dataBlock as Record<string, unknown>).value];
-    return (values as unknown[]).map((v: unknown) => parseXmlRpcValue(v, options));
-  }
-
-  if ("struct" in rec) {
-    const structObj = rec["struct"] as Record<string, unknown>;
-    const members = structObj["member"] as Record<string, unknown>[];
-    if (!members) return {};
-
-    const result: Record<string, unknown> = {};
-    for (const m of members) {
-      if (m["name"] && m["value"]) {
-        result[getText(m["name"]) as string] = parseXmlRpcValue(m["value"], options);
-      }
-    }
-    return result;
-  }
+  if ("array" in rec) return parseXmlRpcArray(rec["array"] as Record<string, unknown>, options);
+  if ("struct" in rec) return parseXmlRpcStruct(rec["struct"] as Record<string, unknown>, options);
 
   if (options.lenient) {
     // A `<value>` with no type tag is a string per the XML-RPC spec.
@@ -132,6 +102,36 @@ export function parseXmlRpcValue(
   }
 
   return null;
+}
+
+// With parseTagValue: false and textNodeName: "_text", values can be wrapped.
+function getText(v: unknown): unknown {
+  return v && typeof v === "object" && "_text" in v ? (v as Record<string, unknown>)._text : v;
+}
+
+function parseXmlRpcArray(arrayObj: Record<string, unknown>, options: ParseXmlRpcValueOptions) {
+  const data = arrayObj["data"];
+  if (!data) return [];
+
+  const dataBlock = Array.isArray(data) ? data[0] : data;
+  if (!dataBlock || typeof dataBlock !== "object" || !("value" in dataBlock)) return [];
+
+  const value = (dataBlock as Record<string, unknown>).value;
+  const values = Array.isArray(value) ? value : [value];
+  return (values as unknown[]).map((v: unknown) => parseXmlRpcValue(v, options));
+}
+
+function parseXmlRpcStruct(structObj: Record<string, unknown>, options: ParseXmlRpcValueOptions) {
+  const members = structObj["member"] as Record<string, unknown>[];
+  if (!members) return {};
+
+  const result: Record<string, unknown> = {};
+  for (const m of members) {
+    if (m["name"] && m["value"]) {
+      result[getText(m["name"]) as string] = parseXmlRpcValue(m["value"], options);
+    }
+  }
+  return result;
 }
 
 export interface ParseXmlRpcResponseOptions extends ParseXmlRpcValueOptions {

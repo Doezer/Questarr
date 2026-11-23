@@ -754,6 +754,15 @@ export interface IStorage {
   ): Promise<IntegrationRequest[]>;
 }
 
+function isSyncBlocked(
+  game: Pick<Game, "status" | "statusSyncSource">,
+  allowWanted?: boolean
+): boolean {
+  if (game.status === "downloading") return true;
+  if (game.status === "wanted") return !allowWanted;
+  return isUserCuratedGameStatus(game.status) && game.statusSyncSource === null;
+}
+
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private games: Map<string, Game>;
@@ -1086,11 +1095,7 @@ export class MemStorage implements IStorage {
     const game = this.games.get(id);
     if (!game) return undefined;
     if (options?.preserveCurated && isUserCuratedGameStatus(game.status)) return undefined;
-    if (options?.syncSource) {
-      if (game.status === "downloading") return undefined;
-      if (game.status === "wanted" && !options.allowWanted) return undefined;
-      if (isUserCuratedGameStatus(game.status) && game.statusSyncSource === null) return undefined;
-    }
+    if (options?.syncSource && isSyncBlocked(game, options.allowWanted)) return undefined;
 
     const leavingWanted = game.status === "wanted" && statusUpdate.status !== "wanted";
 
@@ -4761,7 +4766,8 @@ export class DatabaseStorage implements IStorage {
             topStatus: row.topStatus as DownloadSummary["topStatus"],
             count: row.count,
             downloadTypes: (row.downloadTypes ?? "torrent").split(",").filter(Boolean) as (
-              "torrent" | "usenet"
+              | "torrent"
+              | "usenet"
             )[],
             hasUpdateDownload: row.hasUpdateDownload > 0,
           },

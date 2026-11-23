@@ -31,7 +31,12 @@ const { version: APP_VERSION } = JSON.parse(
 ) as { version: string };
 
 export type HostKind =
-  "loopback" | "private-ip" | "public-ip" | "single-label-hostname" | "fqdn" | "invalid";
+  | "loopback"
+  | "private-ip"
+  | "public-ip"
+  | "single-label-hostname"
+  | "fqdn"
+  | "invalid";
 
 export interface EndpointShape {
   scheme: string | null;
@@ -263,6 +268,37 @@ function clip(text: string): string {
   return text.length > MAX_ERROR_TEXT ? `${text.slice(0, MAX_ERROR_TEXT)}…` : text;
 }
 
+function errorMessageOf(errorField: unknown): string {
+  if (typeof errorField === "string") return errorField;
+  if (errorField && typeof errorField === "object" && "message" in errorField) {
+    return String((errorField as { message: unknown }).message);
+  }
+  return "";
+}
+
+/** One NDJSON line at warn level or above, reduced to what the digest groups on. */
+function parseWarnLine(
+  line: string
+): { module: string; message: string; time: string | null } | null {
+  let entry: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (!parsed || typeof parsed !== "object") return null;
+    entry = parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (typeof entry.level !== "number" || entry.level < 40) return null;
+
+  const module = typeof entry.module === "string" ? entry.module : "unknown";
+  const msg = typeof entry.msg === "string" ? entry.msg : "";
+  const message = clip(
+    scrubFreeText([msg, errorMessageOf(entry.error)].filter(Boolean).join(": "))
+  );
+  const time = typeof entry.time === "string" ? entry.time : null;
+  return { module, message, time };
+}
+
 /**
  * Groups warn/error/fatal NDJSON lines by module and message so a long log
  * collapses into "21x HTTP 401 ..." rather than 21 near-identical lines.
@@ -270,27 +306,9 @@ function clip(text: string): string {
 export function summarizeErrors(lines: string[]): ErrorGroup[] {
   const groups = new Map<string, ErrorGroup>();
   for (const line of lines) {
-    let entry: Record<string, unknown>;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (!parsed || typeof parsed !== "object") continue;
-      entry = parsed as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    if (typeof entry.level !== "number" || entry.level < 40) continue;
-
-    const module = typeof entry.module === "string" ? entry.module : "unknown";
-    const errorField = entry.error;
-    const errorMessage =
-      typeof errorField === "string"
-        ? errorField
-        : errorField && typeof errorField === "object" && "message" in errorField
-          ? String((errorField as { message: unknown }).message)
-          : "";
-    const msg = typeof entry.msg === "string" ? entry.msg : "";
-    const message = clip(scrubFreeText([msg, errorMessage].filter(Boolean).join(": ")));
-    const time = typeof entry.time === "string" ? entry.time : null;
+    const parsed = parseWarnLine(line);
+    if (!parsed) continue;
+    const { module, message, time } = parsed;
 
     const key = `${module}|${message}`;
     const existing = groups.get(key);

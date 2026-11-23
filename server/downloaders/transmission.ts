@@ -669,6 +669,23 @@ export class TransmissionClient implements DownloaderClient {
     );
   }
 
+  /** Headers for an RPC call: session ID once known, Basic Auth when credentials are set. */
+  private buildRequestHeaders(baseUrl: string): Record<string, string> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "User-Agent": "Questarr/1.0",
+    };
+    if (this.sessionId) headers["X-Transmission-Session-Id"] = this.sessionId;
+    if (this.downloader.username && this.downloader.password) {
+      assertCredentialsAllowed(this.downloader, baseUrl, "Transmission");
+      headers["Authorization"] = buildBasicAuthHeader(
+        this.downloader.username,
+        this.downloader.password
+      );
+    }
+    return headers;
+  }
+
   /**
    * Sends a Transmission RPC request and retries once with a server-provided session ID.
    *
@@ -681,32 +698,13 @@ export class TransmissionClient implements DownloaderClient {
   ): Promise<TransmissionRpcResponse> {
     const baseUrl = this.getBaseUrl();
 
-    // If the base URL doesn't already contain /transmission/rpc, append it
-    let url = baseUrl;
-    if (!url.includes("/transmission/rpc")) {
-      url += "/transmission/rpc";
-    }
+    const url = baseUrl.includes("/transmission/rpc") ? baseUrl : `${baseUrl}/transmission/rpc`;
 
     const body = {
       method,
       arguments: arguments_,
     };
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "User-Agent": "Questarr/1.0",
-    };
-
-    if (this.sessionId) {
-      headers["X-Transmission-Session-Id"] = this.sessionId;
-    }
-
-    if (this.downloader.username && this.downloader.password) {
-      assertCredentialsAllowed(this.downloader, baseUrl, "Transmission");
-      headers["Authorization"] = buildBasicAuthHeader(
-        this.downloader.username,
-        this.downloader.password
-      );
-    }
+    const headers = this.buildRequestHeaders(baseUrl);
 
     // When Basic Auth is configured, this request carries it -- require the resolved
     // URL to stay HTTPS through any redirect whenever it started out HTTPS, so a

@@ -118,6 +118,13 @@ export function summarizeAchievements(achievements: SteamAchievement[]) {
 const isTracked = (game: Game) =>
   game.steamAppId != null && (game.status === "playing" || OWNED_GAME_STATUSES.has(game.status));
 
+const SYNC_ERROR_MESSAGE =
+  "Could not read your Steam achievements. Check the API key and make Game details public.";
+
+function isWithinMinGap(lastSyncAt: number | null | undefined, force: boolean, now: Date): boolean {
+  return !force && !!lastSyncAt && now.getTime() - lastSyncAt < STEAM_ACHIEVEMENTS_MIN_GAP_MS;
+}
+
 /**
  * Sync one user. `force` ignores the minimum gap (the "Sync now" button). A game Steam cannot
  * read (no achievements, private details) is skipped; a failure on one game never stops the rest.
@@ -135,13 +142,7 @@ export async function syncSteamAchievements(
       throw new SteamAchievementsUnavailableError();
 
     const state = await readState(userId);
-    if (
-      !force &&
-      state.lastSyncAt &&
-      now.getTime() - state.lastSyncAt < STEAM_ACHIEVEMENTS_MIN_GAP_MS
-    ) {
-      return { gamesSynced: 0, newUnlocks: 0 };
-    }
+    if (isWithinMinGap(state.lastSyncAt, force, now)) return { gamesSynced: 0, newUnlocks: 0 };
 
     const [games, stored] = await Promise.all([
       storage.getUserGames(userId, true),
@@ -182,10 +183,8 @@ export async function syncSteamAchievements(
       }
       changed = true;
       gamesSynced++;
-      const before = previous.get(game.id);
-      if (before && summary.unlocked > before.unlocked) {
-        unlockedNow.push({ title: game.title, added: summary.unlocked - before.unlocked });
-      }
+      const added = summary.unlocked - (previous.get(game.id)?.unlocked ?? summary.unlocked);
+      if (added > 0) unlockedNow.push({ title: game.title, added });
     }
 
     const newUnlocks = unlockedNow.reduce((sum, g) => sum + g.added, 0);
@@ -197,10 +196,7 @@ export async function syncSteamAchievements(
         lastSyncAt: now.getTime(),
         lastGamesSynced: gamesSynced,
         lastNewUnlocks: newUnlocks,
-        lastError:
-          failed > 0 && gamesSynced === 0
-            ? "Could not read your Steam achievements. Check the API key and make Game details public."
-            : null,
+        lastError: failed > 0 && gamesSynced === 0 ? SYNC_ERROR_MESSAGE : null,
       });
     }
     if (newUnlocks > 0) await notifyUnlocks(userId, unlockedNow, newUnlocks);

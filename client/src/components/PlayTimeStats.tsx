@@ -1,3 +1,4 @@
+import { detectTimeZone } from "@/lib/timezone";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -63,19 +64,25 @@ function TagList({
   );
 }
 
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Some browsers start the download asynchronously, so keep the blob URL alive a moment.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /** The "Play time" part of the Statistics page, fed by `/api/stats/play-time`. */
 export default function PlayTimeStats() {
   const [range, setRange] = useState<Range>("week");
   // Days follow the browser's clock, so the server needs its offset from UTC.
   // The IANA zone makes the server apply daylight saving time per session; the offset is the fallback.
   const tz = useMemo(() => new Date().getTimezoneOffset(), []);
-  const timeZone = useMemo(() => {
-    try {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-    } catch {
-      return "";
-    }
-  }, []);
+  const timeZone = useMemo(() => detectTimeZone(), []);
 
   const { toast } = useToast();
   const [preset, setPreset] = useState<PlayRangePreset>("all");
@@ -121,15 +128,7 @@ export default function PlayTimeStats() {
     try {
       const res = await apiFetch(`/api/stats/play-time/export?${search}&format=${format}`);
       await throwIfResNotOk(res);
-      const url = URL.createObjectURL(await res.blob());
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `questarr-play-sessions.${format}`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      // Some browsers start the download asynchronously, so keep the blob URL alive a moment.
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      saveBlob(await res.blob(), `questarr-play-sessions.${format}`);
     } catch (error) {
       toast({
         title: "Could not export play sessions",

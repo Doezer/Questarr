@@ -367,13 +367,9 @@ interface Planned extends SteamImportCandidate {
   total: number;
 }
 
-/** Work out what an import would add. Nothing is written. */
-async function planSteamImport(userId: string): Promise<{ planned: Planned[]; skipped: number }> {
-  const user = await storage.getUser(userId);
-  if (!config.steam.isConfigured || !user?.steamId64) throw new SteamPlaytimeUnavailableError();
-  let totals;
+async function fetchSteamTotals(apiKey: string, steamId64: string) {
   try {
-    totals = await steamService.getOwnedPlaytimesDetailed(config.steam.apiKey!, user.steamId64);
+    return await steamService.getOwnedPlaytimesDetailed(apiKey, steamId64);
   } catch (error) {
     // Do not log the error: Steam request URLs contain the API key.
     const message =
@@ -382,6 +378,13 @@ async function planSteamImport(userId: string): Promise<{ planned: Planned[]; sk
         : "Could not read your Steam play time. Check the API key and make Game details public.";
     throw new SteamPlaytimeUpstreamError(message, { cause: error });
   }
+}
+
+/** Work out what an import would add. Nothing is written. */
+async function planSteamImport(userId: string): Promise<{ planned: Planned[]; skipped: number }> {
+  const user = await storage.getUser(userId);
+  if (!config.steam.isConfigured || !user?.steamId64) throw new SteamPlaytimeUnavailableError();
+  const totals = await fetchSteamTotals(config.steam.apiKey!, user.steamId64);
   const [games, runningTimer, sessions] = await Promise.all([
     storage.getUserGames(userId, true),
     storage.getRunningPlaySession(userId),

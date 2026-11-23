@@ -251,8 +251,19 @@ export default function ManualImportModal({
             : `${succeeded.length} file${succeeded.length === 1 ? "" : "s"} imported.`,
         variant: failed.length > 0 ? "destructive" : "default",
       });
-      onOpenChange(false);
-      reset();
+      if (failed.length > 0) {
+        const failedPaths = new Set(failed.map((result) => result.filePath));
+        setAssignments((current) =>
+          current.filter(
+            (assignment) => !assignment.gameId || failedPaths.has(assignment.file.path)
+          )
+        );
+        setScannedFiles((current) => current.filter((file) => failedPaths.has(file.path)));
+        setStep("assign");
+      } else {
+        onOpenChange(false);
+        reset();
+      }
     },
     onError: (error: Error) =>
       toast({ description: error.message || "Manual import failed", variant: "destructive" }),
@@ -377,18 +388,38 @@ export default function ManualImportModal({
                               className="pl-8"
                               onChange={(event) => {
                                 const value = event.target.value;
-                                const normalized = value.trim().toLowerCase();
-                                const match = normalized
-                                  ? filteredGames.find((item) =>
-                                      item.title.toLowerCase().includes(normalized)
-                                    )
-                                  : undefined;
                                 updateAssignment(index, {
                                   gameTitle: value,
-                                  gameId: match?.id ?? "",
+                                  gameId: "",
                                 });
                               }}
                             />
+                            {assignment.gameTitle.trim() && !assignment.gameId && (
+                              <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded-md border bg-popover p-1 shadow-md">
+                                {filteredGames
+                                  .filter((item) =>
+                                    item.title
+                                      .toLowerCase()
+                                      .includes(assignment.gameTitle.trim().toLowerCase())
+                                  )
+                                  .slice(0, 8)
+                                  .map((item) => (
+                                    <button
+                                      key={item.id}
+                                      type="button"
+                                      className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                                      onClick={() =>
+                                        updateAssignment(index, {
+                                          gameId: item.id,
+                                          gameTitle: item.title,
+                                        })
+                                      }
+                                    >
+                                      {item.title}
+                                    </button>
+                                  ))}
+                              </div>
+                            )}
                           </div>
                         )}
                         {assignment.gameId && (

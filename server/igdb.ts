@@ -942,6 +942,7 @@ class IGDBClient {
     const refFields = (field: string) =>
       [
         "name",
+        "summary",
         "cover.url",
         "first_release_date",
         "category",

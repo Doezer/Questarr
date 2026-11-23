@@ -159,6 +159,7 @@ export function createStorageMock() {
     recordAiAutoDownloadHold: vi.fn().mockResolvedValue(true),
     clearAiAutoDownloadHold: vi.fn().mockResolvedValue(undefined),
     getImportConfig: vi.fn(),
+    getPathMappings: vi.fn().mockResolvedValue([]),
     getAllRootFolders: vi.fn().mockResolvedValue([]),
     getEnabledRootFolders: vi.fn().mockResolvedValue([]),
     getRootFolder: vi.fn(),

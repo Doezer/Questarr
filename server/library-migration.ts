@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { randomUUID } from "node:crypto";
 import fsExtra from "fs-extra";
 import type { Game } from "../shared/schema.js";
@@ -165,6 +166,144 @@ async function assertMergeHasNoConflicts(source: string, target: string): Promis
   }
 }
 
+interface StoredPathChange {
+  kind: "game" | "file";
+  id: string;
+  oldPath: string;
+  newPath: string;
+}
+
+async function collectStoredPathChanges(
+  storage: IStorage,
+  games: Game[],
+  oldPath: string,
+  newPath: string
+): Promise<StoredPathChange[]> {
+  const changes: StoredPathChange[] = [];
+  for (const game of games) {
+    if (game.libraryPath) {
+      const updatedLibraryPath = replacePathPrefix(game.libraryPath, oldPath, newPath);
+      if (updatedLibraryPath) {
+        changes.push({
+          kind: "game",
+          id: game.id,
+          oldPath: game.libraryPath,
+          newPath: updatedLibraryPath,
+        });
+      }
+    }
+
+    for (const file of await storage.getGameFiles(game.id)) {
+      const updatedFilePath = replacePathPrefix(file.filePath, oldPath, newPath);
+      if (updatedFilePath) {
+        changes.push({
+          kind: "file",
+          id: file.id,
+          oldPath: file.filePath,
+          newPath: updatedFilePath,
+        });
+      }
+    }
+  }
+  return changes;
+}
+
+async function restoreStoredPathChanges(
+  storage: IStorage,
+  changes: readonly StoredPathChange[]
+): Promise<void> {
+  const failures: string[] = [];
+  for (const change of [...changes].reverse()) {
+    try {
+      const updated =
+        change.kind === "game"
+          ? await storage.updateGame(change.id, { libraryPath: change.oldPath })
+          : await storage.updateGameFilePath(change.id, change.oldPath);
+      if (!updated) failures.push(`${change.kind} ${change.id} was not found`);
+    } catch (error) {
+      failures.push(
+        `${change.kind} ${change.id}: ${error instanceof Error ? error.message : error}`
+      );
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`Could not restore database paths: ${failures.join("; ")}`);
+  }
+}
+
+async function applyStoredPathChanges(
+  storage: IStorage,
+  changes: readonly StoredPathChange[]
+): Promise<{ gamesUpdated: number; filesUpdated: number }> {
+  const applied: StoredPathChange[] = [];
+  try {
+    for (const change of changes) {
+      const updated =
+        change.kind === "game"
+          ? await storage.updateGame(change.id, { libraryPath: change.newPath })
+          : await storage.updateGameFilePath(change.id, change.newPath);
+      if (!updated) throw new Error(`${change.kind} ${change.id} was not found`);
+      applied.push(change);
+    }
+  } catch (error) {
+    try {
+      await restoreStoredPathChanges(storage, applied);
+    } catch (restoreError) {
+      throw new Error(
+        `Database path update failed: ${error instanceof Error ? error.message : error}; ${
+          restoreError instanceof Error ? restoreError.message : restoreError
+        }`,
+        { cause: restoreError }
+      );
+    }
+    throw error;
+  }
+
+  return {
+    gamesUpdated: changes.filter((change) => change.kind === "game").length,
+    filesUpdated: changes.filter((change) => change.kind === "file").length,
+  };
+}
+
+async function listRelativeFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+  const walk = async (current: string): Promise<void> => {
+    for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) await walk(entryPath);
+      else files.push(path.relative(root, entryPath));
+    }
+  };
+  await walk(root);
+  return files;
+}
+
+async function removeCopiedFiles(target: string, relativeFiles: readonly string[]): Promise<void> {
+  for (const relative of relativeFiles) {
+    await fsExtra.remove(path.join(target, relative));
+  }
+}
+
+type RollbackFilesystem = () => Promise<void>;
+
+const migrationLocks = new Map<string, Promise<void>>();
+
+async function withMigrationLock<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = migrationLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  migrationLocks.set(key, current);
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (migrationLocks.get(key) === current) migrationLocks.delete(key);
+  }
+}
+
 async function renameFolder(oldPath: string, newPath: string): Promise<void> {
   if (oldPath.toLowerCase() !== newPath.toLowerCase()) {
     await fs.rename(oldPath, newPath);
@@ -181,34 +320,6 @@ async function renameFolder(oldPath: string, newPath: string): Promise<void> {
   }
 }
 
-async function updateStoredPaths(
-  storage: IStorage,
-  games: Game[],
-  oldPath: string,
-  newPath: string
-): Promise<{ gamesUpdated: number; filesUpdated: number }> {
-  let gamesUpdated = 0;
-  let filesUpdated = 0;
-  for (const game of games) {
-    const updatedLibraryPath = game.libraryPath
-      ? replacePathPrefix(game.libraryPath, oldPath, newPath)
-      : null;
-    if (updatedLibraryPath) {
-      await storage.updateGame(game.id, { libraryPath: updatedLibraryPath });
-      gamesUpdated++;
-    }
-
-    for (const file of await storage.getGameFiles(game.id)) {
-      const updatedFilePath = replacePathPrefix(file.filePath, oldPath, newPath);
-      if (updatedFilePath) {
-        await storage.updateGameFilePath(file.id, updatedFilePath);
-        filesUpdated++;
-      }
-    }
-  }
-  return { gamesUpdated, filesUpdated };
-}
-
 export async function applyPlatformFolderRenames(
   libraryRoot: string,
   requested: readonly PlatformFolderRename[],
@@ -216,53 +327,85 @@ export async function applyPlatformFolderRenames(
   games: Game[]
 ): Promise<PlatformMigrationResult[]> {
   const resolvedRoot = path.resolve(libraryRoot);
-  const current = await scanPlatformFolderRenames(resolvedRoot);
-  const byOld = new Map(current.map((rename) => [rename.oldName.toLowerCase(), rename]));
-  const results: PlatformMigrationResult[] = [];
+  const lockKey = process.platform === "win32" ? resolvedRoot.toLowerCase() : resolvedRoot;
+  return withMigrationLock(lockKey, async () => {
+    const current = await scanPlatformFolderRenames(resolvedRoot);
+    const byOld = new Map(current.map((rename) => [rename.oldName.toLowerCase(), rename]));
+    const results: PlatformMigrationResult[] = [];
 
-  for (const item of requested) {
-    const action = item.merge ? "merge" : "rename";
-    try {
-      if (!isSafeChildName(item.oldName) || !isSafeChildName(item.newName)) {
-        throw new Error("Folder names must be immediate children of the library root");
-      }
-      const proposal = byOld.get(item.oldName.toLowerCase());
-      if (
-        !proposal ||
-        proposal.newName.toLowerCase() !== item.newName.toLowerCase() ||
-        proposal.merge !== item.merge
-      ) {
-        throw new Error("Migration proposal is stale; scan the library again");
-      }
+    for (const item of requested) {
+      const action = item.merge ? "merge" : "rename";
+      let rollbackFilesystem: RollbackFilesystem | undefined;
+      let backupRoot: string | undefined;
+      try {
+        if (!isSafeChildName(item.oldName) || !isSafeChildName(item.newName)) {
+          throw new Error("Folder names must be immediate children of the library root");
+        }
+        const proposal = byOld.get(item.oldName.toLowerCase());
+        if (
+          !proposal ||
+          proposal.newName.toLowerCase() !== item.newName.toLowerCase() ||
+          proposal.merge !== item.merge
+        ) {
+          throw new Error("Migration proposal is stale; scan the library again");
+        }
 
-      const oldPath = path.join(resolvedRoot, proposal.oldName);
-      const newPath = path.join(resolvedRoot, proposal.newName);
-      if (proposal.merge) {
-        await assertMergeHasNoConflicts(oldPath, newPath);
-        await fsExtra.copy(oldPath, newPath, { overwrite: false, errorOnExist: true });
-        await fsExtra.remove(oldPath);
-      } else {
-        await renameFolder(oldPath, newPath);
-      }
+        const oldPath = path.join(resolvedRoot, proposal.oldName);
+        const newPath = path.join(resolvedRoot, proposal.newName);
+        const storedChanges = await collectStoredPathChanges(storage, games, oldPath, newPath);
 
-      const counts = await updateStoredPaths(storage, games, oldPath, newPath);
-      results.push({
-        oldName: proposal.oldName,
-        newName: proposal.newName,
-        action: proposal.merge ? "merge" : "rename",
-        success: true,
-        ...counts,
-      });
-    } catch (error) {
-      results.push({
-        oldName: item.oldName,
-        newName: item.newName,
-        action,
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+        if (proposal.merge) {
+          await assertMergeHasNoConflicts(oldPath, newPath);
+          const relativeFiles = await listRelativeFiles(oldPath);
+          backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), "questarr-library-migration-"));
+          const backupPath = path.join(backupRoot, "source");
+          await fsExtra.copy(oldPath, backupPath, { overwrite: false, errorOnExist: true });
+          rollbackFilesystem = async () => {
+            await removeCopiedFiles(newPath, relativeFiles);
+            await fsExtra.copy(backupPath, oldPath, { overwrite: false });
+          };
+          await fsExtra.copy(oldPath, newPath, { overwrite: false, errorOnExist: true });
+          await fsExtra.remove(oldPath);
+        } else {
+          await renameFolder(oldPath, newPath);
+          rollbackFilesystem = async () => {
+            if (!(await fsExtra.pathExists(oldPath)) && (await fsExtra.pathExists(newPath))) {
+              await renameFolder(newPath, oldPath);
+            }
+          };
+        }
+
+        const counts = await applyStoredPathChanges(storage, storedChanges);
+        results.push({
+          oldName: proposal.oldName,
+          newName: proposal.newName,
+          action: proposal.merge ? "merge" : "rename",
+          success: true,
+          ...counts,
+        });
+      } catch (error) {
+        let message = error instanceof Error ? error.message : String(error);
+        if (rollbackFilesystem) {
+          try {
+            await rollbackFilesystem();
+          } catch (rollbackError) {
+            message += `; filesystem rollback failed: ${
+              rollbackError instanceof Error ? rollbackError.message : rollbackError
+            }`;
+          }
+        }
+        results.push({
+          oldName: item.oldName,
+          newName: item.newName,
+          action,
+          success: false,
+          error: message,
+        });
+      } finally {
+        if (backupRoot) await fsExtra.remove(backupRoot).catch(() => undefined);
+      }
     }
-  }
 
-  return results;
+    return results;
+  });
 }

@@ -29,7 +29,7 @@ vi.mock("../path-security.js", () => ({
   assertWithinRoots: assertWithinRootsMock,
 }));
 
-import { ImportManager } from "../services/ImportManager.js";
+import { ImportManager, isSupportedManualImportFile } from "../services/ImportManager.js";
 import { PCImportStrategy } from "../services/ImportStrategies.js";
 import { makeImportConfig } from "./helpers/import-test-helpers.js";
 
@@ -42,6 +42,7 @@ function makeStorage() {
     getGameDownload: vi.fn(),
     getGame: vi.fn(),
     getImportConfig: vi.fn(),
+    getEnabledRootFolders: vi.fn().mockResolvedValue([]),
     getDownloader: vi.fn(),
     updateGameDownloadStatus: vi.fn(),
     updateGameStatus: vi.fn(),
@@ -80,6 +81,44 @@ function makeManager(
     archiveService as never // NOSONAR
   );
 }
+
+describe("ImportManager - transfer metadata", () => {
+  it("uses categories aligned with the files actually placed", async () => {
+    const manager = makeManager(makeStorage());
+    const finalizeSpy = vi.spyOn(manager as never, "finalizeImport").mockResolvedValue(undefined);
+
+    const plannedCategories = [{ name: "game.zip", category: "main" as const }];
+    const placedCategories = [{ name: "Game Update v1.nsp", category: "update" as const }];
+    const download = { id: "dl-1", downloadTitle: "Game Update v1" };
+    const game = { id: "g1", title: "Game" };
+
+    await (manager as never).importWithReplacement(
+      null,
+      "copy",
+      download,
+      game,
+      async () => ({
+        destDir: "/games/Game",
+        filesPlaced: ["/games/Game/update/Game Update v1.nsp"],
+        placedFileCategories: placedCategories,
+        modeUsed: "copy" as const,
+        conflictsResolved: [],
+      }),
+      download.downloadTitle,
+      plannedCategories
+    );
+
+    expect(finalizeSpy).toHaveBeenCalledWith(
+      "dl-1",
+      game,
+      "/games/Game",
+      ["/games/Game/update/Game Update v1.nsp"],
+      "Game Update v1",
+      placedCategories,
+      null
+    );
+  });
+});
 
 // ─── planConfirmImport ────────────────────────────────────────────────────────
 
@@ -1031,6 +1070,63 @@ describe("ImportManager - confirmImport path resolution failures", () => {
       "manual_review_required",
       "disk full"
     );
+  });
+});
+
+// ─── manual-import source policy ─────────────────────────────────────────────
+
+describe("ImportManager - manual-import source policy", () => {
+  it("uses configured mappings plus Questarr library roots when mappings exist", async () => {
+    const storage = makeStorage();
+    storage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/library" }));
+    storage.getEnabledRootFolders.mockResolvedValue([{ path: "/roms" }]);
+    const pathService = {
+      translatePath: vi.fn(),
+      getConfiguredRoots: vi.fn().mockResolvedValue(["/downloads"]),
+    };
+    const manager = makeManager(storage, { pathService });
+
+    await expect(manager.getManualImportSourceRoots("u1")).resolves.toEqual([
+      path.resolve("/downloads"),
+      path.resolve("/library"),
+      path.resolve("/roms"),
+    ]);
+  });
+
+  it("still restricts sources to the library roots when no mappings exist", async () => {
+    const storage = makeStorage();
+    storage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/library" }));
+    storage.getEnabledRootFolders.mockResolvedValue([{ path: "/roms" }]);
+    const manager = makeManager(storage);
+
+    await expect(manager.getManualImportSourceRoots("u1")).resolves.toEqual([
+      path.resolve("/library"),
+      path.resolve("/roms"),
+    ]);
+  });
+
+  it("passes a manually selected source through the configured-root guard", async () => {
+    const storage = makeStorage();
+    storage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/library" }));
+    const pathService = {
+      translatePath: vi.fn(),
+      getConfiguredRoots: vi.fn().mockResolvedValue(["/downloads"]),
+    };
+    const manager = makeManager(storage, { pathService });
+
+    await expect(manager.validateManualImportSource("/downloads/game.iso", "u1")).resolves.toBe(
+      path.resolve("/downloads/game.iso")
+    );
+    expect(assertWithinRootsMock).toHaveBeenCalledWith(
+      path.resolve("/downloads/game.iso"),
+      [path.resolve("/downloads"), path.resolve("/library")],
+      "Manual import source must be inside a configured source root"
+    );
+  });
+
+  it("accepts only supported game-file extensions", () => {
+    expect(isSupportedManualImportFile("/downloads/game.nsp")).toBe(true);
+    expect(isSupportedManualImportFile("/downloads/readme.txt")).toBe(false);
   });
 });
 

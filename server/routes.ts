@@ -121,7 +121,6 @@ import {
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
 import { notificationUrl } from "./notification-links.js";
-import { isSensitivePath } from "./path-security.js";
 import { assessLibraryTarget } from "./library-path.js";
 import { prowlarrClient } from "./prowlarr.js";
 import {
@@ -401,6 +400,7 @@ import { setupChecksRouter } from "./routes/setup-checks.js";
 import { setupWizardRouter, SETUP_WIZARD_KEY } from "./routes/setup-wizard.js";
 import { backupsRouter } from "./routes/backups.js";
 import { importManager } from "./services/index.js";
+import { isSupportedManualImportFile } from "./services/ImportManager.js";
 import { activityRouter } from "./routes/activity.js";
 import { realDebridRouter } from "./routes/realdebrid.js";
 import { ddlRouter } from "./routes/ddl.js";
@@ -3016,7 +3016,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // configured library root by design. Allow deleting their files
             // too, but only when the user has explicitly opted that specific
             // root folder in to deletion — discovery itself never does.
-            const canDelete = insideRoot || (await isWithinDeletableRootFolder(resolvedTarget));
+            const canDelete = targetSafety.safe
+              ? insideRoot
+              : targetSafety.reason === "outside-library-root" &&
+                (await isWithinDeletableRootFolder(resolvedTarget));
 
             if (canDelete) {
               try {
@@ -3036,7 +3039,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               );
               fileDeletion = {
                 deleted: false,
-                reason: "outside-library-root",
+                reason: targetSafety.safe ? "outside-library-root" : targetSafety.reason,
                 path: game.libraryPath,
               };
             }
@@ -3406,6 +3409,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const existing = (await storage.getGameFiles(gameId)).find((f) => f.filePath === filePath);
         if (existing) {
           await storage.updateGameFileCategory(existing.id, category);
+          if (existing.category !== category && existing.igdbContentId != null) {
+            await storage.updateGameFileContentId(existing.id, null);
+          }
         } else {
           const created = await storage.addGameFile({
             gameId,
@@ -3578,8 +3584,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // expansion merely because both happen to use the same broad category.
         const { items: contentItems, videos: liveVideos } = await getContentItemsForGame(game);
         const knownContentIds = new Set(contentItems.map((item) => item.id));
-        const isKnownLinkedFile = (file: (typeof gameFiles)[number]) =>
-          file.igdbContentId != null && knownContentIds.has(file.igdbContentId);
+        const isKnownLinkedFile = (file: (typeof gameFiles)[number]) => {
+          if (file.igdbContentId == null || !knownContentIds.has(file.igdbContentId)) {
+            return false;
+          }
+          const contentItem = contentItems.find((item) => item.id === file.igdbContentId);
+          return (
+            contentItem != null && contentCategoryMatchesFile(contentItem.category, file.category)
+          );
+        };
 
         const baseFiles = gameFiles.filter(
           (file) => file.category === "main" && !isKnownLinkedFile(file)
@@ -3596,7 +3609,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           },
           ...contentItems.map((item) => {
             const files = gameFiles
-              .filter((file) => file.igdbContentId === item.id)
+              .filter(
+                (file) =>
+                  file.igdbContentId === item.id &&
+                  contentCategoryMatchesFile(item.category, file.category)
+              )
               .map(toFileResponse);
             return {
               category: item.category,
@@ -3704,30 +3721,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/import/manual/scan", authenticateToken, async (req: Request, res: Response) => {
     try {
       const scanPath = z.object({ path: z.string().min(1) }).parse(req.body).path;
-      if (await isSensitivePath(scanPath)) {
-        return res.status(400).json({ error: "Refusing to scan a sensitive system path" });
-      }
+      await importManager.validateManualImportSource(scanPath, req.user!.id);
       const stats = await fs.promises.stat(scanPath);
-      const supportedExtensions = new Set([
-        ".7z",
-        ".bin",
-        ".chd",
-        ".cue",
-        ".gdi",
-        ".gz",
-        ".iso",
-        ".nca",
-        ".nsp",
-        ".pkg",
-        ".pup",
-        ".rar",
-        ".rvz",
-        ".tar",
-        ".wad",
-        ".wbfs",
-        ".xci",
-        ".zip",
-      ]);
       const entries = stats.isDirectory()
         ? await fs.promises.readdir(scanPath, { withFileTypes: true })
         : [
@@ -3745,7 +3740,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           break;
         }
         if (!entry.isFile()) continue;
-        if (!supportedExtensions.has(path.extname(entry.name).toLowerCase())) continue;
+        if (!isSupportedManualImportFile(entry.name)) continue;
         const absolutePath = stats.isDirectory() ? path.join(scanPath, entry.name) : scanPath;
         try {
           const fileStats = await fs.promises.stat(absolutePath);
@@ -3764,12 +3759,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.json({ files, truncated });
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues });
+      const message = error instanceof Error ? error.message : String(error);
       const code = (error as NodeJS.ErrnoException)?.code;
       if (code === "ENOENT" || code === "ENOTDIR") {
         return res.status(400).json({ error: "Selected path does not exist" });
       }
       if (code === "EACCES" || code === "EPERM") {
         return res.status(403).json({ error: "Selected path is not readable" });
+      }
+      if (message === "Refusing to process a sensitive system path") {
+        return res.status(400).json({ error: message });
+      }
+      if (message === "Refusing to process Questarr app data") {
+        return res.status(400).json({ error: message });
+      }
+      if (message === "Manual import source must be inside a configured source root") {
+        return res.status(400).json({ error: message });
       }
       routesLogger.error({ error }, "error scanning for manual import");
       return res.status(500).json({ error: "Failed to scan path" });
@@ -3782,6 +3787,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     gameIdParamValidation,
     validateRequest,
     async (req: Request, res: Response) => {
+      let transferredResult: Awaited<ReturnType<typeof importManager.manualImportFile>> | null =
+        null;
+      let transferredSourcePath: string | null = null;
+      let createdGameFileId: string | null = null;
       try {
         const body = z
           .object({
@@ -3886,25 +3895,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
           transferMode: body.transferMode,
           scanDisk: body.scanDisk,
         });
+        transferredResult = result;
+        transferredSourcePath = body.filePath;
         const category: GameFileCategory = body.category === "packs" ? "extra" : body.category;
         const originalName = path.basename(body.filePath);
-        const existing = (await storage.getGameFiles(game.id)).find(
+        const trackedFiles = await storage.getGameFiles(game.id);
+        const sourcePath = path.resolve(body.filePath);
+        const existingSource = trackedFiles.find(
+          (file) => path.resolve(file.filePath) === sourcePath
+        );
+        const existing = trackedFiles.find(
           (file) => path.resolve(file.filePath) === path.resolve(result.newPath)
         );
-        if (existing)
-          return res.status(409).json({ error: "That destination file is already tracked" });
+        if (existing && existing.id !== existingSource?.id) {
+          throw new Error("That destination file is already tracked");
+        }
 
-        const gameFile = await storage.addGameFile({
-          gameId: game.id,
-          originalName,
-          storedName: originalName,
-          category,
-          filePath: result.newPath,
-          fileSize: result.fileSize,
-          downloadId: matchedDownloadId,
-          ...(body.igdbContentId != null ? { igdbContentId: body.igdbContentId } : {}),
-        });
+        const gameFile = existingSource
+          ? ((await storage.updateGameFilePath(existingSource.id, result.newPath)) ??
+            existingSource)
+          : await storage.addGameFile({
+              gameId: game.id,
+              originalName,
+              storedName: originalName,
+              category,
+              filePath: result.newPath,
+              fileSize: result.fileSize,
+              downloadId: matchedDownloadId,
+              ...(body.igdbContentId != null ? { igdbContentId: body.igdbContentId } : {}),
+            });
+        createdGameFileId = existingSource ? null : gameFile.id;
         await storage.updateGameFileCategory(gameFile.id, category);
+        if (
+          existingSource &&
+          existingSource.category !== category &&
+          existingSource.igdbContentId != null
+        ) {
+          await storage.updateGameFileContentId(gameFile.id, null);
+        }
         await importManager.setLibraryPathOnce(game, result.destDir);
         if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
           await storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
@@ -3917,6 +3945,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           modeUsed: result.modeUsed,
         });
       } catch (error) {
+        if (createdGameFileId) {
+          await storage.removeGameFile(createdGameFileId).catch(() => undefined);
+        }
+        if (transferredResult && transferredSourcePath) {
+          await importManager
+            .rollbackManualImport(
+              transferredSourcePath,
+              transferredResult.newPath,
+              transferredResult.modeUsed
+            )
+            .catch((rollbackError) =>
+              routesLogger.error({ error: rollbackError }, "failed to roll back manual import")
+            );
+        }
         if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues });
         const message = error instanceof Error ? error.message : String(error);
         const code = (error as NodeJS.ErrnoException)?.code;
@@ -3933,6 +3975,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         if (message === "Game library path does not exist") {
           return res.status(409).json({ error: message });
+        }
+        if (
+          message === "Manual import source must be inside a configured source root" ||
+          message === "Refusing to process Questarr app data" ||
+          message === "Unsupported manual import file type" ||
+          message === "Scan Disk source must be inside the game's library path" ||
+          message === "Scan Disk imports require an existing game library path"
+        ) {
+          return res.status(400).json({ error: message });
         }
         routesLogger.error({ error }, "error in manual import");
         return res.status(500).json({ error: "Failed to import file", details: message });

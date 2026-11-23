@@ -1474,7 +1474,9 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.getImportConfig).mockResolvedValue({
         libraryRoot: "/data/library",
       } as any);
-      vi.mocked(storage.getAllRootFolders).mockResolvedValue([]);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        makeRootFolder({ path: "/data/library", allowDelete: true }),
+      ]);
       vi.mocked(storage.removeGame).mockResolvedValue(true);
 
       const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
@@ -1498,7 +1500,9 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.getImportConfig).mockResolvedValue({
         libraryRoot: "/data/library",
       } as any);
-      vi.mocked(storage.getAllRootFolders).mockResolvedValue([]);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        makeRootFolder({ path: "/data/library", allowDelete: true }),
+      ]);
       vi.mocked(storage.removeGame).mockResolvedValue(true);
 
       const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);

@@ -29,6 +29,8 @@ import {
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
+import { configLoader } from "../config-loader.js";
+import { resolveSqliteDbPath } from "../db/sqlite-path.js";
 import { notifyUser } from "../socket.js";
 import type { DownloadCategory } from "../../shared/download-categorizer.js";
 import { carriesBaseGameVersion, inferReleaseCategory } from "../../shared/version-utils.js";
@@ -57,6 +59,40 @@ export type ImportContentSuggestion = {
 
 type ExtractionContentMetadata = Pick<FileCategoryEntry, "category" | "igdbContentId">;
 
+const MANUAL_IMPORT_SUPPORTED_EXTENSIONS = new Set([
+  ".7z",
+  ".bin",
+  ".chd",
+  ".cue",
+  ".gdi",
+  ".gz",
+  ".iso",
+  ".nca",
+  ".nsp",
+  ".pkg",
+  ".pup",
+  ".rar",
+  ".rvz",
+  ".tar",
+  ".wad",
+  ".wbfs",
+  ".xci",
+  ".zip",
+]);
+
+export function isSupportedManualImportFile(filePath: string): boolean {
+  return MANUAL_IMPORT_SUPPORTED_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+async function isWithinPath(candidatePath: string, rootPath: string): Promise<boolean> {
+  const resolvedCandidate = path.resolve(candidatePath);
+  const resolvedRoot = path.resolve(rootPath);
+  const canonicalCandidate = await fs.realpath(resolvedCandidate).catch(() => resolvedCandidate);
+  const canonicalRoot = await fs.realpath(resolvedRoot).catch(() => resolvedRoot);
+  const relative = path.relative(canonicalRoot, canonicalCandidate);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
 function contentCategoryForIgdbCategory(
   igdbCategory?: number
 ): ImportContentSuggestion["category"] {
@@ -74,6 +110,15 @@ function importedFileCategory(filePath: string): "main" | "dlc" | "update" | "ex
   if (parent === "extra") return "extra";
   const inferred = categorizeDownload(path.basename(filePath)).category;
   return inferred === "packs" ? "extra" : inferred;
+}
+
+function contentSuggestionMatchesFile(
+  contentCategory: ImportContentSuggestion["category"],
+  fileCategory: "main" | "dlc" | "update" | "extra"
+): boolean {
+  if (contentCategory === "update") return fileCategory === "update";
+  if (contentCategory === "dlc") return fileCategory === "dlc";
+  return fileCategory === "extra";
 }
 
 function buildExtractionFileCategories(
@@ -358,6 +403,45 @@ export class ImportManager {
     ];
   }
 
+  /** Source roots accepted by the manual-import picker. */
+  async getManualImportSourceRoots(userId?: string): Promise<string[]> {
+    const mappedRoots = await this.pathService.getConfiguredRoots();
+    const [config, rootFolders] = await Promise.all([
+      this.storage.getImportConfig(userId),
+      this.storage.getEnabledRootFolders(),
+    ]);
+    return [
+      ...new Set([
+        ...mappedRoots.map((root) => path.resolve(root)),
+        path.resolve(config.libraryRoot || "/data"),
+        ...rootFolders.map((folder) => path.resolve(folder.path)),
+      ]),
+    ];
+  }
+
+  /** Validates a manually selected source path using Questarr's configured-root policy. */
+  async validateManualImportSource(filePath: string, userId?: string): Promise<string> {
+    if (await isSensitivePath(filePath)) {
+      throw new Error("Refusing to process a sensitive system path");
+    }
+
+    const sourcePath = path.resolve(filePath);
+    const appDataRoots = [path.dirname(resolveSqliteDbPath()), configLoader.getConfigDir()];
+    if (
+      await Promise.any(appDataRoots.map((root) => isWithinPath(sourcePath, root))).catch(
+        () => false
+      )
+    ) {
+      throw new Error("Refusing to process Questarr app data");
+    }
+    await assertWithinRoots(
+      sourcePath,
+      await this.getManualImportSourceRoots(userId),
+      "Manual import source must be inside a configured source root"
+    );
+    return sourcePath;
+  }
+
   /**
    * Import one user-selected file into a game's existing folder, or create a
    * new game folder under the configured library root when the game has no
@@ -374,18 +458,27 @@ export class ImportManager {
       scanDisk?: boolean | undefined;
     } = {}
   ): Promise<{ destDir: string; newPath: string; fileSize: number; modeUsed: TransferMode }> {
-    if (await isSensitivePath(filePath)) {
-      throw new Error("Refusing to process a sensitive system path");
-    }
-
     const allowedRoots = await this.getManualImportDestinationRoots(game.userId ?? undefined);
-    const sourcePath = path.resolve(filePath);
+    const sourcePath = await this.validateManualImportSource(filePath, game.userId ?? undefined);
     const sourceStats = await fs.stat(sourcePath);
     if (!sourceStats.isFile()) throw new Error("filePath must point to a file");
+    if (!isSupportedManualImportFile(sourcePath)) {
+      throw new Error("Unsupported manual import file type");
+    }
 
     const config = await this.storage.getImportConfig(game.userId ?? undefined);
     const libraryRoot = path.resolve(config.libraryRoot || "/data");
     const currentLibraryPath = game.libraryPath ? path.resolve(game.libraryPath) : null;
+    if (options.scanDisk) {
+      if (!currentLibraryPath) {
+        throw new Error("Scan Disk imports require an existing game library path");
+      }
+      await assertWithinRoots(
+        sourcePath,
+        [currentLibraryPath],
+        "Scan Disk source must be inside the game's library path"
+      );
+    }
     let destDir: string;
     let forceMove = false;
 
@@ -393,7 +486,7 @@ export class ImportManager {
       // Scan Disk relocation is always move-only: the source is already inside
       // the game's tree and must not be duplicated.
       destDir = path.resolve(options.targetDir);
-      forceMove = true;
+      forceMove = Boolean(options.scanDisk);
     } else if (currentLibraryPath) {
       const currentStats = await fs.stat(currentLibraryPath).catch(() => null);
       if (!currentStats) throw new Error("Game library path does not exist");
@@ -418,7 +511,12 @@ export class ImportManager {
 
     const newPath = path.join(resolvedDestDir, path.basename(sourcePath));
     if (path.resolve(newPath) === sourcePath) {
-      throw new Error("The selected file is already at the destination");
+      return {
+        destDir: gameRoot,
+        newPath: sourcePath,
+        fileSize: sourceStats.size,
+        modeUsed: "move",
+      };
     }
     if (await fs.pathExists(newPath)) {
       throw new Error(`Destination already exists: ${newPath}`);
@@ -442,6 +540,22 @@ export class ImportManager {
       fileSize: sourceStats.size,
       modeUsed: result.modeUsed,
     };
+  }
+
+  /** Undo a completed manual-import transfer when recording its game-file row fails. */
+  async rollbackManualImport(
+    sourcePath: string,
+    destinationPath: string,
+    modeUsed: TransferMode
+  ): Promise<void> {
+    const source = path.resolve(sourcePath);
+    const destination = path.resolve(destinationPath);
+    if (source === destination) return;
+    if (modeUsed === "move") {
+      await fs.move(destination, source);
+    } else {
+      await fs.remove(destination);
+    }
   }
 
   private validateManualPlatformDir(platformDir: string): string {
@@ -1046,14 +1160,20 @@ export class ImportManager {
     libraryPath: string,
     filesPlaced: string[] = [],
     downloadTitle = "",
-    placedFileCategories?: FileCategoryEntry[]
+    placedFileCategories?: FileCategoryEntry[],
+    replacement: UpgradeReplacement | null = null
   ): Promise<void> {
     // null clears an error left by an earlier failed attempt.
     await this.storage.updateGameDownloadStatus(download.id, "imported", null);
-    await this.storage.updateGame(game.id, { libraryPath });
+    if (replacement && !replacement.samePath) {
+      const resolvedLibraryPath = path.resolve(libraryPath);
+      await this.storage.updateGame(game.id, { libraryPath: resolvedLibraryPath });
+      game.libraryPath = resolvedLibraryPath;
+    } else {
+      await this.setLibraryPathOnce(game, libraryPath);
+    }
     // The import is marked above, so it no longer counts as unfinished for a patch's gate.
     if (game.status !== "owned") await applyDeliveredStatus(this.storage, download, game);
-
     try {
       await this.recordImportedFiles(
         download.id,
@@ -1167,6 +1287,7 @@ export class ImportManager {
     placedFileCategories?: FileCategoryEntry[]
   ): Promise<ImportResult> {
     if (replacement) await setOldVersionAside(replacement);
+    const previousLibraryPath = game.libraryPath;
     let result: ImportResult;
     let transferred = false;
     try {
@@ -1178,7 +1299,8 @@ export class ImportManager {
         result.libraryEntry ?? result.destDir,
         result.filesPlaced,
         downloadTitle,
-        placedFileCategories ?? result.placedFileCategories
+        result.placedFileCategories ?? placedFileCategories,
+        replacement
       );
     } catch (err) {
       if (replacement) {
@@ -1186,13 +1308,14 @@ export class ImportManager {
         // version that is still in place, not at the import that failed.
         if (transferred) {
           await this.storage
-            .updateGame(game.id, { libraryPath: game.libraryPath })
+            .updateGame(game.id, { libraryPath: previousLibraryPath })
             .catch((restoreErr) =>
               logger.error(
                 { err: restoreErr, gameId: game.id },
                 "[ImportManager] Could not point the game back at its previous version"
               )
             );
+          game.libraryPath = previousLibraryPath;
         }
         const keptAt = await this.restoreReplacedVersion(replacement, transferMode, download.id);
         // The files are no longer where the transfer left them: say where they went, on
@@ -1341,29 +1464,35 @@ export class ImportManager {
     const suggestion = await this.suggestImportContent(game, downloadTitle);
     const existing = await this.storage.getGameFiles(game.id);
     const existingByPath = new Map(existing.map((file) => [path.resolve(file.filePath), file]));
-    const contentCategory =
-      suggestion?.category === "update"
-        ? "update"
-        : suggestion?.category === "packs"
-          ? "extra"
-          : "dlc";
-
     for (const [index, filePath] of filesPlaced.entries()) {
       const resolvedPath = path.resolve(filePath);
       const stats = await fs.stat(resolvedPath).catch(() => undefined);
       if (!stats || (typeof stats.isFile === "function" && !stats.isFile())) continue;
 
       const selected = placedFileCategories?.[index];
+      const category = selected
+        ? selected.category === "packs"
+          ? "extra"
+          : selected.category
+        : importedFileCategory(resolvedPath);
       const suggestionMatchesSelected =
-        suggestion != null &&
-        (selected == null ||
-          (suggestion.category === "update" && selected.category === "update") ||
-          (suggestion.category !== "update" &&
-            (selected.category === "dlc" || selected.category === "packs")));
+        suggestion != null && contentSuggestionMatchesFile(suggestion.category, category);
+      const explicitContentMatches =
+        selected?.igdbContentId != null &&
+        contentSuggestionMatchesFile(
+          selected.category === "update"
+            ? "update"
+            : selected.category === "dlc"
+              ? "dlc"
+              : selected.category === "packs"
+                ? "packs"
+                : "extra",
+          category
+        );
       const existingFile = existingByPath.get(resolvedPath);
       if (existingFile) {
         const contentId =
-          selected?.igdbContentId ??
+          (explicitContentMatches ? selected?.igdbContentId : undefined) ??
           (suggestion && suggestionMatchesSelected ? suggestion.id : undefined);
         if (contentId != null && existingFile.igdbContentId == null) {
           await this.storage.updateGameFileContentId(existingFile.id, contentId);
@@ -1371,13 +1500,6 @@ export class ImportManager {
         continue;
       }
 
-      const category = selected
-        ? selected.category === "packs"
-          ? "extra"
-          : selected.category
-        : suggestion
-          ? contentCategory
-          : importedFileCategory(resolvedPath);
       const created = await this.storage.addGameFile({
         gameId: game.id,
         downloadId,
@@ -1386,7 +1508,7 @@ export class ImportManager {
         category,
         filePath: resolvedPath,
         fileSize: typeof stats.size === "number" ? stats.size : null,
-        ...(selected?.igdbContentId != null
+        ...(explicitContentMatches
           ? { igdbContentId: selected.igdbContentId }
           : suggestion && suggestionMatchesSelected
             ? { igdbContentId: suggestion.id }

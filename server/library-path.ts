@@ -1,6 +1,6 @@
 import path from "node:path";
 import { PLATFORM_CATALOG } from "../shared/title-utils.js";
-import { rommSlugForPlatformId } from "../shared/romm-platforms.js";
+import { ROMM_SLUG_BY_IGDB_PLATFORM_ID, rommSlugForPlatformId } from "../shared/romm-platforms.js";
 
 export type LibraryTargetSafety =
   | { safe: true; resolvedTarget: string }
@@ -51,6 +51,7 @@ const SHARED_PLATFORM_DIRECTORY_NAMES = new Set(
       ...igdbNames,
       ...igdbIds.map((id) => rommSlugForPlatformId(id)).filter((slug): slug is string => !!slug),
     ]),
+    ...Object.values(ROMM_SLUG_BY_IGDB_PLATFORM_ID),
   ].map((name) => name.toLowerCase())
 );
 

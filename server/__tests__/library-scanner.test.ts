@@ -12,10 +12,11 @@ import {
   rescanAllEnabledRootFolders,
   scanRootFolderById,
   scanAllEnabledRootFolders,
+  backfillGameFilesForGame,
   getScanProgress,
   getAllUnmatched,
 } from "../library-scanner.js";
-import type { RootFolder, Game } from "../../shared/schema.js";
+import type { RootFolder, Game, GameFile } from "../../shared/schema.js";
 
 const { scoreMatch, isIgnoredFile } = __testing;
 
@@ -45,6 +46,7 @@ vi.mock("../storage.js", () => ({
     updateGameStatus: vi.fn(),
     getGameFiles: vi.fn().mockResolvedValue([]),
     addGameFile: vi.fn(),
+    addGameFilesBatch: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -98,6 +100,37 @@ describe("library-scanner isIgnoredFile", () => {
     expect(isIgnoredFile("game.iso")).toBe(false);
     expect(isIgnoredFile("game.zip")).toBe(false);
   });
+});
+
+describe("backfillGameFilesForGame", () => {
+  it.skipIf(process.platform === "win32")(
+    "does not duplicate a file tracked through a symlink path",
+    async () => {
+      const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-backfill-"));
+      const libraryRoot = path.join(tmpDir, "library");
+      const gameDir = path.join(libraryRoot, "PC", "Test Game");
+      await fs.promises.mkdir(gameDir, { recursive: true });
+
+      const actualPath = path.join(gameDir, "game.iso");
+      const aliasPath = path.join(gameDir, "game-alias.iso");
+      await fs.promises.writeFile(actualPath, "game");
+      await fs.promises.symlink(actualPath, aliasPath);
+
+      const { storage } = await import("../storage.js");
+      vi.mocked(storage.getGameFiles).mockResolvedValue([
+        { id: "gf-existing", gameId: "g-backfill", filePath: aliasPath } as GameFile,
+      ]);
+      vi.mocked(storage.addGameFilesBatch).mockClear();
+
+      const added = await backfillGameFilesForGame(
+        { id: "g-backfill", libraryPath: gameDir },
+        libraryRoot
+      );
+
+      expect(added).toBe(0);
+      expect(storage.addGameFilesBatch).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe("matchUnmatchedFolder", () => {

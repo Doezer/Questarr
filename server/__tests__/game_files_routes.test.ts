@@ -301,7 +301,14 @@ describe("Game file routes", () => {
     it("updates the existing record when the file is already tracked", async () => {
       const filePath = await setupGameFile();
       vi.mocked(storage.getGameFiles).mockResolvedValueOnce([
-        { id: "gf-1", gameId, filePath, category: "update", categoryOverridden: false } as GameFile,
+        {
+          id: "gf-1",
+          gameId,
+          filePath,
+          category: "dlc",
+          igdbContentId: 9876,
+          categoryOverridden: false,
+        } as GameFile,
       ]);
 
       const response = await request(app)
@@ -311,6 +318,7 @@ describe("Game file routes", () => {
       expect(response.status).toBe(200);
       expect(storage.addGameFile).not.toHaveBeenCalled();
       expect(storage.updateGameFileCategory).toHaveBeenCalledWith("gf-1", "main");
+      expect(storage.updateGameFileContentId).toHaveBeenCalledWith("gf-1", null);
     });
 
     it("rejects a path outside the game's folder", async () => {
@@ -491,7 +499,7 @@ describe("Game file routes", () => {
       expect(updateSlot).toMatchObject({ present: true, files: [{ id: "gf-update" }] });
     });
 
-    it("keeps an explicitly linked file out of every other generic slot", async () => {
+    it("does not place a stale incompatible association in an IGDB content slot", async () => {
       const expansionId = 2001;
       vi.mocked(storage.getGame).mockResolvedValue(
         makeGame({
@@ -526,13 +534,13 @@ describe("Game file routes", () => {
       expect(response.status).toBe(200);
       expect(
         response.body.slots.find((slot: { igdbId?: number }) => slot.igdbId === expansionId)
-      ).toMatchObject({ present: true, files: [{ id: "gf-linked" }] });
+      ).toMatchObject({ present: false, files: [] });
       expect(
         response.body.slots.find(
           (slot: { category: string; igdbId?: number }) =>
             slot.category === "update" && slot.igdbId === undefined
         )
-      ).toMatchObject({ present: false, files: [] });
+      ).toMatchObject({ present: true, files: [{ id: "gf-linked" }] });
     });
 
     it("keeps live IGDB update and expansion slots distinct from generic files", async () => {
@@ -853,7 +861,7 @@ describe("Game file routes", () => {
       expect(importSpy).toHaveBeenCalledWith(
         "/downloads/expansion.bin",
         expect.objectContaining({ id: gameId }),
-        expect.objectContaining({ category: "dlc" })
+        expect.objectContaining({ category: "dlc", transferMode: "copy" })
       );
       expect(importSpy.mock.calls[0]?.[2]).not.toHaveProperty("igdbContentId");
       importSpy.mockRestore();
@@ -953,6 +961,27 @@ describe("Game file routes", () => {
       expect(response.status).toBe(403);
       expect(importSpy).not.toHaveBeenCalled();
       importSpy.mockRestore();
+    });
+  });
+
+  describe("POST /api/import/manual/scan", () => {
+    it("rejects a source outside configured path-mapping and library roots", async () => {
+      const mappedRoot = path.join(tempRoot, "downloads");
+      const libraryRoot = path.join(tempRoot, "library");
+      const outsideRoot = path.join(tempRoot, "unconfigured");
+      await fs.mkdir(mappedRoot, { recursive: true });
+      await fs.mkdir(libraryRoot, { recursive: true });
+      await fs.mkdir(outsideRoot, { recursive: true });
+      const source = path.join(outsideRoot, "game.iso");
+      await fs.writeFile(source, "game");
+
+      vi.mocked(storage.getPathMappings).mockResolvedValue([{ localPath: mappedRoot } as never]);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({ libraryRoot } as never);
+
+      const response = await request(app).post("/api/import/manual/scan").send({ path: source });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain("configured source root");
     });
   });
 

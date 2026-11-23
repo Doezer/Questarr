@@ -861,7 +861,12 @@ export class PCImportStrategy implements ImportStrategy {
       "Refusing to process a path outside the configured downloader roots"
     );
 
+    const sourceStats = await fs.stat(review.originalPath);
+    const sourceIsDirectory = sourceStats.isDirectory();
     if (review.fileCategories && review.fileCategories.length > 0) {
+      if (!sourceIsDirectory && review.fileCategories.length !== 1) {
+        throw new Error("A single-file import can have only one category entry");
+      }
       const filesPlaced: string[] = [];
       const placedFileCategories: FileCategoryEntry[] = [];
       const conflictsResolved: string[] = [];
@@ -873,10 +878,9 @@ export class PCImportStrategy implements ImportStrategy {
       const plannedTransfers = review.fileCategories
         .map((entry) => ({
           entry,
-          sourceFile: resolveContainedPath(
-            review.originalPath,
-            path.join(review.originalPath, entry.name)
-          ),
+          sourceFile: sourceIsDirectory
+            ? resolveContainedPath(review.originalPath, path.join(review.originalPath, entry.name))
+            : review.originalPath,
           destinationFile: resolveContainedPath(
             review.proposedPath,
             destinationForFile(review.proposedPath, entry)

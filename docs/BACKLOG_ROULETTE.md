@@ -46,3 +46,20 @@ that match the page search and filters. The pool is fixed to **Currently
 playing**, and there is no **Mark as Playing** action because those games
 already have that status. The toolbar wraps at narrower widths to keep the
 picker reachable in both Library and Playing.
+
+## Weight the draw
+
+Open the extra options in the dialog to steer the draw instead of leaving it to
+pure chance:
+
+- **Favour**: **Pure chance** (default), **Oldest first**, **Quick wins** or
+  **Highest rated**. The favoured games are drawn more often; the others can
+  still come up.
+- **Mood**: **Any mood**, **Relaxing**, **Short and sweet** or **Co-op**, based on
+  the genres, themes and modes stored on each game.
+- **Genre** and **Platform** narrow the pool further.
+- **Only installed games** keeps only games already installed.
+
+**Not now** snoozes the shown game so it stays out of the next draws for a
+while; the snooze is kept in this browser. **Bring them back** clears all
+snoozes. A skipped game is not offered again until the pool runs dry.

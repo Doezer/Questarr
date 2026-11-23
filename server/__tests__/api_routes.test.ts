@@ -3172,7 +3172,7 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.getDownloader).mockResolvedValue({
         id: "tb-2",
         type: "torbox",
-        settings: null,
+        settings: JSON.stringify({ fetchMode: "local" }),
       } as unknown as Downloader);
       const response = await request(app).get("/api/downloaders/tb-2/downloads/7/link");
       expect(response.status).toBe(400);

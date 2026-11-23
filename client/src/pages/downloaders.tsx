@@ -563,17 +563,6 @@ export default function DownloadersPage() {
   const settingsValue = form.watch("settings");
   const torBoxLinkOnly = isTorBox && getTorBoxFetchMode(settingsValue) === "linkOnly";
 
-  // A new TorBox downloader starts in link-only mode: most people use TorBox to avoid local
-  // storage and bandwidth.
-  useEffect(() => {
-    if (isTorBox && !editingDownloader && !parseJsonObject(settingsValue).fetchMode) {
-      form.setValue(
-        "settings",
-        JSON.stringify({ ...parseJsonObject(settingsValue), fetchMode: "linkOnly" })
-      );
-    }
-  }, [isTorBox, editingDownloader, settingsValue, form]);
-
   const onSubmit = (data: InsertDownloader) => {
     if (editingDownloader) {
       // The form never holds the OAuth tokens: an empty password must not wipe the ones

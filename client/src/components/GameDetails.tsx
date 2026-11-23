@@ -59,6 +59,7 @@ import {
   AlertCircle,
   PauseCircle,
   Trash2,
+  Trophy,
   ExternalLink,
   Users,
   Building2,
@@ -85,6 +86,7 @@ import {
   SiItchdotio,
 } from "react-icons/si";
 import { NexusModsIcon } from "./NexusModsIcon";
+import GameAchievements from "./GameAchievements";
 import GameJournalTab from "./GameJournalTab";
 import GamePlaytime from "./GamePlaytime";
 import GameScreenshotGallery, { useGameScreenshots } from "./GameScreenshotGallery";
@@ -1024,12 +1026,16 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
     game.timeToBeatCompletely,
   ].some((value) => value != null);
 
+  // Steam achievements only exist for saved games that are linked to a Steam app.
+  const hasAchievements = isLibraryGame && !!game.steamAppId;
+
   const navItems: SectionNavItem[] = [
     { id: "overview", label: "Overview" },
     ...(isLibraryGame
       ? [{ id: "downloads", label: "Downloads", count: gameDownloads.length }]
       : []),
     ...(isLibraryGame ? [{ id: "playtime", label: "Playtime" }] : []),
+    ...(hasAchievements ? [{ id: "achievements", label: "Achievements" }] : []),
     ...(isLibraryGame ? [{ id: "journal", label: "Journal" }] : []),
     {
       id: "media",
@@ -1719,14 +1725,17 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
               </Section>
             )}
 
+            {/* ── Achievements ── */}
+            {hasAchievements && (
+              <Section id="achievements" title="Achievements" icon={<Trophy className="h-5 w-5" />}>
+                <GameAchievements gameId={game.id} />
+              </Section>
+            )}
+
             {/* ── Journal ── */}
             {isLibraryGame && (
               <Section id="journal" title="Journal" icon={<BookOpen className="h-5 w-5" />}>
-                <GameJournalTab
-                  gameId={game.id}
-                  steamAppId={game.steamAppId ?? null}
-                  showScreenshots={false}
-                />
+                <GameJournalTab gameId={game.id} showScreenshots={false} />
               </Section>
             )}
 

@@ -13,6 +13,7 @@ const createMockLogger = () => ({
 });
 
 const mockNotifyUser = vi.fn();
+const mockEmitWebhookEvent = vi.fn();
 const mockProcessImport = vi.fn();
 const mockIsImportInFlight = vi.fn().mockReturnValue(false);
 const mockFindDownloadByTag = vi.fn();
@@ -30,6 +31,10 @@ const mockUpdateGameDownloadStatus = vi.fn();
 const mockGetDownloader = vi.fn();
 const mockGetDownloadingGameDownloads = vi.fn();
 
+vi.mock("../webhooks.js", () => ({
+  emitWebhookEvent: mockEmitWebhookEvent,
+  purgeWebhookDeliveries: vi.fn(),
+}));
 vi.mock("../apprise.js", () => ({
   appriseClient: { send: vi.fn() },
 }));
@@ -330,6 +335,15 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
       { preserveCurated: true }
     );
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", "game-1");
+    expect(mockEmitWebhookEvent).toHaveBeenCalledWith(
+      "download.failed",
+      expect.objectContaining({
+        gameId: "game-1",
+        downloadId: "gd-async-fail",
+        reason: "The download client never registered this download.",
+      }),
+      expect.anything()
+    );
   });
 
   it("preserves game status when a sibling remains downloading on tag failure", async () => {

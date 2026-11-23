@@ -785,15 +785,8 @@ export class PCImportStrategy implements ImportStrategy {
         }
       }
 
-      const resolvedSource = path.resolve(review.originalPath);
-      const resolvedDestination = path.resolve(review.proposedPath);
-      const destinationInsideSource = resolvedDestination.startsWith(resolvedSource + path.sep);
-      if (
-        transferMode === "move" &&
-        resolvedSource !== resolvedDestination &&
-        !destinationInsideSource
-      ) {
-        await fs.remove(review.originalPath);
+      if (transferMode === "move") {
+        await removeSourceUnlessNested(review.originalPath, review.proposedPath, this.sourceRoots);
       }
 
       return {

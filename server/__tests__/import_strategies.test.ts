@@ -1190,6 +1190,30 @@ describe("ImportStrategies", () => {
       expect(await fs.pathExists(gameDir)).toBe(true);
     });
 
+    it("keeps a categorized move's source when it is a configured root", async () => {
+      const root = tempDir();
+      const downloadsRoot = path.join(root, "downloads");
+      const gameDir = path.join(downloadsRoot, "game");
+      await fs.ensureDir(gameDir);
+      await fs.writeFile(path.join(gameDir, "game.exe"), "exe");
+      const destination = path.join(root, "library", "My Game");
+
+      const strategy = new PCImportStrategy([downloadsRoot, gameDir]);
+      await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: gameDir,
+          proposedPath: destination,
+          strategy: "pc",
+          fileCategories: [{ name: "game.exe", category: "main" }],
+        },
+        "move"
+      );
+
+      expect(await fs.pathExists(path.join(destination, "game.exe"))).toBe(true);
+      expect(await fs.pathExists(gameDir)).toBe(true);
+    });
+
     it("planImport applies no restriction when no roots are configured", async () => {
       const root = tempDir();
       const source = path.join(root, "anywhere", "game.exe");

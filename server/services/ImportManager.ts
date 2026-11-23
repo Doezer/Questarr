@@ -376,6 +376,21 @@ export class ImportManager {
     );
   }
 
+  // An add-on is extracted into its `update/` or `dlc/` folder: when that is a link or a file,
+  // extraction would write through it (or fail), outside the game folder.
+  private async assertAddonDestinationIsFolder(plan: ImportReview): Promise<void> {
+    if (!plan.addonGameFolder) return;
+    let stats: { isDirectory(): boolean } | undefined;
+    try {
+      stats = await fs.lstat(plan.proposedPath);
+    } catch {
+      return; // not created yet: extraction creates it
+    }
+    if (!stats.isDirectory()) {
+      throw new Error("Refusing to extract into a link or a file in the add-on location");
+    }
+  }
+
   // hardlink/symlink never relocate the raw archive: extraction reads directly from the
   // downloader-side path into the destination.
   private async unpackViaLinkedExtraction(
@@ -388,6 +403,7 @@ export class ImportManager {
     progress?: ImportProgress
   ): Promise<ImportResult> {
     const destDir = plan.proposedPath;
+    await this.assertAddonDestinationIsFolder(plan);
     await fs.ensureDir(destDir);
     progress?.setPhase("extracting");
     await this.archiveService.extract(resolution.archivePath, destDir, password);
@@ -425,6 +441,7 @@ export class ImportManager {
     progress?: ImportProgress
   ): Promise<ImportResult> {
     const destDir = plan.proposedPath;
+    await this.assertAddonDestinationIsFolder(plan);
     progress?.setPhase("transferring");
     const { archiveInDest, siblingsInDest } = await this.relocateArchiveToDest(
       transferMode,
@@ -1780,11 +1797,12 @@ export class ImportManager {
       }
     }
     if (config.sortExtras && !needsExtraction && !planToExecute.addonGameFolder) {
-      // The add-on plan already walked the source when it was built: reuse its categories
-      planToExecute.fileCategories = addonPlan
-        ? addonPlan.fileCategories
-        : (await strategy.planImport(resolvedOriginalPath, game, config.libraryRoot, config))
-            .fileCategories;
+      // Reuse the categories of a plan that did not select an add-on folder
+      planToExecute.fileCategories =
+        addonPlan && !addonPlan.addonGameFolder
+          ? addonPlan.fileCategories
+          : (await strategy.planImport(resolvedOriginalPath, game, config.libraryRoot, config))
+              .fileCategories;
     }
 
     const release = await this.acquireGameLock(game.id);
@@ -1792,6 +1810,13 @@ export class ImportManager {
       // An import that ran while this one waited may have moved the game's files or changed
       // its version: plan the replacement on the game as it is now that the lock is held.
       const current = (await this.storage.getGame(game.id)) ?? game;
+      // The add-on folder was planned on the game as it was before the lock: if a base import
+      // moved the game meanwhile, it must be confirmed again rather than land beside the old one.
+      if (planToExecute.addonGameFolder && current.libraryPath !== game.libraryPath) {
+        throw new Error(
+          "The game's library folder changed while this import was waiting: confirm it again"
+        );
+      }
       // A confirmed import replaces the previous version the same way an automatic one does.
       const importConfig = await this.storage.getImportConfig(current.userId ?? undefined);
       const replacement = await this.planReplacement(

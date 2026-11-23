@@ -443,6 +443,52 @@ describe("ImportManager", () => {
     executeSpy.mockRestore();
   });
 
+  it("confirmImport: an add-on whose game moved while waiting for the lock is confirmed again", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My.Game.Update.v1.2-RUNE",
+      category: "update",
+    });
+    const base = {
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "owned",
+      platforms: [6],
+    };
+    storage.getGame
+      .mockResolvedValueOnce({ ...base, libraryPath: "/safe/root/PC/My Game" })
+      .mockResolvedValue({ ...base, libraryPath: "/safe/root/PC/My Game (2)" });
+    storage.getImportConfig.mockResolvedValue({
+      ...baseConfig,
+      libraryRoot: "/safe/root",
+      addonSubfolders: true,
+    });
+    fsMock.stat.mockResolvedValueOnce({ isDirectory: () => true });
+    const executeSpy = vi.spyOn(PCImportStrategy.prototype, "executeImport");
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await expect(
+      manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/source-folder",
+        proposedPath: "/safe/root/PC/My Game/update",
+        needsReview: false,
+        transferMode: "move",
+      })
+    ).rejects.toThrow("confirm it again");
+    expect(executeSpy).not.toHaveBeenCalled();
+    executeSpy.mockRestore();
+  });
+
   it("records the release's version on the game once the import is finalized", async () => {
     storage.getGameDownload.mockResolvedValue({
       id: "dl-1",

@@ -1599,6 +1599,8 @@ describe("ImportStrategies", () => {
       expect(addonSubfolderFor(on, "update", "Game.Base.Game.+.Update.v1.2")).toBeUndefined();
       expect(addonSubfolderFor(on, "update", "Game.incl.Update.v1.2")).toBeUndefined();
       expect(addonSubfolderFor(on, "dlc", "Game.incl.DLC-GRP")).toBeUndefined();
+      expect(addonSubfolderFor(on, "update", "Zelda.+.Update.v1.2")).toBeUndefined();
+      expect(addonSubfolderFor(on, "dlc", "Zelda.+.DLC.Pack")).toBeUndefined();
       expect(addonSubfolderFor(on, "update", "Game.Update.v1.2-GRP")).toBe("update");
       expect(addonSubfolderFor(on, "dlc", "Game.DLC.Pack-GRP")).toBe("dlc");
     });

@@ -82,7 +82,7 @@ export function addonSubfolderFor(
 // "Game.incl.Update") is the game itself: it is not filed in a subfolder.
 const COMBINED_PACK_PATTERNS = [
   /\bbase[\s._-]*game\b/i,
-  /\b(?:incl(?:uding|\.)?|with|\+)[\s._-]*(?:all[\s._-]*)?(?:updates?|patch(?:es)?|dlcs?)\b/i,
+  /(?:\b(?:incl(?:uding|\.)?|with)|\+)[\s._-]*(?:all[\s._-]*)?(?:updates?|patch(?:es)?|dlcs?)\b/i,
   /\b(?:game|base)[\s._-]*\+/i,
 ];
 
@@ -346,14 +346,22 @@ async function transferSingleFileExclusive(
         // another device or a filesystem without links: copy instead, still without replacing
       }
     }
+    // Copied under a temporary name and then linked into place without replacing: a copy that
+    // fails halfway leaves only the temporary file, which is ours to remove, and an entry that
+    // appears at the destination meanwhile is never touched.
+    const partial = `${target}.questarr-part-${process.pid}-${Date.now()}`;
     try {
-      await fs.copy(source, target, { overwrite: false, errorOnExist: true });
-    } catch (err) {
-      const foreign =
-        (err as NodeJS.ErrnoException).code === "EEXIST" || /already exists/i.test(String(err));
-      // A truncated copy would otherwise block every retry ("Destination already exists").
-      if (!foreign) await fs.remove(target).catch(() => undefined);
-      throw err;
+      await fs.copy(source, partial, { overwrite: false, errorOnExist: true });
+      try {
+        await fs.link(partial, target);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
+        // a filesystem without links: a rename is atomic, so no partial file shows up either
+        if (await fs.pathExists(target)) throw err;
+        await fs.rename(partial, target);
+      }
+    } finally {
+      await fs.remove(partial).catch(() => undefined);
     }
     return "copy";
   }
@@ -446,9 +454,8 @@ async function transferDirectoryPerFile(
   const placedNow: string[] = [];
   try {
     for (const { srcFile, destFile } of plannedTransfers) {
-      // Recorded first: a copy that fails halfway leaves a partial file that must go too.
-      placedNow.push(destFile);
       const entryMode = await transferSingleFile(srcFile, destFile, mode, destination, guardRoot);
+      placedNow.push(destFile);
       if (mode === "hardlink" && entryMode === "copy") usedCopyFallback = true;
       transferredAny = true;
     }
@@ -456,11 +463,8 @@ async function transferDirectoryPerFile(
     // A merge into an existing folder leaves no half-placed files behind: they would make the
     // retry refuse to overwrite them. A move already took them from the source, so they stay.
     if (cleanupOnFailure && mode !== "move") {
-      // A file that someone else created meanwhile is not ours to remove.
-      const foreign =
-        (err as NodeJS.ErrnoException).code === "EEXIST" || /already exists/i.test(String(err));
-      const ours = foreign ? placedNow.slice(0, -1) : placedNow;
-      await Promise.all(ours.map((file) => fs.remove(file).catch(() => undefined)));
+      // Only the entries this merge completed: the one that failed cleaned up after itself.
+      await Promise.all(placedNow.map((file) => fs.remove(file).catch(() => undefined)));
     }
     throw err;
   }

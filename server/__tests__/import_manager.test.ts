@@ -10,6 +10,7 @@ const { fsMock, downloadersMock } = vi.hoisted(() => ({
     pathExists: vi.fn().mockResolvedValue(true),
     stat: vi.fn().mockResolvedValue({ isDirectory: () => false }),
     readdir: vi.fn().mockResolvedValue([]),
+    lstat: vi.fn().mockRejectedValue(new Error("ENOENT")),
   },
   downloadersMock: {
     removeDownload: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
@@ -516,6 +517,36 @@ describe("ImportManager", () => {
     expect(custom.proposedPath).toBe("/safe/root/PC/My Game/update-v2/Update");
     planSpy.mockRestore();
     transferSpy.mockRestore();
+  });
+
+  it("an add-on is not extracted through a linked folder below its game folder", async () => {
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+    const check = (plan: unknown) =>
+      (
+        manager as unknown as {
+          assertAddonDestinationIsFolder(p: unknown): Promise<void>;
+        }
+      ).assertAddonDestinationIsFolder(plan);
+    const plan = {
+      addonGameFolder: "/safe/root/PC/My Game",
+      proposedPath: "/safe/root/PC/My Game/update-v2/Update",
+    };
+    // update-v2 is a link to elsewhere: Update does not exist yet
+    fsMock.lstat.mockImplementation(async (p: string) => {
+      if (p.endsWith("update-v2")) return { isDirectory: () => false };
+      throw new Error("ENOENT");
+    });
+    await expect(check(plan)).rejects.toThrow("link or a file");
+    // plain folders, or nothing created yet, are fine
+    fsMock.lstat.mockImplementation(async () => ({ isDirectory: () => true }));
+    await expect(check(plan)).resolves.toBeUndefined();
+    fsMock.lstat.mockRejectedValue(new Error("ENOENT"));
+    await expect(check(plan)).resolves.toBeUndefined();
   });
 
   it("confirmImport: an add-on whose game moved while waiting for the lock is confirmed again", async () => {

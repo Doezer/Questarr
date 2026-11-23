@@ -376,18 +376,27 @@ export class ImportManager {
     );
   }
 
-  // An add-on is extracted into its `update/` or `dlc/` folder: when that is a link or a file,
-  // extraction would write through it (or fail), outside the game folder.
+  // An add-on is extracted below its game folder: when any folder on the way is a link, or the
+  // destination is a file, extraction would write through it, outside the game folder.
   private async assertAddonDestinationIsFolder(plan: ImportReview): Promise<void> {
     if (!plan.addonGameFolder) return;
-    let stats: { isDirectory(): boolean } | undefined;
-    try {
-      stats = await fs.lstat(plan.proposedPath);
-    } catch {
-      return; // not created yet: extraction creates it
+    const gameFolder = path.resolve(plan.addonGameFolder);
+    let current = path.resolve(plan.proposedPath);
+    const chain: string[] = [];
+    while (current !== gameFolder && current !== path.dirname(current)) {
+      chain.push(current);
+      current = path.dirname(current);
     }
-    if (!stats.isDirectory()) {
-      throw new Error("Refusing to extract into a link or a file in the add-on location");
+    for (const folder of chain.reverse()) {
+      let stats: { isDirectory(): boolean } | undefined;
+      try {
+        stats = await fs.lstat(folder);
+      } catch {
+        return; // not created yet: extraction creates it, and nothing below it exists either
+      }
+      if (!stats.isDirectory()) {
+        throw new Error("Refusing to extract into a link or a file in the add-on location");
+      }
     }
   }
 

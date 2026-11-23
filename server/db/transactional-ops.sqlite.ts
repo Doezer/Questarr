@@ -5,6 +5,7 @@ import {
   EDITABLE_PLAY_SESSION_SOURCES,
   apiKeys,
   gamePlaySessions,
+  gameFiles,
   games,
   indexers,
   platformMappings,
@@ -31,6 +32,7 @@ import type {
 } from "../../shared/schema.js";
 import type {
   ExpectedPlaySession,
+  LibraryPathChange,
   PlaySessionReplacement,
   SyncIndexersResult,
 } from "./transactional-ops.js";
@@ -92,6 +94,28 @@ export async function updateGamesBatch(
   db.transaction((tx) => {
     for (const update of updates) {
       tx.update(games).set(update.data).where(eq(games.id, update.id)).run();
+    }
+  });
+}
+
+export async function updateLibraryPathsBatch(changes: LibraryPathChange[]): Promise<void> {
+  db.transaction((tx) => {
+    for (const change of changes) {
+      const result =
+        change.kind === "game"
+          ? tx
+              .update(games)
+              .set({ libraryPath: change.newPath })
+              .where(and(eq(games.id, change.id), eq(games.libraryPath, change.oldPath)))
+              .run()
+          : tx
+              .update(gameFiles)
+              .set({ filePath: change.newPath })
+              .where(and(eq(gameFiles.id, change.id), eq(gameFiles.filePath, change.oldPath)))
+              .run();
+      if (result.changes !== 1) {
+        throw new Error(`Library path changed concurrently for ${change.kind} ${change.id}`);
+      }
     }
   });
 }

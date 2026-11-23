@@ -211,52 +211,20 @@ async function restoreStoredPathChanges(
   storage: IStorage,
   changes: readonly StoredPathChange[]
 ): Promise<void> {
-  const failures: string[] = [];
-  for (const change of [...changes].reverse()) {
-    try {
-      const updated =
-        change.kind === "game"
-          ? await storage.updateGame(change.id, { libraryPath: change.oldPath })
-          : await storage.updateGameFilePath(change.id, change.oldPath);
-      if (!updated) failures.push(`${change.kind} ${change.id} was not found`);
-    } catch (error) {
-      failures.push(
-        `${change.kind} ${change.id}: ${error instanceof Error ? error.message : error}`
-      );
-    }
-  }
-  if (failures.length > 0) {
-    throw new Error(`Could not restore database paths: ${failures.join("; ")}`);
-  }
+  await storage.updateLibraryPathsBatch(
+    [...changes].reverse().map((change) => ({
+      ...change,
+      oldPath: change.newPath,
+      newPath: change.oldPath,
+    }))
+  );
 }
 
 async function applyStoredPathChanges(
   storage: IStorage,
   changes: readonly StoredPathChange[]
 ): Promise<{ gamesUpdated: number; filesUpdated: number }> {
-  const applied: StoredPathChange[] = [];
-  try {
-    for (const change of changes) {
-      const updated =
-        change.kind === "game"
-          ? await storage.updateGame(change.id, { libraryPath: change.newPath })
-          : await storage.updateGameFilePath(change.id, change.newPath);
-      if (!updated) throw new Error(`${change.kind} ${change.id} was not found`);
-      applied.push(change);
-    }
-  } catch (error) {
-    try {
-      await restoreStoredPathChanges(storage, applied);
-    } catch (restoreError) {
-      throw new Error(
-        `Database path update failed: ${error instanceof Error ? error.message : error}; ${
-          restoreError instanceof Error ? restoreError.message : restoreError
-        }`,
-        { cause: restoreError }
-      );
-    }
-    throw error;
-  }
+  await storage.updateLibraryPathsBatch([...changes]);
 
   return {
     gamesUpdated: changes.filter((change) => change.kind === "game").length,
@@ -372,7 +340,16 @@ export async function applyPlatformFolderRenames(
 
         const counts = await applyStoredPathChanges(storage, storedChanges);
         storedPathsApplied = true;
-        if (proposal.merge) await fsExtra.remove(oldPath);
+        if (proposal.merge) {
+          // A recursive remove can partially delete the source before throwing. Move the
+          // source aside atomically instead; cleanup failure leaves a recoverable duplicate.
+          const recoveryPath = path.join(
+            resolvedRoot,
+            `.questarr-migration-recovery-${randomUUID()}`
+          );
+          await renameFolder(oldPath, recoveryPath);
+          await fsExtra.remove(recoveryPath).catch(() => undefined);
+        }
         results.push({
           oldName: proposal.oldName,
           newName: proposal.newName,

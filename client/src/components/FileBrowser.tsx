@@ -160,49 +160,43 @@ export function FileBrowser({
               <span className="text-sm flex-1 truncate">{item.name}</span>
               <ChevronRight className="h-3 w-3 text-muted-foreground" />
             </button>
-          ) : (
-            <button
-              type="button"
+          ) : multiple ? (
+            <label
               key={item.path}
-              className={`flex items-center gap-2 p-2 rounded-sm w-full text-left ${
-                multiple || mode === "file"
-                  ? "cursor-pointer hover:bg-accent"
-                  : "opacity-50 cursor-default"
-              }`}
-              onClick={() => {
-                if (multiple) {
+              className="flex w-full cursor-pointer items-center gap-2 rounded-sm p-2 text-left hover:bg-accent"
+            >
+              <input
+                type="checkbox"
+                aria-label={`Select ${item.name}`}
+                checked={selectedFiles.has(item.path)}
+                onChange={() => {
                   setSelectedFiles((current) => {
                     const next = new Set(current);
                     if (next.has(item.path)) next.delete(item.path);
                     else next.add(item.path);
                     return next;
                   });
-                } else if (mode === "file") {
-                  setSelectedFile(item.path);
-                }
+                }}
+                className="h-4 w-4"
+              />
+              <File className="h-4 w-4 text-gray-500" />
+              <span className="flex-1 truncate text-sm">{item.name}</span>
+            </label>
+          ) : (
+            <button
+              type="button"
+              key={item.path}
+              className={`flex items-center gap-2 p-2 rounded-sm w-full text-left ${
+                mode === "file" ? "cursor-pointer hover:bg-accent" : "opacity-50 cursor-default"
+              }`}
+              onClick={() => {
+                if (mode === "file") setSelectedFile(item.path);
               }}
-              disabled={!multiple && mode !== "file"}
+              disabled={mode !== "file"}
             >
-              {multiple && (
-                <input
-                  type="checkbox"
-                  aria-label={`Select ${item.name}`}
-                  checked={selectedFiles.has(item.path)}
-                  onChange={() => {
-                    setSelectedFiles((current) => {
-                      const next = new Set(current);
-                      if (next.has(item.path)) next.delete(item.path);
-                      else next.add(item.path);
-                      return next;
-                    });
-                  }}
-                  onClick={(event) => event.stopPropagation()}
-                  className="h-4 w-4"
-                />
-              )}
               <File className="h-4 w-4 text-gray-500" />
               <span className="text-sm flex-1 truncate">{item.name}</span>
-              {mode === "file" && !multiple && selectedFile === item.path && (
+              {mode === "file" && selectedFile === item.path && (
                 <span className="text-xs font-semibold text-primary">Selected</span>
               )}
             </button>

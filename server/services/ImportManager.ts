@@ -1468,6 +1468,9 @@ export class ImportManager {
     if (filesPlaced.length === 0) return;
 
     const suggestion = await this.suggestImportContent(game, downloadTitle);
+    const explicitContentItems = placedFileCategories?.some((entry) => entry.igdbContentId != null)
+      ? await this.getImportContentItems(game)
+      : [];
     const existing = await this.storage.getGameFiles(game.id);
     const existingByPath = new Map(existing.map((file) => [path.resolve(file.filePath), file]));
     for (const [index, filePath] of filesPlaced.entries()) {
@@ -1483,24 +1486,18 @@ export class ImportManager {
         : importedFileCategory(resolvedPath);
       const suggestionMatchesSelected =
         suggestion != null && contentSuggestionMatchesFile(suggestion.category, category);
+      const selectedContent =
+        selected?.igdbContentId != null
+          ? explicitContentItems.find((item) => item.id === selected.igdbContentId)
+          : undefined;
       const explicitContentMatches =
-        selected?.igdbContentId != null &&
-        contentSuggestionMatchesFile(
-          selected.category === "update"
-            ? "update"
-            : selected.category === "dlc"
-              ? "dlc"
-              : selected.category === "packs"
-                ? "packs"
-                : "extra",
-          category
-        );
+        selectedContent != null && contentSuggestionMatchesFile(selectedContent.category, category);
       const existingFile = existingByPath.get(resolvedPath);
       if (existingFile) {
         const contentId =
           (explicitContentMatches ? selected?.igdbContentId : undefined) ??
           (suggestion && suggestionMatchesSelected ? suggestion.id : undefined);
-        if (contentId != null && existingFile.igdbContentId == null) {
+        if (contentId != null && existingFile.igdbContentId !== contentId) {
           await this.storage.updateGameFileContentId(existingFile.id, contentId);
         }
         continue;
@@ -1515,7 +1512,7 @@ export class ImportManager {
         filePath: resolvedPath,
         fileSize: typeof stats.size === "number" ? stats.size : null,
         ...(explicitContentMatches
-          ? { igdbContentId: selected.igdbContentId }
+          ? { igdbContentId: selected?.igdbContentId }
           : suggestion && suggestionMatchesSelected
             ? { igdbContentId: suggestion.id }
             : {}),
@@ -2374,11 +2371,10 @@ export class ImportManager {
       for (const entry of overridePlan.fileCategories) {
         if (entry.igdbContentId == null) continue;
         const selectedContent = contentItems.find((item) => item.id === entry.igdbContentId);
+        const fileCategory = entry.category === "packs" ? "extra" : entry.category;
         const categoryMatches =
           selectedContent != null &&
-          ((selectedContent.category === "update" && entry.category === "update") ||
-            (selectedContent.category !== "update" &&
-              (entry.category === "dlc" || entry.category === "packs")));
+          contentSuggestionMatchesFile(selectedContent.category, fileCategory);
         if (!categoryMatches) {
           throw new Error("File category does not match the selected IGDB content");
         }

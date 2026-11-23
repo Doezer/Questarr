@@ -3792,6 +3792,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let transferredSourcePath: string | null = null;
       let trackedSourceId: string | null = null;
       let trackedSourcePath: string | null = null;
+      let trackedSourceCategory: GameFileCategory | null = null;
+      let trackedSourceContentId: number | null = null;
+      let trackedSourceContentCaptured = false;
       let createdGameFileId: string | null = null;
       try {
         const body = z
@@ -3909,6 +3912,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (existingSource) {
           trackedSourceId = existingSource.id;
           trackedSourcePath = existingSource.filePath;
+          trackedSourceCategory = existingSource.category;
+          trackedSourceContentId = existingSource.igdbContentId;
+          trackedSourceContentCaptured = true;
         }
         const existing = trackedFiles.find(
           (file) => path.resolve(file.filePath) === path.resolve(result.newPath)
@@ -3935,10 +3941,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (
           existingSource &&
           existingSource.category !== category &&
-          existingSource.igdbContentId != null
+          existingSource.igdbContentId != null &&
+          body.igdbContentId == null
         ) {
           await storage.updateGameFileContentId(gameFile.id, null);
         }
+        if (body.igdbContentId != null) {
+          await storage.updateGameFileContentId(gameFile.id, body.igdbContentId);
+        }
+        const storedGameFile = (await storage.getGameFile(gameFile.id)) ?? gameFile;
         await importManager.setLibraryPathOnce(game, result.destDir);
         if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
           await storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
@@ -3946,7 +3957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.status(201).json({
           success: true,
-          gameFile: { ...gameFile, categoryOverridden: true },
+          gameFile: { ...storedGameFile, categoryOverridden: true },
           destDir: result.destDir,
           modeUsed: result.modeUsed,
         });
@@ -3960,6 +3971,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 "failed to restore tracked manual-import path"
               )
             );
+          if (trackedSourceCategory) {
+            await storage
+              .updateGameFileCategory(trackedSourceId, trackedSourceCategory)
+              .catch((restoreError) =>
+                routesLogger.error(
+                  { error: restoreError, gameFileId: trackedSourceId },
+                  "failed to restore tracked manual-import category"
+                )
+              );
+          }
+          if (trackedSourceContentCaptured) {
+            await storage
+              .updateGameFileContentId(trackedSourceId, trackedSourceContentId)
+              .catch((restoreError) =>
+                routesLogger.error(
+                  { error: restoreError, gameFileId: trackedSourceId },
+                  "failed to restore tracked manual-import content association"
+                )
+              );
+          }
         }
         if (createdGameFileId) {
           await storage.removeGameFile(createdGameFileId).catch(() => undefined);

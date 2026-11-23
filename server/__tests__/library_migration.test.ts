@@ -35,6 +35,21 @@ function makeStorage(game: Game, files: Array<{ id: string; filePath: string }>)
       file.filePath = filePath;
       return file;
     }),
+    updateLibraryPathsBatch: vi.fn(
+      async (
+        changes: Array<{ kind: "game" | "file"; id: string; oldPath: string; newPath: string }>
+      ) => {
+        for (const change of changes) {
+          const current =
+            change.kind === "game" ? storedGame.libraryPath : storedFiles.get(change.id)?.filePath;
+          if (current !== change.oldPath) throw new Error("library path changed concurrently");
+        }
+        for (const change of changes) {
+          if (change.kind === "game") storedGame.libraryPath = change.newPath;
+          else storedFiles.get(change.id)!.filePath = change.newPath;
+        }
+      }
+    ),
   };
 }
 
@@ -74,13 +89,20 @@ describe("library migration", () => {
     ]);
     expect(await exists(oldPath)).toBe(false);
     expect(await exists(path.join(root, "win", "Game", "game.nsp"))).toBe(true);
-    expect(storage.updateGame).toHaveBeenCalledWith("game-1", {
-      libraryPath: path.join(root, "win", "Game"),
-    });
-    expect(storage.updateGameFilePath).toHaveBeenCalledWith(
-      "file-1",
-      path.join(root, "win", "Game", "game.nsp")
-    );
+    expect(storage.updateLibraryPathsBatch).toHaveBeenCalledWith([
+      {
+        kind: "game",
+        id: "game-1",
+        oldPath: oldGamePath,
+        newPath: path.join(root, "win", "Game"),
+      },
+      {
+        kind: "file",
+        id: "file-1",
+        oldPath: oldFilePath,
+        newPath: path.join(root, "win", "Game", "game.nsp"),
+      },
+    ]);
   });
 
   it("restores the filesystem and database paths when persistence fails", async () => {
@@ -93,12 +115,7 @@ describe("library migration", () => {
 
     const game = { id: "game-1", libraryPath: oldGamePath } as Game;
     const storage = makeStorage(game, [{ id: "file-1", filePath: oldFilePath }]);
-    storage.updateGameFilePath.mockImplementation(async (_id, filePath) => {
-      if (filePath === path.join(root, "win", "Game", "game.nsp")) {
-        throw new Error("database write failed");
-      }
-      return { id: "file-1", filePath };
-    });
+    storage.updateLibraryPathsBatch.mockRejectedValueOnce(new Error("database write failed"));
 
     const results = await applyPlatformFolderRenames(
       root,
@@ -110,9 +127,7 @@ describe("library migration", () => {
     expect(results[0]).toMatchObject({ success: false, error: "database write failed" });
     expect(await exists(oldFilePath)).toBe(true);
     expect(await exists(path.join(root, "win"))).toBe(false);
-    expect(storage.updateGame).toHaveBeenNthCalledWith(2, "game-1", {
-      libraryPath: oldGamePath,
-    });
+    expect(storage.updateLibraryPathsBatch).toHaveBeenCalledTimes(1);
   });
 
   it("rolls back a partial merge without deleting existing target files", async () => {
@@ -129,12 +144,7 @@ describe("library migration", () => {
 
     const game = { id: "game-1", libraryPath: oldGamePath } as Game;
     const storage = makeStorage(game, [{ id: "file-1", filePath: oldFilePath }]);
-    storage.updateGameFilePath.mockImplementation(async (_id, filePath) => {
-      if (filePath === path.join(root, "win", "Game", "game.nsp")) {
-        throw new Error("database write failed");
-      }
-      return { id: "file-1", filePath };
-    });
+    storage.updateLibraryPathsBatch.mockRejectedValueOnce(new Error("database write failed"));
 
     const results = await applyPlatformFolderRenames(
       root,

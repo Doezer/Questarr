@@ -181,18 +181,21 @@ export default function ManualImportModal({
   };
 
   const handleFileSelect = (filePath: string) => {
+    if (executeMutation.isPending) return;
     sourceSelectedRef.current = true;
     setFileBrowserOpen(false);
     assignSelectedFiles([makeSelectedFile(filePath)]);
   };
 
   const handleMultiFileSelect = (filePaths: string[]) => {
+    if (executeMutation.isPending) return;
     sourceSelectedRef.current = true;
     setFileBrowserOpen(false);
     assignSelectedFiles(filePaths.map(makeSelectedFile));
   };
 
   const handleFolderSelect = (selectedPath: string) => {
+    if (executeMutation.isPending) return;
     sourceSelectedRef.current = true;
     setFileBrowserOpen(false);
     setScanLoading(true);
@@ -303,7 +306,11 @@ export default function ManualImportModal({
             {scanLoading || scanMutation.isPending ? (
               <Loader2 className="h-8 w-8 animate-spin" />
             ) : (
-              <Button variant="outline" onClick={() => setFileBrowserOpen(true)}>
+              <Button
+                variant="outline"
+                disabled={executeMutation.isPending}
+                onClick={() => setFileBrowserOpen(true)}
+              >
                 Choose a source folder
               </Button>
             )}

@@ -172,6 +172,7 @@ import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
 import {
   transactionalOps,
   type ExpectedPlaySession,
+  type LibraryPathChange,
   type PlaySessionReplacement,
 } from "./db/transactional-ops.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
@@ -674,6 +675,8 @@ export interface IStorage {
   addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]>;
   /** Rewrites a tracked file path after a library-folder migration. */
   updateGameFilePath(id: string, filePath: string): Promise<GameFile | undefined>;
+  /** Applies game and game-file library paths atomically with optimistic old-path checks. */
+  updateLibraryPathsBatch(changes: LibraryPathChange[]): Promise<void>;
   /** Sets a user-chosen category and marks it so later scans keep it. */
   updateGameFileCategory(id: string, category: GameFileCategory): Promise<GameFile | undefined>;
   /** Associates a file with one specific IGDB content item, or clears that association. */
@@ -2805,6 +2808,27 @@ export class MemStorage implements IStorage {
       result.push(await this.addGameFile(file));
     }
     return result;
+  }
+
+  async updateLibraryPathsBatch(changes: LibraryPathChange[]): Promise<void> {
+    for (const change of changes) {
+      const current =
+        change.kind === "game"
+          ? this.games.get(change.id)?.libraryPath
+          : this.gameFiles.get(change.id)?.filePath;
+      if (current !== change.oldPath) {
+        throw new Error(`Library path changed concurrently for ${change.kind} ${change.id}`);
+      }
+    }
+    for (const change of changes) {
+      if (change.kind === "game") {
+        const game = this.games.get(change.id);
+        if (game) this.games.set(change.id, { ...game, libraryPath: change.newPath });
+      } else {
+        const file = this.gameFiles.get(change.id);
+        if (file) this.gameFiles.set(change.id, { ...file, filePath: change.newPath });
+      }
+    }
   }
 
   async updateGameFilePath(id: string, filePath: string): Promise<GameFile | undefined> {
@@ -5579,6 +5603,10 @@ export class DatabaseStorage implements IStorage {
       category: file.category as "main" | "dlc" | "update" | "extra",
     }));
     return db.insert(gameFiles).values(values).returning();
+  }
+
+  async updateLibraryPathsBatch(changes: LibraryPathChange[]): Promise<void> {
+    return transactionalOps.updateLibraryPathsBatch(changes);
   }
 
   async updateGameFilePath(id: string, filePath: string): Promise<GameFile | undefined> {

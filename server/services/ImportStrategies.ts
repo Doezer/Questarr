@@ -881,10 +881,12 @@ export class PCImportStrategy implements ImportStrategy {
           sourceFile: sourceIsDirectory
             ? resolveContainedPath(review.originalPath, path.join(review.originalPath, entry.name))
             : review.originalPath,
-          destinationFile: resolveContainedPath(
-            review.proposedPath,
-            destinationForFile(review.proposedPath, entry)
-          ),
+          destinationFile: sourceIsDirectory
+            ? resolveContainedPath(
+                review.proposedPath,
+                destinationForFile(review.proposedPath, entry)
+              )
+            : review.proposedPath,
         }))
         // Excluded entries (e.g. a raw archive already extracted straight to the
         // destination) stay untransferred — same as the plain-directory path below.

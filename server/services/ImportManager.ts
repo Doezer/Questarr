@@ -1758,13 +1758,14 @@ export class ImportManager {
     const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
     // An update or DLC goes in its game's subfolder only when the server's own plan says so
     // and the confirmed path is inside that folder: never taken from the client.
-    if (!needsExtraction || archiveResolution?.isDirectorySource) {
+    let addonPlan: ImportReview | undefined;
+    if (config.addonSubfolders && (!needsExtraction || archiveResolution?.isDirectorySource)) {
       const addonPlatformDir = await this.resolvePlatformFolder(
         download.downloadTitle || "",
         game,
         config.importPlatformIds
       );
-      const addonPlan = await strategy
+      addonPlan = await strategy
         .planImport(resolvedOriginalPath, game, config.libraryRoot, config, addonPlatformDir, {
           downloadTitle: download.downloadTitle,
           releaseCategory: (download.category ||
@@ -1779,13 +1780,11 @@ export class ImportManager {
       }
     }
     if (config.sortExtras && !needsExtraction && !planToExecute.addonGameFolder) {
-      const categorizedPlan = await strategy.planImport(
-        resolvedOriginalPath,
-        game,
-        config.libraryRoot,
-        config
-      );
-      planToExecute.fileCategories = categorizedPlan.fileCategories;
+      // The add-on plan already walked the source when it was built: reuse its categories
+      planToExecute.fileCategories = addonPlan
+        ? addonPlan.fileCategories
+        : (await strategy.planImport(resolvedOriginalPath, game, config.libraryRoot, config))
+            .fileCategories;
     }
 
     const release = await this.acquireGameLock(game.id);

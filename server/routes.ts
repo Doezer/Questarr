@@ -3790,6 +3790,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let transferredResult: Awaited<ReturnType<typeof importManager.manualImportFile>> | null =
         null;
       let transferredSourcePath: string | null = null;
+      let trackedSourceId: string | null = null;
+      let trackedSourcePath: string | null = null;
       let createdGameFileId: string | null = null;
       try {
         const body = z
@@ -3904,6 +3906,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const existingSource = trackedFiles.find(
           (file) => path.resolve(file.filePath) === sourcePath
         );
+        if (existingSource) {
+          trackedSourceId = existingSource.id;
+          trackedSourcePath = existingSource.filePath;
+        }
         const existing = trackedFiles.find(
           (file) => path.resolve(file.filePath) === path.resolve(result.newPath)
         );
@@ -3945,6 +3951,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           modeUsed: result.modeUsed,
         });
       } catch (error) {
+        if (trackedSourceId && trackedSourcePath) {
+          await storage
+            .updateGameFilePath(trackedSourceId, trackedSourcePath)
+            .catch((restoreError) =>
+              routesLogger.error(
+                { error: restoreError, gameFileId: trackedSourceId },
+                "failed to restore tracked manual-import path"
+              )
+            );
+        }
         if (createdGameFileId) {
           await storage.removeGameFile(createdGameFileId).catch(() => undefined);
         }

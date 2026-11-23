@@ -87,8 +87,15 @@ export function isSupportedManualImportFile(filePath: string): boolean {
 async function isWithinPath(candidatePath: string, rootPath: string): Promise<boolean> {
   const resolvedCandidate = path.resolve(candidatePath);
   const resolvedRoot = path.resolve(rootPath);
-  const canonicalCandidate = await fs.realpath(resolvedCandidate).catch(() => resolvedCandidate);
-  const canonicalRoot = await fs.realpath(resolvedRoot).catch(() => resolvedRoot);
+  const canonicalize = async (target: string): Promise<string> => {
+    try {
+      return typeof fs.realpath === "function" ? await fs.realpath(target) : target;
+    } catch {
+      return target;
+    }
+  };
+  const canonicalCandidate = await canonicalize(resolvedCandidate);
+  const canonicalRoot = await canonicalize(resolvedRoot);
   const relative = path.relative(canonicalRoot, canonicalCandidate);
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
@@ -427,11 +434,10 @@ export class ImportManager {
 
     const sourcePath = path.resolve(filePath);
     const appDataRoots = [path.dirname(resolveSqliteDbPath()), configLoader.getConfigDir()];
-    if (
-      await Promise.any(appDataRoots.map((root) => isWithinPath(sourcePath, root))).catch(
-        () => false
-      )
-    ) {
+    const appDataChecks = await Promise.all(
+      appDataRoots.map((root) => isWithinPath(sourcePath, root))
+    );
+    if (appDataChecks.some(Boolean)) {
       throw new Error("Refusing to process Questarr app data");
     }
     await assertWithinRoots(

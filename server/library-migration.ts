@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import os from "node:os";
 import { randomUUID } from "node:crypto";
 import fsExtra from "fs-extra";
 import type { Game } from "../shared/schema.js";
@@ -336,7 +335,8 @@ export async function applyPlatformFolderRenames(
     for (const item of requested) {
       const action = item.merge ? "merge" : "rename";
       let rollbackFilesystem: RollbackFilesystem | undefined;
-      let backupRoot: string | undefined;
+      let storedChanges: StoredPathChange[] = [];
+      let storedPathsApplied = false;
       try {
         if (!isSafeChildName(item.oldName) || !isSafeChildName(item.newName)) {
           throw new Error("Folder names must be immediate children of the library root");
@@ -352,20 +352,15 @@ export async function applyPlatformFolderRenames(
 
         const oldPath = path.join(resolvedRoot, proposal.oldName);
         const newPath = path.join(resolvedRoot, proposal.newName);
-        const storedChanges = await collectStoredPathChanges(storage, games, oldPath, newPath);
+        storedChanges = await collectStoredPathChanges(storage, games, oldPath, newPath);
 
         if (proposal.merge) {
           await assertMergeHasNoConflicts(oldPath, newPath);
           const relativeFiles = await listRelativeFiles(oldPath);
-          backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), "questarr-library-migration-"));
-          const backupPath = path.join(backupRoot, "source");
-          await fsExtra.copy(oldPath, backupPath, { overwrite: false, errorOnExist: true });
           rollbackFilesystem = async () => {
             await removeCopiedFiles(newPath, relativeFiles);
-            await fsExtra.copy(backupPath, oldPath, { overwrite: false });
           };
           await fsExtra.copy(oldPath, newPath, { overwrite: false, errorOnExist: true });
-          await fsExtra.remove(oldPath);
         } else {
           await renameFolder(oldPath, newPath);
           rollbackFilesystem = async () => {
@@ -376,6 +371,8 @@ export async function applyPlatformFolderRenames(
         }
 
         const counts = await applyStoredPathChanges(storage, storedChanges);
+        storedPathsApplied = true;
+        if (proposal.merge) await fsExtra.remove(oldPath);
         results.push({
           oldName: proposal.oldName,
           newName: proposal.newName,
@@ -385,6 +382,15 @@ export async function applyPlatformFolderRenames(
         });
       } catch (error) {
         let message = error instanceof Error ? error.message : String(error);
+        if (storedPathsApplied) {
+          try {
+            await restoreStoredPathChanges(storage, storedChanges);
+          } catch (restoreError) {
+            message += `; database rollback failed: ${
+              restoreError instanceof Error ? restoreError.message : restoreError
+            }`;
+          }
+        }
         if (rollbackFilesystem) {
           try {
             await rollbackFilesystem();
@@ -401,8 +407,6 @@ export async function applyPlatformFolderRenames(
           success: false,
           error: message,
         });
-      } finally {
-        if (backupRoot) await fsExtra.remove(backupRoot).catch(() => undefined);
       }
     }
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
+import { SteamAchievementsSync } from "@/components/SteamAchievementsSync";
 import { PlayniteSyncStatus } from "@/components/PlayniteSyncStatus";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
@@ -118,6 +119,7 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "gameUpdates", label: "Game Updates and New Packs/Add-ons", group: "downloads" },
   { key: "xrelRelease", label: "Scene/P2P Release (xREL)", group: "integrations" },
   { key: "steamSync", label: "Steam Wishlist Synced", group: "integrations" },
+  { key: "achievementUnlocked", label: "Achievements Unlocked", group: "integrations" },
   { key: "errorDetected", label: "Error Detected", group: "system" },
 ];
 
@@ -668,6 +670,7 @@ export default function SettingsPage() {
     onSuccess: (_data, apiKey) => {
       queryClient.invalidateQueries({ queryKey: ["/api/settings/steam"] });
       queryClient.invalidateQueries({ queryKey: ["/api/steam/playtime"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steam/achievements"] });
       setSteamApiKey("");
       toast({ title: apiKey ? "Steam API key saved" : "Steam API key removed" });
     },
@@ -903,6 +906,7 @@ export default function SettingsPage() {
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/achievements/progress"] });
       // The PATCH answers with the saved settings: make the fields this save sent the baseline
       // right away so Discard never restores stale values, even if the refetch below fails.
       // Only those keys are merged, so an overlapping save is never overwritten by an older reply.
@@ -969,6 +973,7 @@ export default function SettingsPage() {
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/achievements/progress"] });
     },
     onError: (error: Error) => {
       console.error("Settings update error:", error);
@@ -1102,6 +1107,7 @@ export default function SettingsPage() {
       // Content-filter settings change what the library returns, collections included.
       queryClient.removeQueries({ queryKey: ["/api/collections"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/achievements/progress"] });
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
     },
     onError: (error: Error) => {
@@ -1196,6 +1202,8 @@ export default function SettingsPage() {
         description: "Your Steam ID has been saved.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/steam/achievements"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/achievements/progress"] });
     },
     onError: (error: Error) => {
       toast({
@@ -2422,6 +2430,7 @@ export default function SettingsPage() {
           <SteamLibraryImport />
 
           <SteamPlaytimeSync />
+          <SteamAchievementsSync />
 
           <PlayniteSyncStatus />
 

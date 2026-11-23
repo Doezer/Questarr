@@ -41,12 +41,35 @@ import {
   resolveUpgradePolicy,
   OWNED_GAME_STATUSES,
 } from "../shared/schema.js";
-import { isUsenetDownloaderType } from "../shared/downloader-types.js";
+import { isLinkOnlyDownloader, isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient, type NewznabResult } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
+import { cancelStagingJobs, setStagingBlocked } from "./downloaders/debrid-staging.js";
+
+const stagingModeQueue = new Map<string, Promise<void>>();
+
+function applyStagingMode(saved: Downloader): Promise<void> {
+  const downloaderId = saved.id;
+  const run = (stagingModeQueue.get(downloaderId) ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(async () => {
+      // If the re-read fails, fall back to the mode this request just saved.
+      const current = await storage.getDownloader(downloaderId).catch(() => saved);
+      if (!current) return;
+      if (isLinkOnlyDownloader(current)) await cancelStagingJobs(downloaderId);
+      else setStagingBlocked(downloaderId, false);
+    });
+  stagingModeQueue.set(downloaderId, run);
+  void run
+    .finally(() => {
+      if (stagingModeQueue.get(downloaderId) === run) stagingModeQueue.delete(downloaderId);
+    })
+    .catch(() => undefined);
+  return run;
+}
 import {
   DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
   isDownloaderDebugLoggingEnabled,
@@ -323,6 +346,7 @@ import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { steamLibraryRoutes } from "./steam-library-routes.js";
 import { steamPlaytimeRoutes } from "./steam-playtime-routes.js";
+import { steamAchievementsRoutes } from "./steam-achievements-routes.js";
 import { playniteSyncRoutes } from "./playnite-sync-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
@@ -1120,6 +1144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(steamRoutes);
   app.use(steamLibraryRoutes);
   app.use(steamPlaytimeRoutes);
+  app.use(steamAchievementsRoutes);
   app.use(playniteSyncRoutes);
   app.use(releaseScoringRoutes);
   app.use(classificationCandidatesRoutes);
@@ -3878,7 +3903,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(storageCache.data);
       }
 
-      const enabledDownloaders = await storage.getEnabledDownloaders();
+      // Link-only downloaders keep nothing on this server, so there is no space to report.
+      const enabledDownloaders = (await storage.getEnabledDownloaders()).filter(
+        (downloader) => !isLinkOnlyDownloader(downloader)
+      );
       routesLogger.debug(
         { count: enabledDownloaders.length },
         "fetching storage info for downloaders"
@@ -4005,6 +4033,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const downloader = await storage.updateDownloader(id, updates);
         if (!downloader) {
           return res.status(404).json({ error: "Downloader not found" });
+        }
+        // Switched to link-only: copies still running would keep filling the staging folder.
+        // Effects run one at a time per downloader and follow the latest saved mode, so
+        // overlapping PATCH requests cannot leave the staging block out of step with it.
+        try {
+          await applyStagingMode(downloader);
+        } catch (error) {
+          routesLogger.error({ error, downloaderId: downloader.id }, "staging mode update failed");
         }
         return res.json(maskDownloader(downloader));
       } catch (error) {
@@ -4387,6 +4423,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting download details:", error);
       return res.status(500).json({ error: "Failed to get download details" });
+    }
+  });
+
+  // A fresh download link for a finished link-only download (e.g. TorBox). Requested on
+  // demand, never stored: such links are short-lived.
+  app.get("/api/downloaders/:id/downloads/:downloadId/link", async (req, res) => {
+    try {
+      const { id, downloadId } = req.params as { id: string; downloadId: string };
+      const downloader = await storage.getDownloader(id);
+
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+      if (!isLinkOnlyDownloader(downloader)) {
+        return res.status(400).json({ error: "This downloader does not provide download links" });
+      }
+
+      const url = await DownloaderManager.getRemoteDownloadUrl(downloader, downloadId);
+      if (!url) {
+        return res.status(404).json({ error: "No download link is available yet" });
+      }
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ url });
+    } catch (error) {
+      routesLogger.error({ error }, "error getting download link");
+      return res.status(500).json({ error: "Failed to get download link" });
     }
   });
 

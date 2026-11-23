@@ -1,8 +1,20 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { gameDetailsPath } from "@/lib/routes";
-import { Dices, Gamepad2, Loader2 } from "lucide-react";
+import { BellOff, Dices, Gamepad2, Loader2 } from "lucide-react";
 import type { Game } from "@shared/schema";
+import {
+  ROULETTE_BIASES,
+  ROULETTE_BIAS_LABELS,
+  ROULETTE_MOODS,
+  ROULETTE_MOOD_LABELS,
+  distinctValues,
+  filterRouletteGames,
+  pickWeighted,
+  rouletteWeight,
+  type RouletteBias,
+  type RouletteMood,
+} from "@shared/backlog-roulette";
 import { coverSrc } from "@/lib/cover";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,8 +33,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import StatusBadge from "./StatusBadge";
 import type { Tag } from "@/lib/tags";
+
+interface DrawOverrides {
+  bias?: RouletteBias;
+  mood?: RouletteMood;
+  genre?: string;
+  platform?: string;
+  installedOnly?: boolean;
+  /** Fresh values for state that was just set and is not visible to this render yet. */
+  snoozed?: Record<string, number>;
+  skipped?: Set<string>;
+}
 
 type Pool = "owned" | "playing" | "all";
 
@@ -32,6 +56,56 @@ const POOL_LABELS: Record<Pool, string> = {
   all: "All visible games",
 };
 const ALL_POOLS: Pool[] = ["owned", "playing", "all"];
+
+const SNOOZE_STORAGE_KEY = "questarr:roulette-snoozed";
+const SNOOZE_DAYS = 7;
+const DAY_MS = 86_400_000;
+
+/** Snoozed game ids with the time they come back, ignoring entries that already expired. */
+function loadSnoozed(): Record<string, number> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(SNOOZE_STORAGE_KEY) ?? "{}");
+    if (!parsed || typeof parsed !== "object") return {};
+    const now = Date.now();
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (entry): entry is [string, number] => typeof entry[1] === "number" && entry[1] > now
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+
+/** Merge snooze maps, keeping the later return time and dropping expired entries. */
+function mergeSnoozed(...maps: Record<string, number>[]): Record<string, number> {
+  const now = Date.now();
+  const merged: Record<string, number> = {};
+  for (const map of maps) {
+    for (const [id, until] of Object.entries(map)) {
+      if (until > now && until > (merged[id] ?? 0)) merged[id] = until;
+    }
+  }
+  return merged;
+}
+
+function saveSnoozed(snoozed: Record<string, number>) {
+  try {
+    localStorage.setItem(SNOOZE_STORAGE_KEY, JSON.stringify(snoozed));
+  } catch {
+    // Storage can be unavailable; the snooze then only lasts for this session.
+  }
+}
+
+/** A uniform random integer in [0, limit); the remainder of the uint32 range is rejected so modulo is unbiased. */
+function randomBelow(limit: number): number {
+  const cap = Math.floor(2 ** 32 / limit) * limit;
+  let draw: number;
+  do {
+    [draw = 0] = crypto.getRandomValues(new Uint32Array(1));
+  } while (draw >= cap);
+  return draw % limit;
+}
 
 /** Draw from a filtered game list and let users inspect or mark a game as Playing. */
 export default function BacklogRoulette({
@@ -61,20 +135,35 @@ export default function BacklogRoulette({
   const [open, setOpen] = useState(false);
   const [pool, setPool] = useState<Pool>(pools[0] ?? "all");
   const [maxHours, setMaxHours] = useState("any");
+  const [bias, setBias] = useState<RouletteBias>("random");
+  const [mood, setMood] = useState<RouletteMood>("any");
+  const [genre, setGenre] = useState("any");
+  const [platform, setPlatform] = useState("any");
+  const [installedOnly, setInstalledOnly] = useState(false);
+  // Games rolled past in this session are not offered again until the draw runs dry.
+  const [skippedIds, setSkippedIds] = useState<Set<string>>(() => new Set());
+  const [snoozed, setSnoozed] = useState<Record<string, number>>({});
+  const genreOptions = useMemo(() => distinctValues(games, "genres"), [games]);
+  const platformOptions = useMemo(() => distinctValues(games, "platforms"), [games]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [, navigate] = useLocation();
   const [starting, setStarting] = useState(false);
-  function eligibleGames(nextPool: Pool, nextMaxHours: string) {
-    return games.filter(
+  function eligibleGames(nextPool: Pool, nextMaxHours: string, overrides: DrawOverrides = {}) {
+    const filters = {
+      pool: nextPool,
+      maxHours: nextMaxHours === "any" ? null : Number(nextMaxHours),
+      genre: (overrides.genre ?? genre) === "any" ? null : (overrides.genre ?? genre),
+      platform:
+        (overrides.platform ?? platform) === "any" ? null : (overrides.platform ?? platform),
+      mood: overrides.mood ?? mood,
+      installedOnly: overrides.installedOnly ?? installedOnly,
+    };
+    const now = Date.now();
+    return filterRouletteGames(games, filters).filter(
       (game) =>
-        !game.hidden &&
         // While a tag's games are unavailable the draw is empty rather than unfiltered.
         (tagId === "all" || tagGameIds?.has(game.id) === true) &&
-        (nextPool === "all" || game.status === nextPool) &&
-        (nextMaxHours === "any" ||
-          (Number.isFinite(game.timeToBeatNormally) &&
-            (game.timeToBeatNormally ?? 0) > 0 &&
-            (game.timeToBeatNormally ?? Infinity) <= Number(nextMaxHours)))
+        !(((overrides.snoozed ?? snoozed)[game.id] ?? 0) > now)
     );
   }
   const candidates = eligibleGames(pool, maxHours);
@@ -86,22 +175,55 @@ export default function BacklogRoulette({
   }, [tagId, tagGameIds]);
   const selected = candidates.find((game) => game.id === selectedId);
 
-  /** Draw uniformly from the chosen pool, skipping the previous game when possible. */
-  function roll(nextPool = pool, nextMaxHours = maxHours) {
-    const eligible = eligibleGames(nextPool, nextMaxHours);
-    const choices =
-      eligible.length > 1 ? eligible.filter((game) => game.id !== selectedId) : eligible;
+  /**
+   * Draw from the chosen pool with the selected bias, never offering a game already skipped in
+   * this session. Once every match was skipped the memory resets, keeping only the current game
+   * out of the next draw.
+   */
+  function roll(
+    nextPool = pool,
+    nextMaxHours = maxHours,
+    overrides: DrawOverrides = {},
+    skipCurrent = true
+  ) {
+    const eligible = eligibleGames(nextPool, nextMaxHours, overrides);
+    const skipped = new Set(overrides.skipped ?? skippedIds);
+    if (skipCurrent && selectedId) skipped.add(selectedId);
+    let choices = eligible.filter((game) => !skipped.has(game.id));
     if (!choices.length) {
-      setSelectedId(null);
-      return;
+      skipped.clear();
+      if (skipCurrent && selectedId) skipped.add(selectedId);
+      choices = eligible.length > 1 ? eligible.filter((game) => !skipped.has(game.id)) : eligible;
     }
-    // Reject the remainder of the uint32 range so modulo does not bias the draw.
-    const limit = Math.floor(2 ** 32 / choices.length) * choices.length;
-    let draw;
-    do {
-      [draw = 0] = crypto.getRandomValues(new Uint32Array(1));
-    } while (draw >= limit);
-    setSelectedId(choices[draw % choices.length]?.id ?? null);
+    setSkippedIds(skipped);
+    const biasToUse = overrides.bias ?? bias;
+    const now = Date.now();
+    const pick = pickWeighted(choices, (game) => rouletteWeight(game, biasToUse, now), randomBelow);
+    setSelectedId(pick?.id ?? null);
+  }
+
+  /** Hide the current game from the roulette for a while and draw another one. */
+  function snoozeSelected() {
+    if (!selected) return;
+    // Keep this session's snoozes even when storage cannot be read or written.
+    const next = mergeSnoozed(snoozed, loadSnoozed(), {
+      [selected.id]: Date.now() + SNOOZE_DAYS * DAY_MS,
+    });
+    saveSnoozed(next);
+    setSnoozed(next);
+    // The state update is not visible yet: draw with the merged snoozes, which already
+    // exclude the current game and anything another tab snoozed.
+    const eligible = eligibleGames(pool, maxHours, { snoozed: next });
+    const fresh = eligible.filter((game) => !skippedIds.has(game.id));
+    const choices = fresh.length ? fresh : eligible;
+    const now = Date.now();
+    const pick = pickWeighted(choices, (game) => rouletteWeight(game, bias, now), randomBelow);
+    setSelectedId(pick?.id ?? null);
+  }
+
+  function clearSnoozed() {
+    saveSnoozed({});
+    setSnoozed({});
   }
 
   /** Save the selected game's status; keep the dialog open if the save fails. */
@@ -124,7 +246,11 @@ export default function BacklogRoulette({
         open={open}
         onOpenChange={(value) => {
           if (starting) return;
-          if (value) roll();
+          if (value) {
+            const freshSnoozed = mergeSnoozed(snoozed, loadSnoozed());
+            setSnoozed(freshSnoozed);
+            roll(pool, maxHours, { snoozed: freshSnoozed, skipped: new Set() }, false);
+          }
           setOpen(value);
         }}
       >
@@ -219,6 +345,111 @@ export default function BacklogRoulette({
               without a known normal completion time.
             </p>
           </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="roulette-bias">Favour</Label>
+              <Select
+                value={bias}
+                disabled={starting || loading}
+                onValueChange={(value) => {
+                  setBias(value as RouletteBias);
+                  roll(pool, maxHours, { bias: value as RouletteBias }, false);
+                }}
+              >
+                <SelectTrigger id="roulette-bias">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROULETTE_BIASES.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {ROULETTE_BIAS_LABELS[value]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="roulette-mood">Mood</Label>
+              <Select
+                value={mood}
+                disabled={starting || loading}
+                onValueChange={(value) => {
+                  setMood(value as RouletteMood);
+                  roll(pool, maxHours, { mood: value as RouletteMood }, false);
+                }}
+              >
+                <SelectTrigger id="roulette-mood">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROULETTE_MOODS.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {ROULETTE_MOOD_LABELS[value]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="roulette-genre">Genre</Label>
+              <Select
+                value={genre}
+                disabled={starting || loading}
+                onValueChange={(value) => {
+                  setGenre(value);
+                  roll(pool, maxHours, { genre: value }, false);
+                }}
+              >
+                <SelectTrigger id="roulette-genre">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any genre</SelectItem>
+                  {genreOptions.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="roulette-platform">Platform</Label>
+              <Select
+                value={platform}
+                disabled={starting || loading}
+                onValueChange={(value) => {
+                  setPlatform(value);
+                  roll(pool, maxHours, { platform: value }, false);
+                }}
+              >
+                <SelectTrigger id="roulette-platform">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any platform</SelectItem>
+                  {platformOptions.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="roulette-installed"
+              checked={installedOnly}
+              disabled={starting || loading}
+              onCheckedChange={(value) => {
+                const next = value === true;
+                setInstalledOnly(next);
+                roll(pool, maxHours, { installedOnly: next }, false);
+              }}
+            />
+            <Label htmlFor="roulette-installed">Only installed games</Label>
+          </div>
           <div aria-live="polite" aria-atomic="true">
             {selected ? (
               <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
@@ -269,11 +500,29 @@ export default function BacklogRoulette({
                 <p className="text-sm text-muted-foreground">
                   {candidates.length
                     ? "Roll again to pick from your updated list."
-                    : "Choose another pool, game length or Library filters to find a game."}
+                    : "Loosen a filter, choose another pool or check your Library filters to find a game."}
                 </p>
               </div>
             )}
           </div>
+          {Object.keys(snoozed).length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {Object.keys(snoozed).length} snoozed{" "}
+              {Object.keys(snoozed).length === 1 ? "game is" : "games are"} resting for up to{" "}
+              {SNOOZE_DAYS} days.{" "}
+              <button
+                type="button"
+                disabled={starting || loading}
+                className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+                onClick={() => {
+                  clearSnoozed();
+                  roll(pool, maxHours, { snoozed: {} }, false);
+                }}
+              >
+                Bring them back
+              </button>
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
@@ -296,6 +545,15 @@ export default function BacklogRoulette({
                   }}
                 >
                   View game
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={starting || loading}
+                  onClick={snoozeSelected}
+                  aria-label={`Not now: hide ${selected.title} for ${SNOOZE_DAYS} days`}
+                >
+                  <BellOff className="h-4 w-4 mr-2" />
+                  Not now
                 </Button>
                 {selected.status === "owned" && onStartPlaying && (
                   <Button

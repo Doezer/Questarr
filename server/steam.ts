@@ -229,7 +229,8 @@ export const steamService = {
   async getPlayerAchievements(
     apiKey: string,
     steamId: string,
-    appId: number
+    appId: number,
+    { throwIfPrivate = false }: { throwIfPrivate?: boolean } = {}
   ): Promise<SteamAchievement[]> {
     if (!this.validateSteamId(steamId)) {
       throw new Error("Invalid Steam ID format");
@@ -261,6 +262,10 @@ export const steamService = {
         { steamId, appId, error: achievementsData.playerstats?.error },
         "Steam player achievements unavailable"
       );
+      // Steam words a private profile / Game details differently from an app without stats.
+      if (throwIfPrivate && /not public|private/i.test(achievementsData.playerstats?.error ?? "")) {
+        throw new Error("Steam achievements are private");
+      }
       return [];
     }
 

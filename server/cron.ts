@@ -28,6 +28,7 @@ import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { runScheduledSteamPlaytimeSync } from "./steam-playtime.js";
+import { runScheduledSteamAchievementsSync } from "./steam-achievements.js";
 import { runScheduledRommSync } from "./romm-sync.js";
 import { runScheduledLibraryRescan, LIBRARY_RESCAN_TICK_MS } from "./library-rescan.js";
 import { appriseClient } from "./apprise.js";
@@ -162,6 +163,7 @@ const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const ROMM_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const STEAM_PLAYTIME_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const STEAM_ACHIEVEMENTS_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const RSS_REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -840,6 +842,15 @@ function registerCronTasks(): void {
       run: runScheduledSteamPlaytimeSync,
     },
     {
+      name: "steam-achievements",
+      title: "Steam achievements sync",
+      description:
+        "Refresh achievement progress of owned and playing Steam games for users who turned the sync on.",
+      intervalMs: STEAM_ACHIEVEMENTS_SYNC_INTERVAL_MS,
+      runOnStartup: false,
+      run: runScheduledSteamAchievementsSync,
+    },
+    {
       name: "romm-sync",
       title: "RomM sync",
       description: "Synchronise the library with the configured RomM server.",
@@ -1513,7 +1524,7 @@ async function runDownloadStatusCheck() {
 
             let shouldSendCompletionNotification = true;
 
-            if (importConfig.enablePostProcessing) {
+            if (importConfig.enablePostProcessing && !remoteDownload.linkOnly) {
               const details = await DownloaderManager.getDownloadDetails(
                 downloader,
                 download.downloadHash
@@ -1558,7 +1569,8 @@ async function runDownloadStatusCheck() {
             } else {
               // Update DB - mark as completed
               await storage.updateGameDownloadStatus(download.id, "completed");
-              // With post-processing on, the import records it once the files are in place.
+              // With post-processing on, the import records it once the files are in place
+              // (a link-only download is never imported: the user fetches it from the link).
               await recordDeliveredVersion(storage, download);
 
               // Update Game status to 'owned' (which means we have the files), unless

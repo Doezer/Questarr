@@ -29,6 +29,7 @@ const EXPECTED_TABLES = [
   "ddlJobs",
   "downloadEvents",
   "downloaders",
+  "gameAchievementProgress",
   "gameDownloads",
   "gameFiles",
   "gameJournalEntries",

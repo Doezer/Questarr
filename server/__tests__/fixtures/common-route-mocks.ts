@@ -370,6 +370,7 @@ export function createDownloaderManagerMock() {
     getAllDownloads: vi.fn().mockResolvedValue([]),
     getDownloadStatus: vi.fn(),
     getDownloadDetails: vi.fn(),
+    getRemoteDownloadUrl: vi.fn(),
     addDownload: vi.fn().mockResolvedValue({ success: true }),
     addDownloadWithFallback: vi
       .fn()

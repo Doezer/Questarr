@@ -188,6 +188,12 @@ export class DownloaderManager {
     }
   }
 
+  /** A fresh download link for a finished link-only download, or null when there is none. */
+  static async getRemoteDownloadUrl(downloader: Downloader, id: string): Promise<string | null> {
+    const client = this.createClient(downloader);
+    return client.getRemoteDownloadUrl ? await client.getRemoteDownloadUrl(id) : null;
+  }
+
   static async getFreeSpace(downloader: Downloader): Promise<number> {
     try {
       const client = this.createClient(downloader);

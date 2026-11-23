@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { FormatSpec, ReleaseProfile } from "./release-scoring.js";
 import { resolveTargetPlatform } from "./title-utils.js";
 import { isValidFinishByDate } from "./play-goal.js";
+import { getTorBoxFetchMode } from "./downloader-types.js";
 import { hasReversedYearRange, isEmptyCollectionRules } from "./collection-rules.js";
 
 export const users = sqliteTable("users", {
@@ -553,6 +554,35 @@ export const gameStatusEvents = sqliteTable(
   (t) => [
     index("game_status_events_game_idx").on(t.gameId),
     index("game_status_events_user_created_idx").on(t.userId, t.createdAt),
+  ]
+);
+
+// Achievement progress of a game for one user and provider (Steam today), refreshed by the
+// achievements sync. Only the totals and the rarest unlock are kept, not every achievement.
+export const gameAchievementProgress = sqliteTable(
+  "game_achievement_progress",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    unlocked: integer("unlocked").notNull().default(0),
+    total: integer("total").notNull().default(0),
+    rarestName: text("rarest_name"),
+    // Share of players (0-100) who unlocked the rarest achievement this user has.
+    rarestPercent: real("rarest_percent"),
+    lastUnlockedAt: integer("last_unlocked_at", { mode: "timestamp_ms" }),
+    syncedAt: integer("synced_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(strftime('%s', 'now') * 1000)`),
+  },
+  (t) => [
+    uniqueIndex("game_achievement_progress_unique_idx").on(t.gameId, t.userId, t.provider),
+    index("game_achievement_progress_user_idx").on(t.userId),
   ]
 );
 
@@ -1185,10 +1215,18 @@ export const insertDownloaderSchema = createInsertSchema(downloaders, {
     message: "A staging path is required for Real-Debrid",
     path: ["downloadPath"],
   })
-  .refine((data) => !(data.type === "torbox" && !data.downloadPath), {
-    message: "A staging path is required for TorBox",
-    path: ["downloadPath"],
-  })
+  .refine(
+    (data) =>
+      !(
+        data.type === "torbox" &&
+        getTorBoxFetchMode(data.settings) === "local" &&
+        !data.downloadPath
+      ),
+    {
+      message: "A staging path is required for TorBox",
+      path: ["downloadPath"],
+    }
+  )
   .refine((data) => !(data.type === "torbox" && !data.password), {
     message: "An API key is required for TorBox",
     path: ["password"],
@@ -1526,6 +1564,8 @@ export type GameTag = typeof gameTags.$inferSelect;
 export type InsertGameTag = z.infer<typeof insertGameTagSchema>;
 export type DdlJob = typeof ddlJobs.$inferSelect;
 export type InsertDdlJob = typeof ddlJobs.$inferInsert;
+export type GameAchievementProgress = typeof gameAchievementProgress.$inferSelect;
+export type InsertGameAchievementProgress = typeof gameAchievementProgress.$inferInsert;
 export type GameStatusEvent = typeof gameStatusEvents.$inferSelect;
 export type InsertGameStatusEvent = typeof gameStatusEvents.$inferInsert;
 export type GamePlaySession = typeof gamePlaySessions.$inferSelect;
@@ -1559,6 +1599,7 @@ export type NotificationEvent =
   | "gameUpdates"
   | "xrelRelease"
   | "steamSync"
+  | "achievementUnlocked"
   | "errorDetected"
   | "securityAlert";
 
@@ -1586,6 +1627,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   gameUpdates: { inApp: true, apprise: true, includeShelved: true, includeCompleted: true },
   xrelRelease: { inApp: true, apprise: true },
   steamSync: { inApp: true, apprise: false },
+  achievementUnlocked: { inApp: true, apprise: false },
   errorDetected: { inApp: true, apprise: false },
   securityAlert: { inApp: true, apprise: true },
 };
@@ -1680,6 +1722,11 @@ export interface DownloadStatus {
   error?: string | undefined;
   category?: string | undefined;
   // Questarr tracking fields
+  /**
+   * True for a finished download that stays on a cloud client: nothing is copied or imported,
+   * the user fetches it through a link requested on demand (TorBox "link only" mode).
+   */
+  linkOnly?: boolean;
   trackedByQuestarr?: boolean; // True if the download was initiated through Questarr
   downloaderCategory?: string; // The category configured on the downloader (for display purposes)
 }

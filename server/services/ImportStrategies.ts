@@ -2,6 +2,7 @@ import { Game, ImportConfig } from "../../shared/schema.js";
 import { categorizeDownload, type DownloadCategory } from "../../shared/download-categorizer.js";
 import fs from "fs-extra";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import { logger } from "../logger.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { EXTRACT_STAGING_PREFIX } from "./extract-staging.js";
@@ -357,9 +358,19 @@ async function transferSingleFileExclusive(
         await fs.link(partial, target);
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
-        // a filesystem without links: a rename is atomic, so no partial file shows up either
-        if (await fs.pathExists(target)) throw err;
-        await fs.rename(partial, target);
+        // A filesystem without links: the name is claimed with an exclusive create and filled
+        // in place. Nothing that exists is replaced; a failure removes only what was created.
+        await fs.remove(partial).catch(() => undefined);
+        const claimed = await fs.open(target, "wx");
+        try {
+          await pipeline(
+            fs.createReadStream(source),
+            fs.createWriteStream(target, { fd: claimed })
+          );
+        } catch (copyErr) {
+          await fs.remove(target).catch(() => undefined);
+          throw copyErr;
+        }
       }
     } finally {
       await fs.remove(partial).catch(() => undefined);
@@ -517,6 +528,15 @@ async function transferFile(
 
   if (mode === "hardlink" && stats.isDirectory()) {
     return transferDirectoryHardlink(source, destination);
+  }
+
+  if (addonRoot) {
+    // The update/ or dlc/ folder of a single add-on file must not be a link or a file: the file
+    // would follow it out of the game folder. The game folder itself may be a link.
+    const addonDir = await fs.lstat(path.dirname(destination)).catch(() => undefined);
+    if (addonDir && (addonDir.isSymbolicLink() || !addonDir.isDirectory())) {
+      throw new Error(`Refusing to place a file in a link or a file: ${path.dirname(destination)}`);
+    }
   }
 
   return transferSingleFile(source, destination, mode, path.dirname(destination), addonRoot);

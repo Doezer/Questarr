@@ -1463,6 +1463,54 @@ describe("ImportStrategies", () => {
       expect(await fs.pathExists(path.join(root, "elsewhere"))).toBe(false);
     });
 
+    it("places a single add-on file on a filesystem without links, never replacing", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      vi.spyOn(fs, "link").mockRejectedValue(
+        Object.assign(new Error("not supported"), { code: "EPERM" })
+      );
+      await strategy.executeImport(plan, "copy");
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("new");
+      expect((await fs.readdir(path.dirname(plan.proposedPath))).sort()).toEqual(["dlc1.zip"]);
+      // a second import of the same name is refused and the first file stays
+      await fs.outputFile(file, "other");
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow();
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("new");
+    });
+
+    it("refuses a single add-on file when the dlc folder is a link", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      const outside = path.join(root, "outside");
+      await fs.ensureDir(outside);
+      await fs.ensureDir(path.dirname(path.dirname(plan.proposedPath)));
+      await fs.symlink(outside, path.dirname(plan.proposedPath));
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("link or a file");
+      expect(await fs.readdir(outside)).toEqual([]);
+    });
+
     it("removes the partial file of a failed single add-on copy so a retry works", async () => {
       const root = tempDir();
       const lib = path.join(root, "lib");

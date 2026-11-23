@@ -1776,7 +1776,7 @@ export class ImportManager {
     // An update or DLC goes in its game's subfolder only when the server's own plan says so
     // and the confirmed path is inside that folder: never taken from the client.
     let addonPlan: ImportReview | undefined;
-    if (config.addonSubfolders && (!needsExtraction || archiveResolution?.isDirectorySource)) {
+    if (config.addonSubfolders) {
       const addonPlatformDir = await this.resolvePlatformFolder(
         download.downloadTitle || "",
         game,
@@ -1784,6 +1784,10 @@ export class ImportManager {
       );
       addonPlan = await strategy
         .planImport(resolvedOriginalPath, game, config.libraryRoot, config, addonPlatformDir, {
+          // A single-file archive that is being unpacked becomes a folder
+          ...(needsExtraction && !archiveResolution?.isDirectorySource
+            ? { treatAsDirectory: true }
+            : {}),
           downloadTitle: download.downloadTitle,
           releaseCategory: (download.category ||
             inferReleaseCategory(download.downloadTitle || "")) as DownloadCategory,

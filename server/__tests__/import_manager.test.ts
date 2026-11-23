@@ -500,6 +500,20 @@ describe("ImportManager", () => {
     };
     expect(plan.addonGameFolder).toBe("/safe/root/PC/My Game");
     expect(plan.proposedPath).toBe("/safe/root/PC/My Game/update");
+
+    // A destination the user chose inside the game folder is kept as confirmed
+    fsMock.stat.mockResolvedValueOnce({ isDirectory: () => false });
+    transferSpy.mockClear();
+    await manager.confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/Update.zip",
+      proposedPath: "/safe/root/PC/My Game/update-v2/Update.zip",
+      needsReview: false,
+      transferMode: "move",
+      unpack: true,
+    } as never);
+    const custom = (transferSpy.mock.calls[0] as unknown[])[0] as { proposedPath: string };
+    expect(custom.proposedPath).toBe("/safe/root/PC/My Game/update-v2/Update");
     planSpy.mockRestore();
     transferSpy.mockRestore();
   });

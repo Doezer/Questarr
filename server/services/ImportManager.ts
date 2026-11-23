@@ -1798,8 +1798,16 @@ export class ImportManager {
         if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
           planToExecute.addonGameFolder = addonPlan.addonGameFolder;
           if (needsExtraction && !archiveResolution?.isDirectorySource) {
-            // The unpacked archive fills update/ or dlc/, as in an automatic import
-            planToExecute.proposedPath = addonPlan.proposedPath;
+            // The default archive-name destination (update/<name>) collapses into update/ or
+            // dlc/, as in an automatic import; a destination the user chose is kept.
+            const archiveName = path.basename(
+              resolvedOriginalPath,
+              path.extname(resolvedOriginalPath)
+            );
+            const defaultTarget = path.join(path.resolve(addonPlan.proposedPath), archiveName);
+            if (resolvedTarget === defaultTarget) {
+              planToExecute.proposedPath = addonPlan.proposedPath;
+            }
           }
         }
       }

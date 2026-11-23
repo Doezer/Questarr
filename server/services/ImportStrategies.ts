@@ -82,7 +82,8 @@ export function addonSubfolderFor(
 // "Game.incl.Update") is the game itself: it is not filed in a subfolder.
 const COMBINED_PACK_PATTERNS = [
   /\bbase[\s._-]*game\b/i,
-  /(?:\b(?:incl(?:uding|\.)?|with)|\+)[\s._-]*(?:all[\s._-]*)?(?:updates?|patch(?:es)?|dlcs?)\b/i,
+  /\b(?:incl(?:uding|\.)?|with)[\s._-]*(?:all[\s._-]*)?(?:updates?|patch(?:es)?|dlcs?)\b/i,
+  /\+[\s._-]*(?:all[\s._-]*)?(?:updates?|patch(?:es)?|dlcs?)\b/i,
   /\b(?:game|base)[\s._-]*\+/i,
 ];
 

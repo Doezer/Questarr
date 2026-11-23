@@ -1081,6 +1081,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
     enabled: open && !isDiscoveryId(game.id),
     staleTime: 60 * 1000,
   });
+  const contentSlots = Array.isArray(gameContent?.slots) ? gameContent.slots : [];
   const videos = gameContent?.videos ?? game.videos ?? [];
 
   const unlinkContentMutation = useMutation({
@@ -1320,8 +1321,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
     game.timeToBeatNormally,
     game.timeToBeatCompletely,
   ].some((value) => value != null);
-  const contentFileCount =
-    gameContent?.slots.reduce((total, slot) => total + slot.files.length, 0) ?? 0;
+  const contentFileCount = contentSlots.reduce((total, slot) => total + slot.files.length, 0);
 
   // Steam achievements only exist for saved games that are linked to a Steam app.
   const hasAchievements = isLibraryGame && !!game.steamAppId;
@@ -2131,14 +2131,14 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                   <div className="flex items-center justify-center py-8 text-sm text-destructive">
                     Failed to load content.
                   </div>
-                ) : !gameContent || gameContent.slots.length === 0 ? (
+                ) : contentSlots.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
                     <Layers className="h-8 w-8 opacity-40" />
                     <p className="text-sm">No content records found.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {gameContent.slots.map((slot) => {
+                    {contentSlots.map((slot) => {
                       const slotKey = `${slot.category}-${slot.igdbId ?? slot.label}`;
                       const categoryLabel =
                         EXPANSION_CATEGORY_LABELS[slot.category] ?? slot.category;

@@ -706,8 +706,9 @@ function destinationForFile(gameDir: string, entry: FileCategoryEntry): string {
 // the source before any transfer). Instead this runs as a cheap same-filesystem
 // reorganization pass over the destination directory after extraction has already
 // placed everything there.
-export async function reorganizeBySortExtras(destDir: string): Promise<void> {
+export async function reorganizeBySortExtras(destDir: string): Promise<Map<string, string>> {
   const entries = await categorizeSourceFiles(destDir, { skipExtractStaging: true });
+  const moved = new Map<string, string>();
   const moves = entries.map((entry) => ({
     currentPath: path.resolve(path.join(destDir, entry.name)),
     desiredPath: path.resolve(destinationForFile(destDir, entry)),
@@ -729,7 +730,9 @@ export async function reorganizeBySortExtras(destDir: string): Promise<void> {
     if (currentPath === desiredPath) continue;
     await fs.ensureDir(path.dirname(desiredPath));
     await fs.move(currentPath, desiredPath, { overwrite: true });
+    moved.set(currentPath, desiredPath);
   }
+  return moved;
 }
 
 export class PCImportStrategy implements ImportStrategy {

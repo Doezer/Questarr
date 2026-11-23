@@ -114,6 +114,7 @@ vi.mock("lucide-react", () => ({
   TrendingUp: (props: Record<string, unknown>) => <div data-testid="icon-trending-up" {...props} />,
   Clock: (props: Record<string, unknown>) => <div data-testid="icon-clock" {...props} />,
   HardDrive: (props: Record<string, unknown>) => <div data-testid="icon-hard-drive" {...props} />,
+  Scan: (props: Record<string, unknown>) => <div data-testid="icon-scan" {...props} />,
   CheckCircle2: (props: Record<string, unknown>) => (
     <div data-testid="icon-check-circle2" {...props} />
   ),

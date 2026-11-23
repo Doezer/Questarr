@@ -429,6 +429,61 @@ describe("ImportManager archive extraction (library-side)", () => {
     expect(await fs.pathExists(path.join(destDir, "Game Update v1.nsp"))).toBe(false);
   });
 
+  it("keeps an explicit IGDB association on files produced by archive extraction", async () => {
+    const sourcePath = path.join(downloadsRoot, "Game Update v1.zip");
+    await fs.ensureDir(downloadsRoot);
+    await fs.writeFile(sourcePath, "zip-bytes");
+
+    const { archiveService } = makeArchiveService({
+      extractResult: { "patch.nsp": "update-bytes" },
+    });
+    const storage = makeStorage();
+    const manager = createManager(archiveService, storage, {
+      transferMode: "hardlink",
+      libraryRoot,
+    });
+    const destDir = path.join(libraryRoot, "PC", "My Game");
+    const transferWithUnpack = (
+      manager as unknown as {
+        transferWithUnpack: (...args: unknown[]) => Promise<{
+          filesPlaced: string[];
+          placedFileCategories?: Array<{
+            name: string;
+            category: string;
+            igdbContentId?: number;
+          }>;
+        }>;
+      }
+    ).transferWithUnpack;
+
+    const result = await transferWithUnpack.call(
+      manager,
+      {
+        originalPath: sourcePath,
+        proposedPath: destDir,
+        strategy: "pc",
+        needsReview: false,
+      },
+      "hardlink",
+      {
+        archivePath: sourcePath,
+        isDirectorySource: false,
+        alreadyExtracted: false,
+        excludePaths: new Set<string>(),
+        hasRemainingFiles: false,
+      },
+      makeGame({ id: "g1", userId: "u1", title: "My Game", platforms: [6] }),
+      undefined,
+      false,
+      { category: "update", igdbContentId: 4242 }
+    );
+
+    expect(result.filesPlaced).toEqual([path.join(destDir, "patch.nsp")]);
+    expect(result.placedFileCategories).toEqual([
+      { name: "patch.nsp", category: "update", igdbContentId: 4242 },
+    ]);
+  });
+
   it("leaves the raw archive stranded and notifies when extraction fails after a copy", async () => {
     const sourcePath = path.join(downloadsRoot, "game.zip");
     await fs.ensureDir(downloadsRoot);

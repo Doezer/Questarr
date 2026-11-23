@@ -55,6 +55,8 @@ export type ImportContentSuggestion = {
   category: "dlc" | "update" | "packs" | "extra";
 };
 
+type ExtractionContentMetadata = Pick<FileCategoryEntry, "category" | "igdbContentId">;
+
 function contentCategoryForIgdbCategory(
   igdbCategory?: number
 ): ImportContentSuggestion["category"] {
@@ -72,6 +74,48 @@ function importedFileCategory(filePath: string): "main" | "dlc" | "update" | "ex
   if (parent === "extra") return "extra";
   const inferred = categorizeDownload(path.basename(filePath)).category;
   return inferred === "packs" ? "extra" : inferred;
+}
+
+function buildExtractionFileCategories(
+  destDir: string,
+  filesPlaced: string[],
+  extractedFiles: string[],
+  reorganizedPaths: ReadonlyMap<string, string>,
+  extractedMetadata?: ExtractionContentMetadata,
+  remainingResult?: ImportResult
+): FileCategoryEntry[] {
+  const byPath = new Map<string, FileCategoryEntry>();
+  for (const extractedFile of extractedFiles) {
+    const finalPath = reorganizedPaths.get(path.resolve(extractedFile)) ?? extractedFile;
+    byPath.set(
+      path.resolve(finalPath),
+      extractedMetadata
+        ? {
+            name: path.relative(destDir, finalPath),
+            category: extractedMetadata.category,
+            ...(extractedMetadata.igdbContentId != null
+              ? { igdbContentId: extractedMetadata.igdbContentId }
+              : {}),
+          }
+        : { name: path.relative(destDir, finalPath), category: importedFileCategory(finalPath) }
+    );
+  }
+
+  if (remainingResult?.placedFileCategories) {
+    for (const [index, filePath] of remainingResult.filesPlaced.entries()) {
+      const category = remainingResult.placedFileCategories[index];
+      if (category) byPath.set(path.resolve(filePath), category);
+    }
+  }
+
+  return filesPlaced.map((filePath) => {
+    return (
+      byPath.get(path.resolve(filePath)) ?? {
+        name: path.relative(destDir, filePath),
+        category: importedFileCategory(filePath),
+      }
+    );
+  });
 }
 
 function normalizeContentMatchText(value: string): string {
@@ -548,7 +592,8 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     password: string | undefined,
     sortExtras: boolean,
-    progress?: ImportProgress
+    progress?: ImportProgress,
+    extractionMetadata?: ExtractionContentMetadata
   ): Promise<ImportResult> {
     const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
 
@@ -565,7 +610,8 @@ export class ImportManager {
         strategy,
         password,
         sortExtras,
-        progress
+        progress,
+        extractionMetadata
       );
     }
 
@@ -577,7 +623,8 @@ export class ImportManager {
       game,
       password,
       sortExtras,
-      progress
+      progress,
+      extractionMetadata
     );
   }
 
@@ -614,28 +661,58 @@ export class ImportManager {
     strategy: PCImportStrategy,
     password: string | undefined,
     sortExtras: boolean,
-    progress?: ImportProgress
+    progress?: ImportProgress,
+    extractionMetadata?: ExtractionContentMetadata
   ): Promise<ImportResult> {
     const destDir = plan.proposedPath;
     await this.assertAddonDestinationIsFolder(plan);
     await fs.ensureDir(destDir);
     progress?.setPhase("extracting");
-    await this.archiveService.extract(resolution.archivePath, destDir, password);
+    const extractedFiles = await this.archiveService.extract(
+      resolution.archivePath,
+      destDir,
+      password
+    );
 
     let modeUsed = transferMode;
+    let remainingResult: ImportResult | undefined;
     if (resolution.isDirectorySource && resolution.hasRemainingFiles) {
       progress?.setPhase("transferring");
-      modeUsed = (await strategy.executeImport(plan, transferMode, resolution.excludePaths))
-        .modeUsed;
+      remainingResult = await strategy.executeImport(plan, transferMode, resolution.excludePaths);
+      modeUsed = remainingResult.modeUsed;
     }
 
     // Sorting after the remaining-files transfer (not before) so a categorized loose
     // file doesn't land at destDir's root, outside this pass's reach.
-    if (sortExtras) await reorganizeBySortExtras(destDir);
+    const reorganizedPaths = sortExtras ? await reorganizeBySortExtras(destDir) : new Map();
+    const filesPlaced = await gatherFiles(destDir, { skipExtractStaging: true });
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
+      filesPlaced,
+      ...(extractionMetadata
+        ? {
+            placedFileCategories: buildExtractionFileCategories(
+              destDir,
+              filesPlaced,
+              extractedFiles,
+              reorganizedPaths,
+              extractionMetadata,
+              remainingResult
+            ),
+          }
+        : remainingResult?.placedFileCategories
+          ? {
+              placedFileCategories: buildExtractionFileCategories(
+                destDir,
+                filesPlaced,
+                extractedFiles,
+                reorganizedPaths,
+                undefined,
+                remainingResult
+              ),
+            }
+          : {}),
       modeUsed,
       conflictsResolved: [],
     };
@@ -652,7 +729,8 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     password: string | undefined,
     sortExtras: boolean,
-    progress?: ImportProgress
+    progress?: ImportProgress,
+    extractionMetadata?: ExtractionContentMetadata
   ): Promise<ImportResult> {
     const destDir = plan.proposedPath;
     await this.assertAddonDestinationIsFolder(plan);
@@ -663,9 +741,10 @@ export class ImportManager {
       destDir
     );
 
+    let extractedFiles: string[];
     try {
       progress?.setPhase("extracting");
-      await this.archiveService.extract(archiveInDest, destDir, password);
+      extractedFiles = await this.archiveService.extract(archiveInDest, destDir, password);
     } catch (err) {
       await this.notifyStrandedImport(game, archiveInDest, err);
       throw err;
@@ -676,11 +755,12 @@ export class ImportManager {
     }
 
     let modeUsed = transferMode;
+    let remainingResult: ImportResult | undefined;
     if (resolution.isDirectorySource) {
       if (resolution.hasRemainingFiles) {
         progress?.setPhase("transferring");
-        modeUsed = (await strategy.executeImport(plan, transferMode, resolution.excludePaths))
-          .modeUsed;
+        remainingResult = await strategy.executeImport(plan, transferMode, resolution.excludePaths);
+        modeUsed = remainingResult.modeUsed;
       } else if (transferMode === "move") {
         // Only archive-family files were relocated above, leaving an empty source
         // directory behind — the plain-directory transfer path would normally remove
@@ -689,11 +769,35 @@ export class ImportManager {
       }
     }
 
-    if (sortExtras) await reorganizeBySortExtras(destDir);
+    const reorganizedPaths = sortExtras ? await reorganizeBySortExtras(destDir) : new Map();
+    const filesPlaced = await gatherFiles(destDir, { skipExtractStaging: true });
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
+      filesPlaced,
+      ...(extractionMetadata
+        ? {
+            placedFileCategories: buildExtractionFileCategories(
+              destDir,
+              filesPlaced,
+              extractedFiles,
+              reorganizedPaths,
+              extractionMetadata,
+              remainingResult
+            ),
+          }
+        : remainingResult?.placedFileCategories
+          ? {
+              placedFileCategories: buildExtractionFileCategories(
+                destDir,
+                filesPlaced,
+                extractedFiles,
+                reorganizedPaths,
+                undefined,
+                remainingResult
+              ),
+            }
+          : {}),
       modeUsed,
       conflictsResolved: [],
     };
@@ -1741,6 +1845,9 @@ export class ImportManager {
       // flat destDir, not a category subfolder) and redundant — the post-extraction
       // reorganizeBySortExtras pass in transferWithUnpack re-categorizes everything,
       // extracted contents included, once the real files exist.
+      const extractionMetadata = needsExtraction
+        ? this.extractionContentMetadata(plan, archiveResolution!)
+        : undefined;
       if (needsExtraction) {
         plan.fileCategories = undefined;
       }
@@ -1759,7 +1866,9 @@ export class ImportManager {
             game,
             password,
             // Already inside update/ or dlc/: nothing left to sort.
-            config.sortExtras && !plan.addonGameFolder
+            config.sortExtras && !plan.addonGameFolder,
+            undefined,
+            extractionMetadata
           );
           // An update or DLC in a subfolder does not move the game's own entry.
           return plan.addonGameFolder
@@ -1857,19 +1966,9 @@ export class ImportManager {
     );
   }
 
-  private async suggestImportContent(
-    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
-    downloadTitle: string
-  ): Promise<ImportContentSuggestion | null> {
-    const inferred = categorizeDownload(downloadTitle).category;
-    if (
-      !game.igdbId ||
-      !downloadTitle.trim() ||
-      (inferred !== "update" && inferred !== "dlc" && inferred !== "packs")
-    ) {
-      return null;
-    }
-
+  private async getImportContentItems(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>
+  ): Promise<ImportContentSuggestion[]> {
     const items = new Map<number, ImportContentSuggestion>();
     for (const item of game.expansions ?? []) {
       if (Number.isInteger(item.id) && item.id > 0) {
@@ -1885,36 +1984,75 @@ export class ImportManager {
       }
     }
 
-    try {
-      const { base, editions, expandedGames, parentGames } = await igdbClient.getGameEditions(
-        game.igdbId,
-        { includeLegacyContent: true }
-      );
-      const liveItems: Array<{ item: IGDBContentRef; fallbackCategory: number }> = [
-        ...(base?.expansions ?? []).map((item) => ({ item, fallbackCategory: 2 })),
-        ...(base?.dlcs ?? []).map((item) => ({ item, fallbackCategory: 1 })),
-        ...(base?.standalone_expansions ?? []).map((item) => ({ item, fallbackCategory: 4 })),
-        ...(expandedGames ?? base?.expanded_games ?? [])
-          .filter((item) => item.category !== 10 && item.category !== 11)
-          .map((item) => ({ item, fallbackCategory: 10 })),
-        ...(parentGames ?? []).map((item) => ({ item, fallbackCategory: 10 })),
-        ...editions.map((item) => ({ item, fallbackCategory: 10 })),
-      ];
-      for (const { item, fallbackCategory } of liveItems) {
-        if (Number.isInteger(item.id) && item.id > 0 && !items.has(item.id)) {
-          const igdbCategory = item.category ?? item.game_type ?? fallbackCategory;
-          items.set(item.id, {
-            id: item.id,
-            name: item.name,
-            category: contentCategoryForIgdbCategory(igdbCategory),
-          });
+    if (game.igdbId) {
+      try {
+        const { base, editions, expandedGames, parentGames } = await igdbClient.getGameEditions(
+          game.igdbId,
+          { includeLegacyContent: true }
+        );
+        const liveItems: Array<{ item: IGDBContentRef; fallbackCategory: number }> = [
+          ...(base?.expansions ?? []).map((item) => ({ item, fallbackCategory: 2 })),
+          ...(base?.dlcs ?? []).map((item) => ({ item, fallbackCategory: 1 })),
+          ...(base?.standalone_expansions ?? []).map((item) => ({ item, fallbackCategory: 4 })),
+          ...(expandedGames ?? base?.expanded_games ?? [])
+            .filter((item) => item.category !== 10 && item.category !== 11)
+            .map((item) => ({ item, fallbackCategory: 10 })),
+          ...(parentGames ?? []).map((item) => ({ item, fallbackCategory: 10 })),
+          ...editions.map((item) => ({ item, fallbackCategory: 10 })),
+        ];
+        for (const { item, fallbackCategory } of liveItems) {
+          if (Number.isInteger(item.id) && item.id > 0 && !items.has(item.id)) {
+            const igdbCategory = item.category ?? item.game_type ?? fallbackCategory;
+            items.set(item.id, {
+              id: item.id,
+              name: item.name,
+              category: contentCategoryForIgdbCategory(igdbCategory),
+            });
+          }
         }
+      } catch (error) {
+        logger.warn(
+          { error, igdbId: game.igdbId },
+          "Could not load IGDB content for import review"
+        );
       }
-    } catch (error) {
-      logger.warn({ error, igdbId: game.igdbId }, "Could not load IGDB content for import review");
     }
 
-    return findImportContentMatch(downloadTitle, Array.from(items.values()));
+    return Array.from(items.values());
+  }
+
+  private async suggestImportContent(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    downloadTitle: string
+  ): Promise<ImportContentSuggestion | null> {
+    const inferred = categorizeDownload(downloadTitle).category;
+    if (
+      !game.igdbId ||
+      !downloadTitle.trim() ||
+      (inferred !== "update" && inferred !== "dlc" && inferred !== "packs")
+    ) {
+      return null;
+    }
+    return findImportContentMatch(downloadTitle, await this.getImportContentItems(game));
+  }
+
+  private extractionContentMetadata(
+    plan: ImportReview,
+    resolution: ArchiveResolution
+  ): ExtractionContentMetadata | undefined {
+    const archiveName = path.basename(resolution.archivePath);
+    const relativeArchiveName = resolution.isDirectorySource
+      ? path.relative(plan.originalPath, resolution.archivePath)
+      : archiveName;
+    const matches = (plan.fileCategories ?? []).filter(
+      (entry) =>
+        path.normalize(entry.name) === path.normalize(relativeArchiveName) ||
+        path.basename(entry.name) === archiveName
+    );
+    const selected = matches.length === 1 ? matches[0] : undefined;
+    return selected?.igdbContentId != null
+      ? { category: selected.category, igdbContentId: selected.igdbContentId }
+      : undefined;
   }
 
   async planConfirmImport(
@@ -2104,17 +2242,17 @@ export class ImportManager {
     const config = await this.storage.getImportConfig(game.userId ?? undefined);
 
     if (overridePlan.fileCategories?.some((entry) => entry.igdbContentId != null)) {
-      const suggestedContent = await this.suggestImportContent(game, download.downloadTitle);
+      const contentItems = await this.getImportContentItems(game);
       for (const entry of overridePlan.fileCategories) {
         if (entry.igdbContentId == null) continue;
+        const selectedContent = contentItems.find((item) => item.id === entry.igdbContentId);
         const categoryMatches =
-          suggestedContent != null &&
-          suggestedContent.id === entry.igdbContentId &&
-          ((suggestedContent.category === "update" && entry.category === "update") ||
-            (suggestedContent.category !== "update" &&
+          selectedContent != null &&
+          ((selectedContent.category === "update" && entry.category === "update") ||
+            (selectedContent.category !== "update" &&
               (entry.category === "dlc" || entry.category === "packs")));
         if (!categoryMatches) {
-          throw new Error("File category does not match the suggested IGDB content");
+          throw new Error("File category does not match the selected IGDB content");
         }
       }
     }
@@ -2163,6 +2301,12 @@ export class ImportManager {
         await this.resolveArchive(resolvedOriginalPath, { includeDiscImages: true })
       : null;
     const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
+    const extractionMetadata = needsExtraction
+      ? this.extractionContentMetadata(
+          { ...overridePlan, originalPath: resolvedOriginalPath },
+          archiveResolution!
+        )
+      : undefined;
 
     // The client always echoes back an extension-bearing proposedPath regardless of the
     // unpack toggle (it can't know in advance whether unpack will be requested), so a
@@ -2311,7 +2455,8 @@ export class ImportManager {
             current,
             overridePlan.password,
             config.sortExtras && !planToExecute.addonGameFolder,
-            progress
+            progress,
+            extractionMetadata
           );
           // An update or DLC in a subfolder does not move the game's own entry.
           return planToExecute.addonGameFolder

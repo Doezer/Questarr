@@ -352,13 +352,18 @@ async function transferSingleFileExclusive(
     if (mode === "move" || mode === "hardlink") {
       // A hard link is an atomic create-if-absent; a move is that link followed by dropping
       // the source. fs.move would check, then rename over whatever appeared in between.
+      let linked = false;
       try {
         await fs.link(source, target);
-        if (mode === "move") await fs.remove(source);
-        return mode;
+        linked = true;
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
         // another device or a filesystem without links: copy instead, still without replacing
+      }
+      if (linked) {
+        // outside the try: a failure to drop the source is not a failed link
+        if (mode === "move") await fs.remove(source);
+        return mode;
       }
     }
     // Copied under a temporary name and then linked into place without replacing: a copy that

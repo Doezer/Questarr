@@ -82,6 +82,19 @@ describe("GameAchievements", () => {
     expect(icons).not.toContain("https://cdn.example/secret.png");
   });
 
+  it("labels an achieved entry without an unlock time as unlocked", async () => {
+    response = {
+      status: 200,
+      body: { achievements: [{ ...ACHIEVEMENTS[0], unlockedAt: null }] },
+    };
+    renderSection();
+
+    await screen.findByText("Beat the game");
+    const card = within(screen.getByRole("list"));
+    expect(card.getByText(/^Unlocked( ·|$)/)).toBeInTheDocument();
+    expect(card.queryByText(/Locked/)).not.toBeInTheDocument();
+  });
+
   it("filters by unlocked and locked", async () => {
     renderSection();
     await screen.findByText("Beat the game");

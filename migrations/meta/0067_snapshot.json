@@ -1211,13 +1211,6 @@
           "autoincrement": false,
           "default": false
         },
-        "igdb_content_id": {
-          "name": "igdb_content_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "file_path": {
           "name": "file_path",
           "type": "text",
@@ -1253,13 +1246,6 @@
           "name": "game_files_download_id_idx",
           "columns": [
             "download_id"
-          ],
-          "isUnique": false
-        },
-        "game_files_igdb_content_id_idx": {
-          "name": "game_files_igdb_content_id_idx",
-          "columns": [
-            "igdb_content_id"
           ],
           "isUnique": false
         }

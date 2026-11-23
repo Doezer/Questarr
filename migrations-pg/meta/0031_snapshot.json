@@ -1238,12 +1238,6 @@
           "notNull": true,
           "default": false
         },
-        "igdb_content_id": {
-          "name": "igdb_content_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "file_path": {
           "name": "file_path",
           "type": "text",
@@ -1285,21 +1279,6 @@
           "columns": [
             {
               "expression": "download_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "game_files_igdb_content_id_idx": {
-          "name": "game_files_igdb_content_id_idx",
-          "columns": [
-            {
-              "expression": "igdb_content_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

@@ -1424,6 +1424,26 @@ describe("ImportStrategies", () => {
       expect(plan.needsReview).toBe(true);
     });
 
+    it("refuses at execution to replace a single add-on file that appeared after planning", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true, overwriteExisting: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      expect(plan.needsReview).toBe(false);
+      await fs.outputFile(plan.proposedPath, "old");
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("refusing to overwrite");
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("old");
+    });
+
     it("removes the files a failed merge placed so a retry is not blocked", async () => {
       const root = tempDir();
       const lib = path.join(root, "lib");

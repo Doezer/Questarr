@@ -847,6 +847,15 @@ export class PCImportStrategy implements ImportStrategy {
       };
     }
 
+    if (review.addonGameFolder && (await fs.pathExists(review.proposedPath))) {
+      const sourceStats = await fs.stat(review.originalPath);
+      // An add-on file is checked again here: it may have appeared since the plan was made.
+      if (!sourceStats.isDirectory()) {
+        throw new Error(
+          `Destination already exists, refusing to overwrite: ${review.proposedPath}`
+        );
+      }
+    }
     await fs.ensureDir(path.dirname(review.proposedPath));
     if (review.wrapperFolder) {
       // a game folder that is a link could send the file outside the library

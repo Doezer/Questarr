@@ -443,6 +443,67 @@ describe("ImportManager", () => {
     executeSpy.mockRestore();
   });
 
+  it("confirmImport: a single-file archive update unpacks into update/, not update/<name>/", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My.Game.Update.v1.2-RUNE",
+      category: "update",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "owned",
+      platforms: [6],
+      libraryPath: "/safe/root/PC/My Game",
+    });
+    storage.getImportConfig.mockResolvedValue({
+      ...baseConfig,
+      libraryRoot: "/safe/root",
+      addonSubfolders: true,
+      autoUnpack: true,
+    });
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+    const resolution = { alreadyExtracted: false, isDirectorySource: false };
+    vi.spyOn(manager as never, "resolveArchive").mockResolvedValue(resolution as never);
+    const transferSpy = vi
+      .spyOn(manager as never, "transferWithUnpack")
+      .mockResolvedValue({ success: true, destDir: "/safe/root/PC/My Game/update" } as never);
+    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+      strategy: "pc",
+      originalPath: "/downloads/Update.zip",
+      proposedPath: "/safe/root/PC/My Game/update",
+      addonGameFolder: "/safe/root/PC/My Game",
+      needsReview: false,
+    } as never);
+    fsMock.stat.mockResolvedValueOnce({ isDirectory: () => false });
+    await manager.confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/Update.zip",
+      proposedPath: "/safe/root/PC/My Game/update/Update.zip",
+      needsReview: false,
+      transferMode: "move",
+      unpack: true,
+    } as never);
+
+    const plan = (transferSpy.mock.calls[0] as unknown[])[0] as {
+      proposedPath: string;
+      addonGameFolder?: string;
+    };
+    expect(plan.addonGameFolder).toBe("/safe/root/PC/My Game");
+    expect(plan.proposedPath).toBe("/safe/root/PC/My Game/update");
+    planSpy.mockRestore();
+    transferSpy.mockRestore();
+  });
+
   it("confirmImport: an add-on whose game moved while waiting for the lock is confirmed again", async () => {
     storage.getGameDownload.mockResolvedValue({
       id: "dl-1",

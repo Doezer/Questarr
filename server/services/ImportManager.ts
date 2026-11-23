@@ -1797,6 +1797,10 @@ export class ImportManager {
         const rel = path.relative(path.resolve(addonPlan.addonGameFolder), resolvedTarget);
         if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
           planToExecute.addonGameFolder = addonPlan.addonGameFolder;
+          if (needsExtraction && !archiveResolution?.isDirectorySource) {
+            // The unpacked archive fills update/ or dlc/, as in an automatic import
+            planToExecute.proposedPath = addonPlan.proposedPath;
+          }
         }
       }
     }

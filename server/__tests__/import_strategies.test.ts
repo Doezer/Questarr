@@ -1146,6 +1146,50 @@ describe("ImportStrategies", () => {
       expect(await fs.pathExists(otherRoot)).toBe(true);
     });
 
+    it("keeps a moved source whose real path holds the destination", async () => {
+      const root = tempDir();
+      const downloadsRoot = path.join(root, "downloads");
+      const otherRoot = path.join(root, "other");
+      const realGameDir = path.join(otherRoot, "game");
+      await fs.ensureDir(realGameDir);
+      await fs.writeFile(path.join(realGameDir, "game.rom"), "rom");
+      await fs.writeFile(path.join(realGameDir, "skip.zip"), "zip");
+      await fs.ensureDir(downloadsRoot);
+      await fs.symlink(otherRoot, path.join(downloadsRoot, "link"), "dir");
+      const source = path.join(downloadsRoot, "link", "game");
+      // Not nested lexically, but it is inside the real source.
+      const destination = path.join(realGameDir, "imported");
+
+      const strategy = new PCImportStrategy([downloadsRoot, otherRoot]);
+      await strategy.executeImport(
+        { needsReview: false, originalPath: source, proposedPath: destination, strategy: "pc" },
+        "move",
+        new Set([path.resolve(source, "skip.zip")])
+      );
+
+      expect(await fs.pathExists(path.join(destination, "game.rom"))).toBe(true);
+    });
+
+    it("never removes a source that is itself a configured root", async () => {
+      const root = tempDir();
+      const downloadsRoot = path.join(root, "downloads");
+      const gameDir = path.join(downloadsRoot, "game");
+      await fs.ensureDir(gameDir);
+      await fs.writeFile(path.join(gameDir, "game.rom"), "rom");
+      await fs.writeFile(path.join(gameDir, "skip.zip"), "zip");
+      const destination = path.join(root, "library", "My Game");
+
+      const strategy = new PCImportStrategy([downloadsRoot, gameDir]);
+      await strategy.executeImport(
+        { needsReview: false, originalPath: gameDir, proposedPath: destination, strategy: "pc" },
+        "move",
+        new Set([path.resolve(gameDir, "skip.zip")])
+      );
+
+      expect(await fs.pathExists(path.join(destination, "game.rom"))).toBe(true);
+      expect(await fs.pathExists(gameDir)).toBe(true);
+    });
+
     it("planImport applies no restriction when no roots are configured", async () => {
       const root = tempDir();
       const source = path.join(root, "anywhere", "game.exe");

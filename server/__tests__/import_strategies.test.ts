@@ -8,6 +8,7 @@ import {
   reorganizeBySortExtras,
   gatherFiles,
   categorizeRelativeFiles,
+  addonSubfolderFor,
 } from "../services/ImportStrategies.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
@@ -1338,6 +1339,57 @@ describe("ImportStrategies", () => {
         { name: p("Game", "DLC", "addon.pak"), category: "dlc" },
         { name: p("Game", "Packs", "skins.pak"), category: "packs" },
       ]);
+    });
+  });
+
+  describe("update and DLC subfolders (addonSubfolders)", () => {
+    const on = makeImportConfig({ addonSubfolders: true });
+
+    it("files an update folder under <game>/update without touching the game's entry", async () => {
+      const root = tempDir();
+      const source = path.join(root, "dl", "Game.Update.v1.2-GRP");
+      await fs.outputFile(path.join(source, "patch.bin"), "p");
+      const plan = await new PCImportStrategy().planImport(
+        source,
+        makeGame({ title: "My Game" }),
+        path.join(root, "lib"),
+        on,
+        "win",
+        { releaseCategory: "update", downloadTitle: "Game.Update.v1.2-GRP" }
+      );
+      expect(plan.proposedPath).toBe(path.join(root, "lib", "win", "My Game", "update"));
+      expect(plan.addonGameFolder).toBe(path.join(root, "lib", "win", "My Game"));
+      expect(plan.needsReview).toBe(false);
+    });
+
+    it("keeps the file name of a single DLC file and merges into an existing dlc folder", async () => {
+      const root = tempDir();
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "z");
+      const lib = path.join(root, "lib");
+      const folder = path.join(root, "dl", "DLC2");
+      await fs.outputFile(path.join(folder, "b.bin"), "b");
+      await fs.ensureDir(path.join(lib, "win", "My Game", "dlc"));
+      const strategy = new PCImportStrategy();
+      const game = makeGame({ title: "My Game" });
+      const filePlan = await strategy.planImport(file, game, lib, on, "win", {
+        releaseCategory: "dlc",
+      });
+      expect(filePlan.proposedPath).toBe(path.join(lib, "win", "My Game", "dlc", "dlc1.zip"));
+      const dirPlan = await strategy.planImport(folder, game, lib, on, "win", {
+        releaseCategory: "dlc",
+      });
+      expect(dirPlan.needsReview).toBe(false);
+    });
+
+    it("changes nothing when off, for a main release, or for a combined pack", () => {
+      expect(addonSubfolderFor(makeImportConfig(), "update")).toBeUndefined();
+      expect(addonSubfolderFor(on, "main")).toBeUndefined();
+      expect(addonSubfolderFor(on, "extra")).toBeUndefined();
+      expect(addonSubfolderFor(on, "update", "Game.Base.Game.+.Update.v1.2")).toBeUndefined();
+      expect(addonSubfolderFor(on, "update", "Game.incl.Update.v1.2")).toBeUndefined();
+      expect(addonSubfolderFor(on, "update", "Game.Update.v1.2-GRP")).toBe("update");
+      expect(addonSubfolderFor(on, "dlc", "Game.DLC.Pack-GRP")).toBe("dlc");
     });
   });
 });

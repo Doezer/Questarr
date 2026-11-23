@@ -498,6 +498,13 @@
       "when": 1795358879844,
       "tag": "0069_game_achievement_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1795454794634,
+      "tag": "0070_addon_subfolders",
+      "breakpoints": true
     }
   ]
 }

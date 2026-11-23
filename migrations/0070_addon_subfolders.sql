@@ -1,0 +1,1 @@
+ALTER TABLE `user_settings` ADD `addon_subfolders` integer DEFAULT false NOT NULL;

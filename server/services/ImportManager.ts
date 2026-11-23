@@ -23,6 +23,7 @@ import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
 import { notifyUser } from "../socket.js";
+import type { DownloadCategory } from "../../shared/download-categorizer.js";
 import { carriesBaseGameVersion, inferReleaseCategory } from "../../shared/version-utils.js";
 import { recordVersionFromInstallFolder } from "../game-version.js";
 import { resolvePrefs } from "../notification-prefs.js";
@@ -817,7 +818,7 @@ export class ImportManager {
     try {
       result = await transfer();
       transferred = true;
-      await this.finalizeImport(download, game, result.destDir);
+      await this.finalizeImport(download, game, result.libraryEntry ?? result.destDir);
     } catch (err) {
       if (replacement) {
         // Recording the import may have stopped halfway: the game must keep pointing at the
@@ -1363,6 +1364,8 @@ export class ImportManager {
           ? { treatAsDirectory: true }
           : {}),
         downloadTitle: download.downloadTitle,
+        releaseCategory: (download.category ||
+          inferReleaseCategory(download.downloadTitle || "")) as DownloadCategory,
       });
 
       // A new full release of a game that already has files in the library replaces them
@@ -1398,15 +1401,21 @@ export class ImportManager {
         config.transferMode,
         download,
         game,
-        () =>
-          this.transferWithUnpack(
+        async () => {
+          const transferred = await this.transferWithUnpack(
             plan,
             config.transferMode,
             archiveResolution,
             game,
             password,
-            config.sortExtras
-          )
+            // Already inside update/ or dlc/: nothing left to sort.
+            config.sortExtras && !plan.addonGameFolder
+          );
+          // An update or DLC in a subfolder does not move the game's own entry.
+          return plan.addonGameFolder
+            ? { ...transferred, libraryEntry: game.libraryPath ?? plan.addonGameFolder }
+            : transferred;
+        }
       );
       await this.reportLeftoverArchives(game, result.destDir, {
         extractionAttempted: needsExtraction,

@@ -24,6 +24,9 @@ export interface ImportResult {
   filesPlaced: string[];
   modeUsed: TransferMode;
   conflictsResolved: string[];
+  // The game's own entry in the library when it is not destDir: an update or DLC placed in
+  // a subfolder of the game's folder.
+  libraryEntry?: string;
 }
 
 export interface ImportReview {
@@ -38,6 +41,8 @@ export interface ImportReview {
   // The folder a single file was wrapped in (see folderForSingleFiles); the game's own entry
   // in the library is then this folder, not the file inside it.
   wrapperFolder?: string | undefined;
+  // Set when the release goes to `update/` or `dlc/` inside this game folder.
+  addonGameFolder?: string | undefined;
 }
 
 export interface FileCategoryEntry {
@@ -54,7 +59,27 @@ export interface PlanImportOptions {
   // Release name the game was downloaded as; feeds the {Version}, {Group} and {Source}
   // tokens of the naming template.
   downloadTitle?: string | null;
+  // Category of the release. An update or DLC goes to a subfolder of the game's folder when
+  // the user turned that on; any other category is placed as usual.
+  releaseCategory?: DownloadCategory | null;
 }
+
+/** Subfolder of the game folder an update or DLC release goes to, when the user asked for it. */
+export function addonSubfolderFor(
+  config: Pick<ImportConfig, "addonSubfolders">,
+  category: DownloadCategory | null | undefined,
+  releaseTitle?: string | null
+): "update" | "dlc" | undefined {
+  if (!config.addonSubfolders) return undefined;
+  if (category !== "update" && category !== "dlc") return undefined;
+  if (releaseTitle && COMBINED_PACK.test(releaseTitle)) return undefined;
+  return category;
+}
+
+// A pack that carries the base game next to its update or DLC ("Base.Game.+.Update.v1.2",
+// "Game.incl.Update") is the game itself: it is not filed in a subfolder.
+const COMBINED_PACK =
+  /\bbase[\s._-]*game\b|\b(?:incl(?:uding|\.)?|with|\+)[\s._-]*(?:all[\s._-]*)?(?:the[\s._-]*)?(?:updates?|patch(?:es)?)\b|\b(?:game|base)[\s._-]*\+[\s._-]*(?:updates?|dlcs?)\b/i;
 
 /** Name of the library leaf (folder, or file of a single-file release) for a game. */
 export function resolveLibraryLeafName(
@@ -604,9 +629,24 @@ export class PCImportStrategy implements ImportStrategy {
     // A single file gets the folder a multi-file release has, when the user asked for it.
     const wrapInFolder =
       config.folderForSingleFiles && !stats.isDirectory() && !options?.treatAsDirectory;
-    const destination = wrapInFolder
-      ? path.join(targetRoot, platformDir ?? "PC", cleanTitle, cleanTitle + ext)
-      : path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);
+    const addonSubfolder = addonSubfolderFor(
+      config,
+      options?.releaseCategory,
+      options?.downloadTitle
+    );
+    const gameFolder = path.join(targetRoot, platformDir ?? "PC", cleanTitle);
+    const isDirectorySource = stats.isDirectory() || !!options?.treatAsDirectory;
+    let destination: string;
+    if (addonSubfolder) {
+      // A folder (or an archive to unpack) fills the subfolder; a single file keeps its name.
+      destination = isDirectorySource
+        ? path.join(gameFolder, addonSubfolder)
+        : path.join(gameFolder, addonSubfolder, path.basename(sourcePath));
+    } else {
+      destination = wrapInFolder
+        ? path.join(gameFolder, cleanTitle + ext)
+        : path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);
+    }
 
     // sanitizeFsName strips filesystem-illegal characters but not ".." segments, so a
     // game title alone doesn't guarantee destination stays under targetRoot. Verify
@@ -618,12 +658,15 @@ export class PCImportStrategy implements ImportStrategy {
     }
 
     const fileCategories =
-      stats.isDirectory() && config.sortExtras
+      stats.isDirectory() && config.sortExtras && !addonSubfolder
         ? await categorizeSourceFiles(sourcePath)
         : undefined;
 
     const destinationExists = await fs.pathExists(destination);
-    const needsReview = destinationExists && !config.overwriteExisting;
+    // A second update lands in the `update/` folder the first one made: files are checked one
+    // by one, and never overwritten, when they are placed.
+    const mergesIntoSubfolder = !!addonSubfolder && isDirectorySource;
+    const needsReview = destinationExists && !config.overwriteExisting && !mergesIntoSubfolder;
 
     return {
       needsReview,
@@ -632,7 +675,8 @@ export class PCImportStrategy implements ImportStrategy {
       proposedPath: destination,
       strategy: "pc",
       fileCategories,
-      wrapperFolder: wrapInFolder ? path.dirname(destination) : undefined,
+      wrapperFolder: wrapInFolder && !addonSubfolder ? path.dirname(destination) : undefined,
+      addonGameFolder: addonSubfolder ? gameFolder : undefined,
     };
   }
 

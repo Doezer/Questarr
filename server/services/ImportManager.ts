@@ -1554,7 +1554,11 @@ export class ImportManager {
           libraryRoot,
           config,
           platformDir,
-          { downloadTitle: download.downloadTitle }
+          {
+            downloadTitle: download.downloadTitle,
+            releaseCategory: (download.category ||
+              inferReleaseCategory(download.downloadTitle || "")) as DownloadCategory,
+          }
         );
         return {
           originalPath: resolvedOriginalPath,
@@ -1752,7 +1756,29 @@ export class ImportManager {
     };
 
     const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
-    if (config.sortExtras && !needsExtraction) {
+    // An update or DLC goes in its game's subfolder only when the server's own plan says so
+    // and the confirmed path is inside that folder: never taken from the client.
+    if (!needsExtraction || archiveResolution?.isDirectorySource) {
+      const addonPlatformDir = await this.resolvePlatformFolder(
+        download.downloadTitle || "",
+        game,
+        config.importPlatformIds
+      );
+      const addonPlan = await strategy
+        .planImport(resolvedOriginalPath, game, config.libraryRoot, config, addonPlatformDir, {
+          downloadTitle: download.downloadTitle,
+          releaseCategory: (download.category ||
+            inferReleaseCategory(download.downloadTitle || "")) as DownloadCategory,
+        })
+        .catch(() => undefined);
+      if (addonPlan?.addonGameFolder) {
+        const rel = path.relative(path.resolve(addonPlan.addonGameFolder), resolvedTarget);
+        if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
+          planToExecute.addonGameFolder = addonPlan.addonGameFolder;
+        }
+      }
+    }
+    if (config.sortExtras && !needsExtraction && !planToExecute.addonGameFolder) {
       const categorizedPlan = await strategy.planImport(
         resolvedOriginalPath,
         game,

@@ -29,6 +29,7 @@ import {
   ImportInProgressError,
   IncompleteScanError,
 } from "../services/ImportManager.js";
+import { PCImportStrategy } from "../services/ImportStrategies.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 describe("ImportManager", () => {
@@ -392,6 +393,54 @@ describe("ImportManager", () => {
       { status: "owned" },
       { preserveCurated: true }
     );
+  });
+
+  it("confirmImport: a confirmed update keeps the game's own library entry, not its subfolder", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My.Game.Update.v1.2-RUNE",
+      category: "update",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "owned",
+      platforms: [6],
+      libraryPath: "/safe/root/PC/My Game",
+    });
+    storage.getImportConfig.mockResolvedValue({
+      ...baseConfig,
+      libraryRoot: "/safe/root",
+      addonSubfolders: true,
+      sortExtras: true,
+    });
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    const executeSpy = vi
+      .spyOn(PCImportStrategy.prototype, "executeImport")
+      .mockResolvedValue({ success: true, destDir: "/safe/root/PC/My Game/update" } as never);
+    fsMock.stat.mockResolvedValueOnce({ isDirectory: () => true });
+    await manager.confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/source-folder",
+      proposedPath: "/safe/root/PC/My Game/update",
+      needsReview: false,
+      transferMode: "move",
+    });
+
+    expect(executeSpy).toHaveBeenCalled();
+    const review = executeSpy.mock.calls[0]![0];
+    expect(review.addonGameFolder).toBe("/safe/root/PC/My Game");
+    executeSpy.mockRestore();
   });
 
   it("records the release's version on the game once the import is finalized", async () => {

@@ -1382,6 +1382,31 @@ describe("ImportStrategies", () => {
       expect(dirPlan.needsReview).toBe(false);
     });
 
+    it.each(["move", "hardlink", "copy"] as const)(
+      "keeps the files of an earlier update when a second one joins update/ (%s)",
+      async (mode) => {
+        const root = tempDir();
+        const lib = path.join(root, "lib");
+        const strategy = new PCImportStrategy();
+        const game = makeGame({ title: "My Game" });
+        for (const [name, file] of [
+          ["Game.Update.v1.1-GRP", "one.bin"],
+          ["Game.Update.v1.2-GRP", "two.bin"],
+        ] as const) {
+          const source = path.join(root, "dl", name);
+          await fs.outputFile(path.join(source, file), file);
+          const plan = await strategy.planImport(source, game, lib, on, "win", {
+            releaseCategory: "update",
+            downloadTitle: name,
+          });
+          expect(plan.needsReview).toBe(false);
+          await strategy.executeImport(plan, mode);
+        }
+        const dir = path.join(lib, "win", "My Game", "update");
+        expect((await fs.readdir(dir)).sort()).toEqual(["one.bin", "two.bin"]);
+      }
+    );
+
     it("changes nothing when off, for a main release, or for a combined pack", () => {
       expect(addonSubfolderFor(makeImportConfig(), "update")).toBeUndefined();
       expect(addonSubfolderFor(on, "main")).toBeUndefined();

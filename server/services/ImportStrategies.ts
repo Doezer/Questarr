@@ -408,7 +408,8 @@ async function transferFile(
   source: string,
   destination: string,
   mode: TransferMode,
-  excludePaths?: Set<string>
+  excludePaths?: Set<string>,
+  mergeIntoExisting = false
 ): Promise<TransferMode> {
   if (path.resolve(source) === path.resolve(destination)) {
     return mode;
@@ -417,8 +418,10 @@ async function transferFile(
   const stats = await fs.stat(source);
   const hasExcludes = !!excludePaths && excludePaths.size > 0;
 
-  if (stats.isDirectory() && hasExcludes) {
-    return transferDirectoryPerFile(source, destination, mode, excludePaths);
+  if (stats.isDirectory() && (hasExcludes || mergeIntoExisting)) {
+    // An update or DLC joining an `update/` or `dlc/` folder is merged file by file and never
+    // overwritten: the whole-tree paths below replace the destination.
+    return transferDirectoryPerFile(source, destination, mode, excludePaths ?? new Set());
   }
 
   if (mode === "hardlink" && stats.isDirectory()) {
@@ -808,7 +811,8 @@ export class PCImportStrategy implements ImportStrategy {
       review.originalPath,
       review.proposedPath,
       transferMode,
-      excludePaths
+      excludePaths,
+      !!review.addonGameFolder
     );
     const filesPlaced = await gatherFiles(review.proposedPath, { skipExtractStaging: true });
     return {

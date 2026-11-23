@@ -1444,6 +1444,25 @@ describe("ImportStrategies", () => {
       expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("old");
     });
 
+    it("refuses an add-on destination outside the game folder", async () => {
+      const root = tempDir();
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      await expect(
+        new PCImportStrategy().executeImport(
+          {
+            needsReview: false,
+            originalPath: file,
+            proposedPath: path.join(root, "elsewhere", "dlc", "dlc1.zip"),
+            addonGameFolder: path.join(root, "lib", "Game"),
+            strategy: "pc",
+          },
+          "copy"
+        )
+      ).rejects.toThrow("outside the game folder");
+      expect(await fs.pathExists(path.join(root, "elsewhere"))).toBe(false);
+    });
+
     it("removes the partial file of a failed single add-on copy so a retry works", async () => {
       const root = tempDir();
       const lib = path.join(root, "lib");

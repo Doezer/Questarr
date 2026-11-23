@@ -289,11 +289,11 @@ async function transferSingleFile(
   destination: string,
   mode: TransferMode,
   root: string,
-  exclusive = false
+  guardRoot?: string
 ): Promise<TransferMode> {
   await ensureParentDir(destination, root);
 
-  if (exclusive) return transferSingleFileExclusive(source, destination, mode);
+  if (guardRoot) return transferSingleFileExclusive(source, destination, mode, guardRoot);
 
   if (mode === "move") {
     await fs.move(source, destination, { overwrite: true });
@@ -321,35 +321,43 @@ async function transferSingleFile(
 async function transferSingleFileExclusive(
   source: string,
   destination: string,
-  mode: TransferMode
+  mode: TransferMode,
+  guardRoot: string
 ): Promise<TransferMode> {
-  if (mode === "move") {
-    await fs.move(source, destination, { overwrite: false });
-    return "move";
-  }
-  if (mode === "symlink") {
-    await fs.symlink(source, destination);
-    return "symlink";
-  }
-  if (mode === "hardlink") {
-    try {
-      await fs.link(source, destination);
-      return "hardlink";
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
-      // another device or a filesystem without links: copy instead, still without replacing
+  // Written inline, nesting every filesystem call, so the destination is checked against the
+  // game folder right where it is used (same shape as assertWithinRoots in path-security.ts).
+  const target = path.resolve(destination);
+  const relative = path.relative(path.resolve(guardRoot), target);
+  if (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative)) {
+    if (mode === "move") {
+      await fs.move(source, target, { overwrite: false });
+      return "move";
     }
+    if (mode === "symlink") {
+      await fs.symlink(source, target);
+      return "symlink";
+    }
+    if (mode === "hardlink") {
+      try {
+        await fs.link(source, target);
+        return "hardlink";
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") throw err;
+        // another device or a filesystem without links: copy instead, still without replacing
+      }
+    }
+    try {
+      await fs.copy(source, target, { overwrite: false, errorOnExist: true });
+    } catch (err) {
+      const foreign =
+        (err as NodeJS.ErrnoException).code === "EEXIST" || /already exists/i.test(String(err));
+      // A truncated copy would otherwise block every retry ("Destination already exists").
+      if (!foreign) await fs.remove(target).catch(() => undefined);
+      throw err;
+    }
+    return "copy";
   }
-  try {
-    await fs.copy(source, destination, { overwrite: false, errorOnExist: true });
-  } catch (err) {
-    const foreign =
-      (err as NodeJS.ErrnoException).code === "EEXIST" || /already exists/i.test(String(err));
-    // A truncated copy would otherwise block every retry ("Destination already exists").
-    if (!foreign) await fs.remove(destination).catch(() => undefined);
-    throw err;
-  }
-  return "copy";
+  throw new Error(`Refusing to place a file outside the game folder: ${destination}`);
 }
 
 // Resolves the directory alias but keeps the entry name, so a symlink entry is not followed.
@@ -397,8 +405,9 @@ async function transferDirectoryPerFile(
   destination: string,
   mode: TransferMode,
   excludePaths: Set<string>,
-  cleanupOnFailure = false
+  guardRoot?: string
 ): Promise<TransferMode> {
+  const cleanupOnFailure = !!guardRoot;
   if (cleanupOnFailure) {
     // The update/ or dlc/ folder of an add-on merge must be a real folder: a link there would
     // lead the files outside the library.
@@ -439,13 +448,7 @@ async function transferDirectoryPerFile(
     for (const { srcFile, destFile } of plannedTransfers) {
       // Recorded first: a copy that fails halfway leaves a partial file that must go too.
       placedNow.push(destFile);
-      const entryMode = await transferSingleFile(
-        srcFile,
-        destFile,
-        mode,
-        destination,
-        cleanupOnFailure
-      );
+      const entryMode = await transferSingleFile(srcFile, destFile, mode, destination, guardRoot);
       if (mode === "hardlink" && entryMode === "copy") usedCopyFallback = true;
       transferredAny = true;
     }
@@ -486,7 +489,7 @@ async function transferFile(
   destination: string,
   mode: TransferMode,
   excludePaths?: Set<string>,
-  mergeIntoExisting = false
+  addonRoot?: string
 ): Promise<TransferMode> {
   if (path.resolve(source) === path.resolve(destination)) {
     return mode;
@@ -495,7 +498,7 @@ async function transferFile(
   const stats = await fs.stat(source);
   const hasExcludes = !!excludePaths && excludePaths.size > 0;
 
-  if (stats.isDirectory() && (hasExcludes || mergeIntoExisting)) {
+  if (stats.isDirectory() && (hasExcludes || !!addonRoot)) {
     // An update or DLC joining an `update/` or `dlc/` folder is merged file by file and never
     // overwritten: the whole-tree paths below replace the destination.
     return transferDirectoryPerFile(
@@ -503,7 +506,7 @@ async function transferFile(
       destination,
       mode,
       excludePaths ?? new Set(),
-      mergeIntoExisting
+      addonRoot
     );
   }
 
@@ -511,13 +514,7 @@ async function transferFile(
     return transferDirectoryHardlink(source, destination);
   }
 
-  return transferSingleFile(
-    source,
-    destination,
-    mode,
-    path.dirname(destination),
-    mergeIntoExisting
-  );
+  return transferSingleFile(source, destination, mode, path.dirname(destination), addonRoot);
 }
 
 export async function gatherFiles(rootPath: string, options: WalkOptions = {}): Promise<string[]> {
@@ -905,13 +902,24 @@ export class PCImportStrategy implements ImportStrategy {
       };
     }
 
-    if (review.addonGameFolder && (await fs.pathExists(review.proposedPath))) {
-      const sourceStats = await fs.stat(review.originalPath);
-      // An add-on file is checked again here: it may have appeared since the plan was made.
-      if (!sourceStats.isDirectory()) {
-        throw new Error(
-          `Destination already exists, refusing to overwrite: ${review.proposedPath}`
-        );
+    if (review.addonGameFolder) {
+      const addonTarget = path.resolve(review.proposedPath);
+      const addonRelative = path.relative(path.resolve(review.addonGameFolder), addonTarget);
+      if (
+        addonRelative === ".." ||
+        addonRelative.startsWith(".." + path.sep) ||
+        path.isAbsolute(addonRelative)
+      ) {
+        throw new Error(`Refusing to place a file outside the game folder: ${review.proposedPath}`);
+      }
+      if (await fs.pathExists(addonTarget)) {
+        const sourceStats = await fs.stat(review.originalPath);
+        // An add-on file is checked again here: it may have appeared since the plan was made.
+        if (!sourceStats.isDirectory()) {
+          throw new Error(
+            `Destination already exists, refusing to overwrite: ${review.proposedPath}`
+          );
+        }
       }
     }
     await fs.ensureDir(path.dirname(review.proposedPath));
@@ -927,7 +935,7 @@ export class PCImportStrategy implements ImportStrategy {
       review.proposedPath,
       transferMode,
       excludePaths,
-      !!review.addonGameFolder
+      review.addonGameFolder
     );
     const filesPlaced = await gatherFiles(review.proposedPath, { skipExtractStaging: true });
     return {

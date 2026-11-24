@@ -8,6 +8,7 @@ import {
   reorganizeBySortExtras,
   gatherFiles,
   categorizeRelativeFiles,
+  addonSubfolderFor,
 } from "../services/ImportStrategies.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
@@ -1338,6 +1339,373 @@ describe("ImportStrategies", () => {
         { name: p("Game", "DLC", "addon.pak"), category: "dlc" },
         { name: p("Game", "Packs", "skins.pak"), category: "packs" },
       ]);
+    });
+  });
+
+  describe("update and DLC subfolders (addonSubfolders)", () => {
+    const on = makeImportConfig({ addonSubfolders: true });
+
+    it("files an update folder under <game>/update without touching the game's entry", async () => {
+      const root = tempDir();
+      const source = path.join(root, "dl", "Game.Update.v1.2-GRP");
+      await fs.outputFile(path.join(source, "patch.bin"), "p");
+      const plan = await new PCImportStrategy().planImport(
+        source,
+        makeGame({ title: "My Game" }),
+        path.join(root, "lib"),
+        on,
+        "win",
+        { releaseCategory: "update", downloadTitle: "Game.Update.v1.2-GRP" }
+      );
+      expect(plan.proposedPath).toBe(path.join(root, "lib", "win", "My Game", "update"));
+      expect(plan.addonGameFolder).toBe(path.join(root, "lib", "win", "My Game"));
+      expect(plan.needsReview).toBe(false);
+    });
+
+    it("keeps the file name of a single DLC file and merges into an existing dlc folder", async () => {
+      const root = tempDir();
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "z");
+      const lib = path.join(root, "lib");
+      const folder = path.join(root, "dl", "DLC2");
+      await fs.outputFile(path.join(folder, "b.bin"), "b");
+      await fs.ensureDir(path.join(lib, "win", "My Game", "dlc"));
+      const strategy = new PCImportStrategy();
+      const game = makeGame({ title: "My Game" });
+      const filePlan = await strategy.planImport(file, game, lib, on, "win", {
+        releaseCategory: "dlc",
+      });
+      expect(filePlan.proposedPath).toBe(path.join(lib, "win", "My Game", "dlc", "dlc1.zip"));
+      const dirPlan = await strategy.planImport(folder, game, lib, on, "win", {
+        releaseCategory: "dlc",
+      });
+      expect(dirPlan.needsReview).toBe(false);
+    });
+
+    it.each(["move", "hardlink", "copy"] as const)(
+      "keeps the files of an earlier update when a second one joins update/ (%s)",
+      async (mode) => {
+        const root = tempDir();
+        const lib = path.join(root, "lib");
+        const strategy = new PCImportStrategy();
+        const game = makeGame({ title: "My Game" });
+        for (const [name, file] of [
+          ["Game.Update.v1.1-GRP", "one.bin"],
+          ["Game.Update.v1.2-GRP", "two.bin"],
+        ] as const) {
+          const source = path.join(root, "dl", name);
+          await fs.outputFile(path.join(source, file), file);
+          const plan = await strategy.planImport(source, game, lib, on, "win", {
+            releaseCategory: "update",
+            downloadTitle: name,
+          });
+          expect(plan.needsReview).toBe(false);
+          await strategy.executeImport(plan, mode);
+        }
+        const dir = path.join(lib, "win", "My Game", "update");
+        expect((await fs.readdir(dir)).sort()).toEqual(["one.bin", "two.bin"]);
+      }
+    );
+
+    it("never replaces a single add-on file already in place, even with overwrite on", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      await fs.outputFile(path.join(lib, "win", "My Game", "dlc", "dlc1.zip"), "old");
+      const plan = await new PCImportStrategy().planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true, overwriteExisting: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      expect(plan.needsReview).toBe(true);
+    });
+
+    it("refuses at execution to replace a single add-on file that appeared after planning", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true, overwriteExisting: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      expect(plan.needsReview).toBe(false);
+      await fs.outputFile(plan.proposedPath, "old");
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("refusing to overwrite");
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("old");
+    });
+
+    it("refuses an add-on destination outside the game folder", async () => {
+      const root = tempDir();
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      await expect(
+        new PCImportStrategy().executeImport(
+          {
+            needsReview: false,
+            originalPath: file,
+            proposedPath: path.join(root, "elsewhere", "dlc", "dlc1.zip"),
+            addonGameFolder: path.join(root, "lib", "Game"),
+            strategy: "pc",
+          },
+          "copy"
+        )
+      ).rejects.toThrow("outside the game folder");
+      expect(await fs.pathExists(path.join(root, "elsewhere"))).toBe(false);
+    });
+
+    it("places a single add-on file on a filesystem without links, never replacing", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      vi.spyOn(fs, "link").mockRejectedValue(
+        Object.assign(new Error("not supported"), { code: "EPERM" })
+      );
+      await fs.chmod(file, 0o755);
+      await strategy.executeImport(plan, "copy");
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("new");
+      // an updater keeps its executable bits when links are not available
+      expect((await fs.stat(plan.proposedPath)).mode & 0o777).toBe(0o755);
+      expect((await fs.readdir(path.dirname(plan.proposedPath))).sort()).toEqual(["dlc1.zip"]);
+      // a second import of the same name is refused and the first file stays
+      await fs.outputFile(file, "other");
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow();
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("new");
+    });
+
+    it("refuses a single add-on file when the dlc folder is a link", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      const outside = path.join(root, "outside");
+      await fs.ensureDir(outside);
+      await fs.ensureDir(path.dirname(path.dirname(plan.proposedPath)));
+      await fs.symlink(outside, path.dirname(plan.proposedPath));
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("link or a file");
+      expect(await fs.readdir(outside)).toEqual([]);
+    });
+
+    it("moves a single add-on file across devices by copying, then drops the source", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      vi.spyOn(fs, "link").mockRejectedValue(
+        Object.assign(new Error("cross-device"), { code: "EXDEV" })
+      );
+      await strategy.executeImport(plan, "move");
+      vi.restoreAllMocks();
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("new");
+      expect(await fs.pathExists(file)).toBe(false);
+    });
+
+    it("never replaces a file that appears while a link-less copy is under way", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      vi.spyOn(fs, "link").mockRejectedValue(
+        Object.assign(new Error("no links"), { code: "EPERM" })
+      );
+      const realCopy = fs.copy;
+      vi.spyOn(fs, "copy").mockImplementation((async (...args: Parameters<typeof fs.copy>) => {
+        await realCopy(...args);
+        // the target is created after the copy, before the name is claimed
+        await fs.outputFile(plan.proposedPath, "old");
+      }) as typeof fs.copy);
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow();
+      vi.restoreAllMocks();
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("old");
+      expect((await fs.readdir(path.dirname(plan.proposedPath))).sort()).toEqual(["dlc1.zip"]);
+    });
+
+    it("removes the partial file of a failed single add-on copy so a retry works", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const file = path.join(root, "dl", "dlc1.zip");
+      await fs.outputFile(file, "new");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        file,
+        makeGame({ title: "My Game" }),
+        lib,
+        makeImportConfig({ addonSubfolders: true }),
+        "win",
+        { releaseCategory: "dlc" }
+      );
+      vi.spyOn(fs, "copy").mockImplementationOnce((async (_src: string, dest: string) => {
+        await fs.outputFile(dest, "par");
+        throw new Error("disk full");
+      }) as unknown as typeof fs.copy);
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("disk full");
+      vi.restoreAllMocks();
+      expect(await fs.pathExists(plan.proposedPath)).toBe(false);
+      await strategy.executeImport(plan, "copy");
+      expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("new");
+    });
+
+    it.each(["move", "hardlink", "copy", "symlink"] as const)(
+      "never replaces a single add-on file created after the execution check (%s)",
+      async (mode) => {
+        const root = tempDir();
+        const lib = path.join(root, "lib");
+        const file = path.join(root, "dl", "dlc1.zip");
+        await fs.outputFile(file, "new");
+        const strategy = new PCImportStrategy();
+        const plan = await strategy.planImport(
+          file,
+          makeGame({ title: "My Game" }),
+          lib,
+          makeImportConfig({ addonSubfolders: true }),
+          "win",
+          { releaseCategory: "dlc" }
+        );
+        // the target appears right after the "does it exist" check
+        await fs.outputFile(plan.proposedPath, "old");
+        vi.spyOn(fs, "pathExists").mockResolvedValue(false as never);
+        await expect(strategy.executeImport(plan, mode)).rejects.toThrow();
+        vi.restoreAllMocks();
+        expect(await fs.readFile(plan.proposedPath, "utf8")).toBe("old");
+        expect(await fs.pathExists(file)).toBe(true);
+      }
+    );
+
+    it("removes the files a failed merge placed so a retry is not blocked", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const source = path.join(root, "dl", "Game.Update.v1.3-GRP");
+      await fs.outputFile(path.join(source, "a.bin"), "a");
+      await fs.outputFile(path.join(source, "b.bin"), "b");
+      const dest = path.join(lib, "win", "My Game", "update");
+      await fs.ensureDir(dest);
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        source,
+        makeGame({ title: "My Game" }),
+        lib,
+        on,
+        "win",
+        { releaseCategory: "update", downloadTitle: "Game.Update.v1.3-GRP" }
+      );
+      // b.bin is replaced by a directory the transfer cannot overwrite
+      const realCopy = fs.copy;
+      let calls = 0;
+      vi.spyOn(fs, "copy").mockImplementation(((...args: Parameters<typeof fs.copy>) => {
+        calls += 1;
+        if (calls === 2) {
+          // some bytes are written before the failure
+          return fs.outputFile(args[1] as string, "par").then(() => {
+            throw new Error("disk full");
+          });
+        }
+        return realCopy(...args);
+      }) as typeof fs.copy);
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("disk full");
+      vi.restoreAllMocks();
+      expect(await fs.readdir(dest)).toEqual([]);
+      await strategy.executeImport(plan, "copy");
+      expect((await fs.readdir(dest)).sort()).toEqual(["a.bin", "b.bin"]);
+    });
+
+    it("uses the folder of the game already in the library", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const base = path.join(lib, "win", "Game 1.0");
+      await fs.ensureDir(base);
+      const source = path.join(root, "dl", "Game.Update.v1.1-GRP");
+      await fs.outputFile(path.join(source, "p.bin"), "p");
+      const plan = await new PCImportStrategy().planImport(
+        source,
+        makeGame({ title: "Game", libraryPath: base }),
+        lib,
+        { ...on, renamePattern: "{Title} {Version}" },
+        "win",
+        { releaseCategory: "update", downloadTitle: "Game.Update.v1.1-GRP" }
+      );
+      expect(plan.proposedPath).toBe(path.join(base, "update"));
+    });
+
+    it("refuses to merge into an update folder that is a link", async () => {
+      const root = tempDir();
+      const lib = path.join(root, "lib");
+      const outside = path.join(root, "outside");
+      await fs.ensureDir(outside);
+      const gameDir = path.join(lib, "win", "My Game");
+      await fs.ensureDir(gameDir);
+      await fs.symlink(outside, path.join(gameDir, "update"));
+      const source = path.join(root, "dl", "Game.Update.v1.1-GRP");
+      await fs.outputFile(path.join(source, "p.bin"), "p");
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        source,
+        makeGame({ title: "My Game" }),
+        lib,
+        on,
+        "win",
+        { releaseCategory: "update", downloadTitle: "Game.Update.v1.1-GRP" }
+      );
+      await expect(strategy.executeImport(plan, "copy")).rejects.toThrow("link");
+      expect(await fs.readdir(outside)).toEqual([]);
+    });
+
+    it("changes nothing when off, for a main release, or for a combined pack", () => {
+      expect(addonSubfolderFor(makeImportConfig(), "update")).toBeUndefined();
+      expect(addonSubfolderFor(on, "main")).toBeUndefined();
+      expect(addonSubfolderFor(on, "extra")).toBeUndefined();
+      expect(addonSubfolderFor(on, "update", "Game.Base.Game.+.Update.v1.2")).toBeUndefined();
+      expect(addonSubfolderFor(on, "update", "Game.incl.Update.v1.2")).toBeUndefined();
+      expect(addonSubfolderFor(on, "dlc", "Game.incl.DLC-GRP")).toBeUndefined();
+      expect(addonSubfolderFor(on, "update", "Zelda.+.Update.v1.2")).toBeUndefined();
+      expect(addonSubfolderFor(on, "dlc", "Zelda.+.DLC.Pack")).toBeUndefined();
+      expect(addonSubfolderFor(on, "update", "Game.Update.v1.2-GRP")).toBe("update");
+      expect(addonSubfolderFor(on, "dlc", "Game.DLC.Pack-GRP")).toBe("dlc");
     });
   });
 });

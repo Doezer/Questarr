@@ -234,6 +234,15 @@ export default function ImportSettings() {
                           setLocalConfig({ ...localConfig, folderForSingleFiles: c })
                         }
                       />
+                      <SettingRow
+                        id="import-addon-subfolders"
+                        label="Updates and DLC in subfolders"
+                        description="Put a release recognized as an update or DLC in update/ or dlc/ inside the game's folder instead of next to the base game. A pack that also contains the base game stays where it is."
+                        checked={localConfig.addonSubfolders ?? false}
+                        onCheckedChange={(c) =>
+                          setLocalConfig({ ...localConfig, addonSubfolders: c })
+                        }
+                      />
                       <div className="space-y-1.5">
                         <Label htmlFor="upgradeReplaceMode">
                           Previous version after an upgrade

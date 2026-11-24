@@ -515,6 +515,18 @@ the stored progress. All routes require a JWT.
 | POST   | `/api/steam/achievements/sync` | —                      | `{ result, status }`; 400 if the sync is off or Steam is not set up; a run within 30 minutes of the last one is refused |
 | GET    | `/api/achievements/progress`   | —                      | Stored progress per game (unlocked, total, rarest unlock), content filters applied                                      |
 
+### RetroAchievements
+
+`server/retroachievements-routes.ts` — account, switch and sync for the RetroAchievements progress. All routes require a JWT.
+
+| Method | Path                                 | Body                                    | Response                                                                                      |
+| ------ | ------------------------------------ | --------------------------------------- | --------------------------------------------------------------------------------------------- |
+| GET    | `/api/retroachievements`             | —                                       | Status: account saved, sync on or off, last run (never the key)                               |
+| PUT    | `/api/retroachievements/credentials` | `{ username: string, apiKey?: string }` | The status; the account is checked against RetroAchievements first; 400 invalid, 502 upstream |
+| DELETE | `/api/retroachievements/credentials` | —                                       | The status after removing the account and its stored progress                                 |
+| PUT    | `/api/retroachievements`             | `{ enabled: boolean }`                  | The status; 400 on another body                                                               |
+| POST   | `/api/retroachievements/sync`        | —                                       | `{ result, status }`; 400 if the sync is off; 409 if a sync is already running                |
+
 ### Owned Steam library
 
 `server/steam-library-routes.ts` — preview and import endpoints.

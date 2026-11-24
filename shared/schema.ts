@@ -99,6 +99,9 @@ export const userSettings = sqliteTable("user_settings", {
   folderForSingleFiles: integer("folder_for_single_files", { mode: "boolean" })
     .notNull()
     .default(true),
+  // A release categorized as an update or DLC goes into `update/` or `dlc/` inside the game's
+  // folder instead of next to the base game (the layout RomM reads).
+  addonSubfolders: integer("addon_subfolders", { mode: "boolean" }).notNull().default(false),
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: integer("telemetry_enabled", { mode: "boolean" }).notNull().default(false),
@@ -151,6 +154,7 @@ export interface ImportConfig {
   sortExtras: boolean;
   upgradeReplaceMode: UpgradeReplaceMode;
   folderForSingleFiles: boolean;
+  addonSubfolders: boolean;
 }
 
 // gameDownloads.status value for a download whose linked game record can't be
@@ -195,6 +199,7 @@ export const importConfigSchema = z.object({
   sortExtras: z.boolean(),
   upgradeReplaceMode: upgradeReplaceModeSchema,
   folderForSingleFiles: z.boolean(),
+  addonSubfolders: z.boolean(),
 });
 
 // A DLC/expansion IGDB reports as related to a game, carried through from

@@ -34,6 +34,7 @@ export const {
   gameMilestones,
   gamePlaySessions,
   gameStatusEvents,
+  quests,
   gameAchievementProgress,
   ddlJobs,
   gameScreenshots,

@@ -67,7 +67,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Rich Game Metadata**      | Game details enriched with IGDB, Steam, PCGamingWiki, ProtonDB and NexusMods. See time to beat, trending mods and ratings.                                                                                                                                                                                                                                                             |
 | **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                                                                                                                                                                                                                                       |
 | **Security Focused**        | Security first design, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](docs/SECURITY.md) for the full process.                                                                                                                                                                                                                  |
-| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                                                                             |
+| **Integrations**            | One-click install on UNRAID, ZimaOS, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                                                                     |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                                                                      |
 
 ### Supported Indexers/Downloaders
@@ -195,10 +195,30 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 
 </details>
 
-### CasaOS
+### ZimaOS
+
+<details>
+<summary><b>Install from the Questarr store</b></summary>
+
+1. Open the **App Store** in ZimaOS and add a third-party store source (import a store link).
+2. Paste this URL:
+   `https://cdn.jsdelivr.net/gh/Doezer/questarr-zimaos-store@gh-pages/store.json`
+3. Open the new store, pick **Questarr** and click **Install**. The web interface is on port `5000`.
+4. Review the mounts — by default `/DATA/AppData/questarr` holds Questarr's data and
+   `/DATA/Downloads` is mounted at `/data` so Questarr can import finished downloads. If you keep
+   that second mount, add a matching entry under **Settings → Path Mappings**.
+
+The store is maintained in [Doezer/questarr-zimaos-store](https://github.com/Doezer/questarr-zimaos-store).
+On CasaOS (the predecessor of ZimaOS), use the legacy AppFile below instead.
+
+</details>
+
+### CasaOS (legacy)
 
 <details>
 <summary><b>Install via Custom Install (AppFile)</b></summary>
+
+ZimaOS is the successor of CasaOS, and the ZimaOS store above is the maintained option. Use this AppFile only on a CasaOS install.
 
 1. Open the **App Store** and click **Custom Install**.
 2. Click the **import** icon (top right) and paste this URL:

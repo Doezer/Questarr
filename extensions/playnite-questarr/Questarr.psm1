@@ -361,7 +361,7 @@ function GetMainMenuItems {
     $items += $toggle
 
     $track = New-Object Playnite.SDK.Plugins.ScriptMainMenuItem
-    $track.Description = "Toggle sending play time to Questarr (currently $playState)"
+    $track.Description = "Toggle sending finished play sessions to Questarr (currently $playState)"
     $track.FunctionName = "Invoke-QuestarrToggleTrackPlayTime"
     $track.MenuSection = "@Questarr"
     $items += $track
@@ -560,7 +560,8 @@ function Invoke-QuestarrToggleTrackPlayTime {
 
     $state = if ($enabled) { "enabled" } else { "disabled" }
     $PlayniteApi.Dialogs.ShowMessage(
-        "Sending the time you play to Questarr is now $state.", "Questarr")
+        "Finished-play-session tracking is now $state. This records each session when a game closes. " +
+        "GOG/Epic play-time totals are sent by every library sync regardless of this setting.", "Questarr")
 }
 
 # -- Store metadata (local constants only) ------------------------------------
@@ -599,6 +600,7 @@ function Format-QuestarrUtc {
 
     -Api    Playnite's API object, used only here to read the games database.
     -Config the saved extension config.
+    -DataDir the extension data directory, resolved by the caller.
 #>
 function New-QuestarrSyncWork {
     param(
@@ -611,6 +613,7 @@ function New-QuestarrSyncWork {
     $statusEntries = New-Object System.Collections.ArrayList
     $gogTotals = New-Object System.Collections.ArrayList
     $epicTotals = New-Object System.Collections.ArrayList
+    $excluded = 0
 
     $steamGuid = [Guid]"cb91dfc9-b977-43bf-8e70-55f46e410fab"
     $gogGuid = [Guid]"aebe8b7c-6dc3-4a66-af31-e7375c6b5e9e"
@@ -618,6 +621,17 @@ function New-QuestarrSyncWork {
 
     foreach ($game in $Api.Database.Games) {
         if ([string]::IsNullOrWhiteSpace($game.Name)) { continue }
+
+        # Two kinds of title are not worth sending anywhere: one longer than
+        # the server's 500-character limit (a single such entry would make it
+        # reject the whole batch), and one with no letter or digit at all,
+        # which the server's normalizer flattens to an empty key that matches
+        # any other such title.
+        $title = $game.Name.Trim()
+        if ($title.Length -gt 500 -or $title -notmatch "[\p{L}\p{Nd}]") {
+            $excluded += 1
+            continue
+        }
 
         $steamAppId = 0
         if ($game.PluginId -eq $steamGuid) {
@@ -632,7 +646,7 @@ function New-QuestarrSyncWork {
         elseif ($game.PluginId -eq $epicGuid) { $platform = "epic" }
 
         $syncEntry = @{
-            title      = $game.Name
+            title      = $title
             externalId = $game.Id.ToString()
             installed  = [bool]$game.IsInstalled
         }
@@ -646,9 +660,9 @@ function New-QuestarrSyncWork {
             $statusName = [string]$game.CompletionStatus.Name
         }
         if (-not [string]::IsNullOrWhiteSpace($statusName) -and
-            $statusName.Length -le 100 -and $game.Name.Length -le 500) {
+            $statusName.Length -le 100 -and $title.Length -le 500) {
             $statusEntry = @{
-                title      = $game.Name
+                title      = $title
                 externalId = $game.Id.ToString()
                 status     = $statusName
             }
@@ -659,9 +673,9 @@ function New-QuestarrSyncWork {
 
         # Play time totals: per store, at least ten minutes recorded.
         if (($game.PluginId -eq $gogGuid -or $game.PluginId -eq $epicGuid) -and
-            [uint64]$game.Playtime -ge 600 -and $game.Name.Length -le 500) {
+            [uint64]$game.Playtime -ge 600 -and $title.Length -le 500) {
             $totalEntry = @{
-                title           = $game.Name
+                title           = $title
                 externalId      = $game.Id.ToString()
                 playtimeSeconds = [int64][Math]::Min([uint64]$game.Playtime, 100000000)
             }
@@ -680,6 +694,7 @@ function New-QuestarrSyncWork {
         StatusEntries = $statusEntries
         GogTotals     = $gogTotals
         EpicTotals    = $epicTotals
+        Excluded      = $excluded
     }
 }
 
@@ -716,11 +731,141 @@ function Write-QuestarrPlayQueueFile {
     $temp = "$path.tmp"
     ConvertTo-Json -InputObject $list -Depth 4 | Set-Content -Path $temp -Encoding UTF8
     if (Test-Path $path) {
+        # PS 5.1 turns a $null backup path into an empty string, which
+        # File.Replace rejects ("The path is not of a legal form");
+        # [NullString]::Value passes a true null.
         [System.IO.File]::Replace($temp, $path, [NullString]::Value)
     }
     else {
         Move-Item -Path $temp -Destination $path
     }
+}
+
+<#
+    A named mutex serializes every queue file mutation between the lifecycle
+    hooks, the menu thread and the background runspace (all in this process,
+    plus any second Playnite window): reads and writes of the queue never
+    interleave, so a session queued while a flush is running cannot be
+    clobbered by its write-back.
+#>
+function Get-QuestarrQueueMutex {
+    return New-Object System.Threading.Mutex($false, "Global\PlayniteQuestarrPlayQueue")
+}
+
+function Wait-QuestarrQueueMutex {
+    param(
+        [Parameter(Mandatory)] [System.Threading.Mutex] $Mutex,
+        [int] $Seconds = 10
+    )
+
+    try {
+        return $Mutex.WaitOne([TimeSpan]::FromSeconds($Seconds))
+    }
+    catch [System.Threading.AbandonedMutexException] {
+        # The previous holder died without releasing; the mutex is held now.
+        return $true
+    }
+}
+
+<#
+    Appends one finished session to the queue under the mutex. Returns $true
+    when the entry is safely on disk.
+#>
+function Add-QuestarrQueuedSession {
+    param(
+        [Parameter(Mandatory)] [string] $DataDir,
+        [Parameter(Mandatory)] $Entry
+    )
+
+    $mutex = Get-QuestarrQueueMutex
+    $acquired = $false
+    try {
+        $acquired = Wait-QuestarrQueueMutex $Mutex
+        if (-not $acquired) { return $false }
+        $queue = @(Read-QuestarrPlayQueueFile -DataDir $DataDir)
+        Write-QuestarrPlayQueueFile -DataDir $DataDir -Items ($queue + $Entry)
+        return $true
+    }
+    finally {
+        if ($acquired) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+}
+
+<#
+    Drains the queue: snapshots it under the mutex, sends each entry OUTSIDE
+    the lock (network waits never hold it), then re-takes the lock, re-reads
+    the file and removes only the entries actually acknowledged or
+    permanently rejected. A session appended while the sends were running
+    stays on disk untouched.
+
+    Returns @{ Sent; Dropped; Remaining }: Sent are accepted by Questarr,
+    Dropped are permanently rejected (unknown game and the like), Remaining
+    are still queued. A transient failure stops the drain early and leaves
+    everything unsent on disk; the server dedupes a re-sent session by its
+    start time, so a duplicate send is harmless.
+#>
+function Invoke-QuestarrQueueDrain {
+    param(
+        [Parameter(Mandatory)] $Config,
+        [Parameter(Mandatory)] [string] $DataDir
+    )
+
+    $result = @{ Sent = 0; Dropped = 0; Remaining = 0 }
+    $mutex = Get-QuestarrQueueMutex
+    try {
+        if (-not (Wait-QuestarrQueueMutex $Mutex)) {
+            # Someone else holds the queue; leave the file alone and report
+            # everything as remaining, the next drain retries.
+            $result.Remaining = @(Read-QuestarrPlayQueueFile -DataDir $DataDir).Count
+            return $result
+        }
+        $snapshot = $null
+        try { $snapshot = @(Read-QuestarrPlayQueueFile -DataDir $DataDir) }
+        finally { $mutex.ReleaseMutex() }
+
+        $sends = New-Object System.Collections.ArrayList
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        $stopped = $false
+        foreach ($entry in $snapshot) {
+            if (-not $stopped -and [DateTime]::UtcNow -ge $deadline) { $stopped = $true }
+            if ($stopped) { break }
+            $outcome = Send-QuestarrPlaySession -Config $Config -Entry $entry
+            if ($outcome -eq "retry") { break }
+            [void]$sends.Add(@{ Key = "$($entry.title)|$($entry.startedAt)|$($entry.endedAt)"; Outcome = $outcome })
+        }
+
+        if (-not (Wait-QuestarrQueueMutex $Mutex)) {
+            # Acknowledged entries stay queued and will be re-sent later; the
+            # server's start-time dedup makes that harmless.
+            $result.Remaining = @(Read-QuestarrPlayQueueFile -DataDir $DataDir).Count
+            return $result
+        }
+        try {
+            $latest = @(Read-QuestarrPlayQueueFile -DataDir $DataDir)
+            $sentKeys = @{}
+            $droppedKeys = @{}
+            foreach ($s in $sends) {
+                if ($s.Outcome -eq "sent") { $sentKeys[$s.Key] = $true }
+                elseif ($s.Outcome -eq "skipped") { $droppedKeys[$s.Key] = $true }
+            }
+            $keep = New-Object System.Collections.ArrayList
+            foreach ($entry in $latest) {
+                $key = "$($entry.title)|$($entry.startedAt)|$($entry.endedAt)"
+                if ($sentKeys.ContainsKey($key) -or $droppedKeys.ContainsKey($key)) { continue }
+                [void]$keep.Add($entry)
+            }
+            Write-QuestarrPlayQueueFile -DataDir $DataDir -Items $keep.ToArray()
+            $result.Sent = $sentKeys.Count
+            $result.Dropped = $droppedKeys.Count
+            $result.Remaining = $keep.Count
+        }
+        finally { $mutex.ReleaseMutex() }
+    }
+    finally {
+        $mutex.Dispose()
+    }
+    return $result
 }
 
 <#
@@ -769,6 +914,14 @@ function Send-QuestarrPlaySession {
     }
 }
 
+<#
+    Titles the server could not match on IGDB, cached by Playnite game id so
+    later syncs do not pay the lookup again. The value is the title that was
+    tried: a cached miss only stands while the Playnite title stays the same,
+    so correcting a mistyped name reaches IGDB again on the next sync.
+    An older build wrote a plain array of ids; those entries carry no title
+    and keep their original skip-unconditionally behaviour.
+#>
 function Read-QuestarrImportSkipList {
     param([Parameter(Mandatory)] [string] $DataDir)
 
@@ -777,12 +930,15 @@ function Read-QuestarrImportSkipList {
     try {
         $raw = Get-Content -Path $path -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($null -eq $raw) { return @{} }
-        # The file is a JSON array of externalIds. Iterating PSObject.Properties
-        # here would yield array plumbing (Length, Count, Rank) instead of the
-        # ids, and the cache would never match anything.
         $map = @{}
-        foreach ($id in @($raw)) {
-            if ($id) { $map[[string]$id] = $true }
+        if ($raw -is [System.Array]) {
+            foreach ($id in @($raw)) {
+                if ($id) { $map[[string]$id] = $null }
+            }
+            return $map
+        }
+        foreach ($p in $raw.PSObject.Properties) {
+            $map[$p.Name] = [string]$p.Value
         }
         return $map
     }
@@ -797,14 +953,12 @@ function Write-QuestarrImportSkipList {
         $Map
     )
 
-    $list = @()
-    foreach ($k in $Map.Keys) { $list += $k }
     if (-not (Test-Path $DataDir)) {
         New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
     }
     $path = Join-Path $DataDir "import-skip.json"
     $temp = "$path.tmp"
-    ConvertTo-Json -InputObject $list -Depth 3 | Set-Content -Path $temp -Encoding UTF8
+    ConvertTo-Json -InputObject $Map -Depth 3 | Set-Content -Path $temp -Encoding UTF8
     if (Test-Path $path) {
         [System.IO.File]::Replace($temp, $path, [NullString]::Value)
     }
@@ -818,17 +972,22 @@ function Write-QuestarrImportSkipList {
     it runs identically on the menu thread, a hook thread, or a background
     runspace. Sections, in order:
 
-    1. flush queued play sessions (a store total sent before a queued session
+    1. drain queued play sessions (a store total sent before a queued session
        lands would count that session twice),
-    2. reconcile the library: which games Questarr knows,
+    2. reconcile the library: which games Questarr knows, and their Questarr
+       game ids,
     3. import everything Questarr does not know yet, as owned games -- the
        first run backfills the whole library, later runs only pick up new
-       games; IGDB-unmatchable titles are cached and skipped afterwards,
-    4. play statuses,
-    5. GOG/Epic play time totals.
+       games; IGDB-unmatchable titles are cached (with the title that was
+       tried) and skipped afterwards,
+    4. play statuses, matched by Questarr game id when the id is known,
+    5. GOG/Epic play time totals -- deferred while sessions are still queued,
+       since Questarr dedupes actual sessions against each other but not
+       against store-total estimates.
 
     Each section is independent: one failing never hides the results of the
-    others; failures are collected in the report.
+    others; every successful batch updates the report immediately, so a later
+    failure never erases earlier results.
 #>
 function Invoke-QuestarrSyncCore {
     param([Parameter(Mandatory)] $Work)
@@ -848,58 +1007,29 @@ function Invoke-QuestarrSyncCore {
         StatusSkipped   = 0
         StatusUnmatched = 0
         SessionsSent    = 0
+        SessionsDropped = 0
         Totals          = @{}
+        TotalsDeferred  = 0
+        Excluded        = [int]$Work.Excluded
         Errors          = (New-Object System.Collections.ArrayList)
     }
 
+    # Playnite game id -> Questarr game id, learned from the reconciliation
+    # and import responses; the status section uses it to match by the exact
+    # game instead of a title an edition suffix could throw off.
+    $gameIds = @{}
+    $queueRemaining = 0
+
     # 1. queued play sessions first.
     try {
-        $queued = @(Read-QuestarrPlayQueueFile -DataDir $DataDir)
-        if ($queued.Count -gt 0) {
-            $handled = @{}
-            $remaining = New-Object System.Collections.ArrayList
-            $stopped = $false
-            $deadline = [DateTime]::UtcNow.AddSeconds(30)
-            foreach ($entry in $queued) {
-                if (-not $stopped -and [DateTime]::UtcNow -ge $deadline) { $stopped = $true }
-                if ($stopped) {
-                    [void]$remaining.Add($entry)
-                    continue
-                }
-                $result = Send-QuestarrPlaySession -Config $Config -Entry $entry
-                if ($result -eq "retry") {
-                    $stopped = $true
-                    [void]$remaining.Add($entry)
-                }
-                $handled["$($entry.title)|$($entry.startedAt)|$($entry.endedAt)"] = $true
-            }
-
-            # A game can close while this flush is running and its session land
-            # in the queue file after this run read it; the hook side writes
-            # the same file. Re-read and keep anything new instead of
-            # clobbering it with the flush's result.
-            $diskNow = @(Read-QuestarrPlayQueueFile -DataDir $DataDir)
-            foreach ($entry in $diskNow) {
-                $key = "$($entry.title)|$($entry.startedAt)|$($entry.endedAt)"
-                $alreadyKept = $false
-                foreach ($kept in $remaining) {
-                    if ("$($kept.title)|$($kept.startedAt)|$($kept.endedAt)" -eq $key) {
-                        $alreadyKept = $true
-                        break
-                    }
-                }
-                if (-not $handled.ContainsKey($key) -and -not $alreadyKept) {
-                    [void]$remaining.Add($entry)
-                }
-            }
-
-            Write-QuestarrPlayQueueFile -DataDir $DataDir -Items $remaining.ToArray()
-            $still = @(Read-QuestarrPlayQueueFile -DataDir $DataDir)
-            $report.SessionsSent = [Math]::Max(0, $queued.Count - $still.Count)
-        }
+        $drain = Invoke-QuestarrQueueDrain -Config $Config -DataDir $DataDir
+        $report.SessionsSent = $drain.Sent
+        $report.SessionsDropped = $drain.Dropped
+        $queueRemaining = $drain.Remaining
     }
     catch {
         [void]$report.Errors.Add("play sessions: $(Get-QuestarrErrorMessage $_)")
+        $queueRemaining = @(Read-QuestarrPlayQueueFile -DataDir $DataDir).Count
     }
 
     # 2 + 3. reconcile, then import what is missing.
@@ -913,7 +1043,6 @@ function Invoke-QuestarrSyncCore {
         $missingIds = New-Object System.Collections.ArrayList
         if ($entries.Count -gt 0) {
             $size = 500
-            $matched = 0
             for ($offset = 0; $offset -lt $entries.Count; $offset += $size) {
                 $take = [Math]::Min($size, $entries.Count - $offset)
                 $batch = @($entries.GetRange($offset, $take))
@@ -921,27 +1050,34 @@ function Invoke-QuestarrSyncCore {
                     games                = $batch
                     markInstalledAsOwned = $false
                 }
-                $matched += @($response.matched).Count
+                $report.Known += @($response.matched).Count
+                foreach ($m in @($response.matched)) {
+                    if ($m.externalId -and $m.gameId) {
+                        $gameIds[[string]$m.externalId] = [string]$m.gameId
+                    }
+                }
                 foreach ($u in @($response.unmatched)) {
                     if ($u.externalId) { [void]$missingIds.Add([string]$u.externalId) }
                 }
             }
-            $report.Known = $matched
         }
 
         if ($missingIds.Count -gt 0) {
             $skip = Read-QuestarrImportSkipList -DataDir $DataDir
             $toImport = New-Object System.Collections.ArrayList
             foreach ($id in $missingIds) {
-                if ($skip.ContainsKey($id)) { continue }
                 $source = $byId[$id]
-                if ($source) { [void]$toImport.Add($source) }
+                if (-not $source) { continue }
+                if ($skip.ContainsKey($id)) {
+                    # A cached miss stands only while the Playnite title is
+                    # unchanged: a corrected title reaches IGDB again.
+                    $cachedTitle = $skip[$id]
+                    if ($null -eq $cachedTitle -or $cachedTitle -eq $source.title) { continue }
+                }
+                [void]$toImport.Add($source)
             }
 
             if ($toImport.Count -gt 0) {
-                $added = 0
-                $existing = 0
-                $notFound = 0
                 $notFoundIds = New-Object System.Collections.ArrayList
                 $size = 25
                 for ($offset = 0; $offset -lt $toImport.Count; $offset += $size) {
@@ -950,20 +1086,25 @@ function Invoke-QuestarrSyncCore {
                     if ($batch.Count -eq 0) { continue }
                     $response = Invoke-QuestarrApi -Config $Config -Path "/library/import" -Method "Post" `
                         -Body @{ games = $batch } -TimeoutSec 300
-                    $added += [int]$response.added
-                    $existing += [int]$response.existing
-                    $notFound += [int]$response.notFound
+                    # Published immediately: a later batch failing must not
+                    # erase the games an earlier batch already added.
+                    $report.NewlyAdded += [int]$response.added
+                    $report.ImportExisting += [int]$response.existing
+                    $report.NotMatched += [int]$response.notFound
                     foreach ($r in @($response.results)) {
+                        if ($r.externalId -and $r.gameId) {
+                            $gameIds[[string]$r.externalId] = [string]$r.gameId
+                        }
                         if ($r.result -eq "not_found" -and $r.externalId) {
                             [void]$notFoundIds.Add([string]$r.externalId)
                         }
                     }
                 }
-                $report.NewlyAdded = $added
-                $report.ImportExisting = $existing
-                $report.NotMatched = $notFound
                 if ($notFoundIds.Count -gt 0) {
-                    foreach ($id in $notFoundIds) { $skip[$id] = $true }
+                    foreach ($id in $notFoundIds) {
+                        $source = $byId[$id]
+                        $skip[$id] = if ($source) { [string]$source.title } else { "" }
+                    }
                     Write-QuestarrImportSkipList -DataDir $DataDir -Map $skip
                 }
             }
@@ -976,72 +1117,76 @@ function Invoke-QuestarrSyncCore {
         [void]$report.Errors.Add("library import: $(Get-QuestarrErrorMessage $_)")
     }
 
-    # 4. play status.
+    # 4. play status, matched by Questarr game id whenever one is known.
     try {
         $statuses = $Work.StatusEntries
         $report.StatusEntries = $statuses.Count
         if ($statuses.Count -gt 0) {
-            $updated = 0
-            $unchanged = 0
-            $skipped = 0
-            $unmatched = 0
             $size = 500
             for ($offset = 0; $offset -lt $statuses.Count; $offset += $size) {
                 $take = [Math]::Min($size, $statuses.Count - $offset)
-                $batch = @($statuses.GetRange($offset, $take))
+                $batch = @($statuses.GetRange($offset, $take) | ForEach-Object {
+                    $gid = $gameIds[[string]$_.externalId]
+                    if ($gid) {
+                        $copy = $_.Clone()
+                        $copy.gameId = $gid
+                        $copy
+                    }
+                    else { $_ }
+                })
                 $response = Invoke-QuestarrApi -Config $Config -Path "/play-status" -Method "Post" -Body @{
                     games         = $batch
                     promoteWanted = $false
                 } -TimeoutSec 300
-                $updated += [int]$response.updated
-                $unchanged += [int]$response.unchanged
-                $skipped += [int]$response.skipped
-                $unmatched += [int]$response.unmatched
+                $report.Updated += [int]$response.updated
+                $report.Unchanged += [int]$response.unchanged
+                $report.StatusSkipped += [int]$response.skipped
+                $report.StatusUnmatched += [int]$response.unmatched
             }
-            $report.Updated = $updated
-            $report.Unchanged = $unchanged
-            $report.StatusSkipped = $skipped
-            $report.StatusUnmatched = $unmatched
         }
     }
     catch {
         [void]$report.Errors.Add("play status: $(Get-QuestarrErrorMessage $_)")
     }
 
-    # 5. store play time totals.
-    foreach ($store in @(@{ label = "GOG"; entries = $Work.GogTotals },
-                          @{ label = "Epic"; entries = $Work.EpicTotals })) {
-        try {
-            if ($store.entries.Count -gt 0) {
-                $imported = 0
-                $unchanged = 0
-                $skipped = 0
-                $unmatched = 0
-                $minutes = 0
-                $size = 500
-                for ($offset = 0; $offset -lt $store.entries.Count; $offset += $size) {
-                    $take = [Math]::Min($size, $store.entries.Count - $offset)
-                    $batch = @($store.entries.GetRange($offset, $take))
-                    $response = Invoke-QuestarrApi -Config $Config -Path "/play-time-totals" -Method "Post" -Body @{
-                        games = $batch
-                    } -TimeoutSec 300
-                    $imported += [int]$response.imported
-                    $unchanged += [int]$response.unchanged
-                    $skipped += [int]$response.skipped
-                    $unmatched += [int]$response.unmatched
-                    $minutes += [int]$response.minutesAdded
-                }
-                $report.Totals[$store.label] = @{
-                    Imported  = $imported
-                    Unchanged = $unchanged
-                    Skipped   = $skipped
-                    Unmatched = $unmatched
-                    Minutes   = $minutes
+    # 5. store play time totals, unless sessions are still waiting: Questarr
+    #    dedupes actual sessions against each other but not against these
+    #    estimates, so sending a total while its session is queued would count
+    #    that play time twice once the session lands.
+    if ($queueRemaining -gt 0) {
+        $report.TotalsDeferred = $queueRemaining
+    }
+    else {
+        foreach ($store in @(@{ label = "GOG"; entries = $Work.GogTotals },
+                              @{ label = "Epic"; entries = $Work.EpicTotals })) {
+            try {
+                if ($store.entries.Count -gt 0) {
+                    $report.Totals[$store.label] = @{
+                        Imported  = 0
+                        Unchanged = 0
+                        Skipped   = 0
+                        Unmatched = 0
+                        Minutes   = 0
+                    }
+                    $size = 500
+                    for ($offset = 0; $offset -lt $store.entries.Count; $offset += $size) {
+                        $take = [Math]::Min($size, $store.entries.Count - $offset)
+                        $batch = @($store.entries.GetRange($offset, $take))
+                        $response = Invoke-QuestarrApi -Config $Config -Path "/play-time-totals" -Method "Post" -Body @{
+                            games = $batch
+                        } -TimeoutSec 300
+                        $t = $report.Totals[$store.label]
+                        $t.Imported += [int]$response.imported
+                        $t.Unchanged += [int]$response.unchanged
+                        $t.Skipped += [int]$response.skipped
+                        $t.Unmatched += [int]$response.unmatched
+                        $t.Minutes += [int]$response.minutesAdded
+                    }
                 }
             }
-        }
-        catch {
-            [void]$report.Errors.Add("$($store.label) play time: $(Get-QuestarrErrorMessage $_)")
+            catch {
+                [void]$report.Errors.Add("$($store.label) play time: $(Get-QuestarrErrorMessage $_)")
+            }
         }
     }
 
@@ -1057,18 +1202,29 @@ function Get-QuestarrSyncSummary {
     $parts = New-Object System.Collections.ArrayList
     [void]$parts.Add(("{0} games: {1} known, {2} newly owned, {3} no IGDB match" -f `
             $Report.Games, $Report.Known, $Report.NewlyAdded, $Report.NotMatched))
+    if ($Report.Excluded -gt 0) {
+        [void]$parts.Add("$($Report.Excluded) excluded (overlong or symbol-only titles)")
+    }
     if ($Report.StatusEntries -gt 0) {
         [void]$parts.Add(("play status: {0} updated" -f $Report.Updated))
     }
-    foreach ($label in @("GOG", "Epic")) {
-        if ($Report.Totals.ContainsKey($label)) {
-            $t = $Report.Totals[$label]
-            $hours = [Math]::Round($t.Minutes / 60, 1)
-            [void]$parts.Add(("{0} play time: {1} imported ({2} h)" -f $label, $t.Imported, $hours))
+    if ($Report.TotalsDeferred -gt 0) {
+        [void]$parts.Add(("GOG/Epic play time deferred: {0} sessions still queued" -f $Report.TotalsDeferred))
+    }
+    else {
+        foreach ($label in @("GOG", "Epic")) {
+            if ($Report.Totals.ContainsKey($label)) {
+                $t = $Report.Totals[$label]
+                $hours = [Math]::Round($t.Minutes / 60, 1)
+                [void]$parts.Add(("{0} play time: {1} imported ({2} h)" -f $label, $t.Imported, $hours))
+            }
         }
     }
     if ($Report.SessionsSent -gt 0) {
         [void]$parts.Add("sessions sent: $($Report.SessionsSent)")
+    }
+    if ($Report.SessionsDropped -gt 0) {
+        [void]$parts.Add("sessions dropped (no matching game): $($Report.SessionsDropped)")
     }
     if ($Report.Errors.Count -gt 0) {
         [void]$parts.Add("failed: " + ($Report.Errors -join "; "))
@@ -1079,18 +1235,59 @@ function Get-QuestarrSyncSummary {
 # -- Background execution -----------------------------------------------------
 
 <#
+    A fresh lock file means a background sync is running; a lock older than
+    15 minutes is ignored so a crashed run cannot jam future syncs. The file
+    carries a per-run token, so a slow first run never deletes a second run's
+    lock when it finally finishes.
+#>
+function Test-QuestarrSyncLock {
+    param([Parameter(Mandatory)] [string] $DataDir)
+
+    $lock = Join-Path $DataDir "sync.lock"
+    if (-not (Test-Path $lock)) { return $false }
+    try {
+        $content = [System.IO.File]::ReadAllText($lock)
+        $parts = $content -split "\|", 2
+        if ($parts.Count -lt 2) { return $false }
+        $start = [DateTime]::Parse($parts[1], [Globalization.CultureInfo]::InvariantCulture)
+        return (([DateTime]::UtcNow - $start.ToUniversalTime()).TotalMinutes -lt 15)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Remove-QuestarrSyncLock {
+    param(
+        [Parameter(Mandatory)] [string] $DataDir,
+        [Parameter(Mandatory)] [string] $Token
+    )
+
+    try {
+        $lockPath = Join-Path $DataDir "sync.lock"
+        if (-not (Test-Path $lockPath)) { return }
+        $current = [System.IO.File]::ReadAllText($lockPath)
+        # Only the owner removes the lock: a long-running first sync must not
+        # delete a lock that a later run has already replaced.
+        if ($current.StartsWith($Token + "|")) {
+            Remove-Item -LiteralPath $lockPath -Force
+        }
+    }
+    catch { }
+}
+
+<#
     The background script. It runs in a bare runspace: no Playnite ambient
-    variables, so it re-imports this module and rebuilds the work from the
-    objects handed to it. Everything it calls is a pure-parameter code path.
+    variables, so everything it needs arrives as arguments, including the
+    module path (as data, so an install path containing an apostrophe cannot
+    break the generated script text).
 #>
 function Get-QuestarrBackgroundScript {
-    param([Parameter(Mandatory)] [string] $ModulePath)
-
     return @"
-param(`$Api, `$Logger, `$Config, `$DataDir)
+param(`$Api, `$Logger, `$Config, `$DataDir, `$ModulePath, `$Token)
 `$ErrorActionPreference = 'Continue'
 try {
-    Import-Module -Name '$ModulePath' -DisableNameChecking
+    Import-Module -Name `$ModulePath -DisableNameChecking
     `$work = New-QuestarrSyncWork -Api `$Api -Config `$Config -DataDir `$DataDir
     `$report = Invoke-QuestarrSyncCore -Work `$work
     `$summary = Get-QuestarrSyncSummary -Report `$report
@@ -1108,27 +1305,9 @@ catch {
     try { `$Logger.Error("Questarr: background sync failed: " + `$_.Exception.Message) } catch { }
 }
 finally {
-    try { Remove-Item (Join-Path `$DataDir 'sync.lock') -Force -ErrorAction SilentlyContinue } catch { }
+    try { Remove-QuestarrSyncLock -DataDir `$DataDir -Token `$Token } catch { }
 }
 "@
-}
-
-<#
-    A fresh lock file means a background sync is running; a lock older than
-    15 minutes is the debris of a crashed run and is ignored.
-#>
-function Test-QuestarrSyncLock {
-    param([Parameter(Mandatory)] [string] $DataDir)
-
-    $lock = Join-Path $DataDir "sync.lock"
-    if (-not (Test-Path $lock)) { return $false }
-    try {
-        $start = [DateTime]::Parse([System.IO.File]::ReadAllText($lock), [Globalization.CultureInfo]::InvariantCulture)
-        return (([DateTime]::UtcNow - $start.ToUniversalTime()).TotalMinutes -lt 15)
-    }
-    catch {
-        return $false
-    }
 }
 
 <#
@@ -1152,7 +1331,8 @@ function Start-QuestarrBackgroundSync {
     if (-not (Test-Path $DataDir)) {
         New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
     }
-    [System.IO.File]::WriteAllText((Join-Path $DataDir "sync.lock"), [DateTime]::UtcNow.ToString("o"))
+    $token = [Guid]::NewGuid().ToString()
+    [System.IO.File]::WriteAllText((Join-Path $DataDir "sync.lock"), "$token|$([DateTime]::UtcNow.ToString('o'))")
 
     try {
         $Api.Notifications.Remove('questarr-sync-done') | Out-Null
@@ -1163,14 +1343,24 @@ function Start-QuestarrBackgroundSync {
         $Logger.Error("Questarr: could not post the running notification: " + $_.Exception.Message)
     }
 
-    $script = Get-QuestarrBackgroundScript -ModulePath $ModulePath
-    $ps = [System.Management.Automation.PowerShell]::Create()
-    $null = $ps.AddScript($script)
-    $null = $ps.AddArgument($Api)
-    $null = $ps.AddArgument($Logger)
-    $null = $ps.AddArgument($Config)
-    $null = $ps.AddArgument($DataDir)
-    $null = $ps.BeginInvoke()
+    try {
+        $script = Get-QuestarrBackgroundScript
+        $ps = [System.Management.Automation.PowerShell]::Create()
+        $null = $ps.AddScript($script)
+        $null = $ps.AddArgument($Api)
+        $null = $ps.AddArgument($Logger)
+        $null = $ps.AddArgument($Config)
+        $null = $ps.AddArgument($DataDir)
+        $null = $ps.AddArgument($ModulePath)
+        $null = $ps.AddArgument($Token)
+        $null = $ps.BeginInvoke()
+    }
+    catch {
+        # The reservation must not outlive a worker that never started.
+        $Logger.Error("Questarr: could not launch the background sync: " + $_.Exception.Message)
+        Remove-QuestarrSyncLock -DataDir $DataDir -Token $token
+        try { $Api.Notifications.Remove('questarr-sync-running') | Out-Null } catch { }
+    }
 }
 
 function Invoke-QuestarrLibrarySync {
@@ -1247,94 +1437,6 @@ function Invoke-QuestarrRequestGame {
     $PlayniteApi.Dialogs.ShowMessage(($lines -join "`n`n"), "Questarr")
 }
 
-# -- Play time (hook side; ambient scope is proven in hooks) -------------------
-
-function Get-QuestarrPlayQueuePath {
-    return (Join-Path $CurrentExtensionDataPath "play-sessions-queue.json")
-}
-
-function Read-QuestarrPlayQueue {
-    $path = Get-QuestarrPlayQueuePath
-    if (-not (Test-Path $path)) { return @() }
-
-    try {
-        $raw = Get-Content -Path $path -Raw -Encoding UTF8 | ConvertFrom-Json
-    }
-    catch {
-        # Keep the damaged file for recovery instead of letting the next write erase it.
-        $__logger.Error("Questarr: unreadable play session queue, moved aside: $($_.Exception.Message)")
-        try {
-            Move-Item -Path $path -Destination "$path.bad" -Force -ErrorAction Stop
-        }
-        catch {
-            # Without a recovery copy, stop here: returning an empty queue would let the
-            # next write replace the only file left.
-            $__logger.Error("Questarr: could not set the unreadable queue aside, it stays in place: $($_.Exception.Message)")
-            throw
-        }
-        return @()
-    }
-
-    # ConvertFrom-Json yields $null for "[]"; wrapping $null in @() would count 1.
-    if ($null -eq $raw) { return @() }
-    return @($raw)
-}
-
-function Write-QuestarrPlayQueue {
-    param($Items)
-
-    if (-not (Test-Path $CurrentExtensionDataPath)) {
-        New-Item -ItemType Directory -Path $CurrentExtensionDataPath -Force | Out-Null
-    }
-
-    # The cap keeps a long outage from growing the queue without bound.
-    $list = @($Items)
-    if ($list.Count -gt 200) {
-        $list = @($list | Select-Object -Last 200)
-    }
-
-    # Write a temporary file first so a crash mid-write cannot truncate the only copy.
-    # -InputObject keeps a single entry a JSON array (the pipeline would unwrap it).
-    $path = Get-QuestarrPlayQueuePath
-    $temp = "$path.tmp"
-    ConvertTo-Json -InputObject $list -Depth 4 | Set-Content -Path $temp -Encoding UTF8
-    if (Test-Path $path) {
-        [System.IO.File]::Replace($temp, $path, [NullString]::Value)
-    }
-    else {
-        Move-Item -Path $temp -Destination $path
-    }
-}
-
-<#
-    Sends what is waiting in the queue, oldest first. Stops at the first entry
-    that must be retried (the server is probably unreachable) or once the flush
-    budget is spent, and keeps that entry and everything after it.
-#>
-function Invoke-QuestarrFlushPlayQueue {
-    param([Parameter(Mandatory)] $Config)
-
-    $queue = @(Read-QuestarrPlayQueue)
-    if ($queue.Count -eq 0) { return }
-
-    $remaining = New-Object System.Collections.ArrayList
-    $stopped = $false
-    $deadline = [DateTime]::UtcNow.AddSeconds(30)
-    foreach ($entry in $queue) {
-        if (-not $stopped -and [DateTime]::UtcNow -ge $deadline) { $stopped = $true }
-        if ($stopped) {
-            [void]$remaining.Add($entry)
-            continue
-        }
-        if ((Send-QuestarrPlaySession -Config $Config -Entry $entry) -eq "retry") {
-            $stopped = $true
-            [void]$remaining.Add($entry)
-        }
-    }
-
-    Write-QuestarrPlayQueue -Items $remaining.ToArray()
-}
-
 # -- Playnite lifecycle hooks -------------------------------------------------
 
 <#
@@ -1401,9 +1503,15 @@ function OnGameStopped {
                 startedAt  = Format-QuestarrUtc $startedAt
                 endedAt    = Format-QuestarrUtc $endedAt
             }
-            # Queue first, then flush: a crash or a dead server never loses the session.
+            # Queue first, then drain: a crash or a dead server never loses
+            # the session. Both sides share the queue mutex, so a sync
+            # running in the background cannot clobber this entry.
             try {
-                Write-QuestarrPlayQueue -Items (@(Read-QuestarrPlayQueue) + $entry)
+                $queued = Add-QuestarrQueuedSession -DataDir $CurrentExtensionDataPath -Entry $entry
+                if (-not $queued) {
+                    $__logger.Error("Questarr: could not take the queue lock to save the play session")
+                    return
+                }
             }
             catch {
                 $__logger.Error("Questarr: could not queue the play session: $($_.Exception.Message)")
@@ -1413,7 +1521,7 @@ function OnGameStopped {
     }
 
     try {
-        Invoke-QuestarrFlushPlayQueue -Config $config
+        Invoke-QuestarrQueueDrain -Config $config -DataDir $CurrentExtensionDataPath | Out-Null
     }
     catch {
         $__logger.Error("Questarr: play session upload failed: $($_.Exception.Message)")
@@ -1432,7 +1540,7 @@ function OnApplicationStarted {
     if ($null -eq $config -or -not $config.TrackPlayTime) { return }
 
     try {
-        Invoke-QuestarrFlushPlayQueue -Config $config
+        Invoke-QuestarrQueueDrain -Config $config -DataDir $CurrentExtensionDataPath | Out-Null
     }
     catch {
         $__logger.Error("Questarr: play session upload failed: $($_.Exception.Message)")

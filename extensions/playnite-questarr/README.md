@@ -20,12 +20,14 @@ game from the couch without opening a browser.
   Questarr library. Requested games land as _wanted_, which is what hands them
   to Questarr's existing auto-search: it searches your indexers on schedule and
   sends the best release to your download client.
-- **Play time** — optionally sends every finished play session (its end is
-  when the game closed, its start is derived from the duration Playnite reports)
-  to Questarr, where it shows up in the
-  game's Playtime section, its journal and the Statistics page. Off by default:
-  switch it on with **Extensions → Questarr → Toggle sending play time to
-  Questarr**.
+- **Finished play sessions** — optionally sends every finished session (its
+  end is when the game closed, its start is derived from the duration Playnite
+  reports) to Questarr, where it shows up in the
+  game's Playtime section, its journal and the Statistics page. Off by
+  default: switch it on with **Extensions → Questarr → Toggle sending
+  finished play sessions to Questarr**. This setting controls only the
+  per-session tracking; GOG/Epic play-time **totals** are sent by every
+  library sync regardless of it.
 - **Automatic sync** — optionally re-syncs whenever Playnite finishes updating
   its library, so installing a game on the couch PC shows up in Questarr on its
   own. It is the same background push as the menu command, with the same
@@ -44,9 +46,10 @@ feedback is the two notifications plus the detail in `extensions.log`.
 - Playnite 10 or newer (script extensions run on Windows PowerShell 5.1).
 - A Questarr server reachable from the Playnite machine, new enough to expose
   the `/api/integration` endpoints. The unified sync needs `POST
-/api/integration/library/sync`, `POST /api/integration/library/import` and
-  `POST /api/integration/play-status`; play time needs `POST
-/api/integration/play-sessions`, available from Questarr 1.7.
+/api/integration/library/sync`, `POST /api/integration/library/import`, `POST
+/api/integration/play-status` and `POST /api/integration/play-time-totals`;
+finished play sessions need `POST /api/integration/play-sessions`, available
+from Questarr 1.7.
 
 ## Install
 
@@ -115,9 +118,11 @@ Edition"-style suffixes are accepted. Use **Request on Questarr** for the rest.
 
 ## Play time
 
-With play time enabled, closing a game sends one session to Questarr: the game,
-when it started and when it ended. Playnite measures the duration itself, so no
-timer has to be started by hand.
+With finished-play-session tracking enabled, closing a game sends one session
+to Questarr: the game, when it started and when it ended. Playnite measures
+the duration itself, so no timer has to be started by hand. The GOG/Epic
+play-time totals are a separate thing: every library sync sends whatever
+total Playnite holds for those stores, whether or not session tracking is on.
 
 - The game is matched like in a library sync: Steam App ID first, then the
   normalized title. A game Questarr does not know is skipped (a line in
@@ -179,4 +184,4 @@ Extension logs go to Playnite's `extensions.log`, next to `playnite.log`.
 | `Questarr has no integration API at this address (404)` | Wrong address, or the server predates the integration API.                   |
 | `stored API key could not be decrypted`                 | `config.json` was copied from another Windows account or machine. Reconnect. |
 | `Questarr is rate limiting this client (429)`           | Too many requests in a short window; retry shortly.                          |
-| `a background sync is already running` (log only)      | A sync is in flight; the new request was skipped, nothing was lost.          |
+| `a background sync is already running` (log only)      | A sync is in flight, so the new request was skipped. If the skipped request covered library changes made after the active sync started, run the sync again once it finishes. |

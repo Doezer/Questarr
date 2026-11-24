@@ -6,9 +6,16 @@ game from the couch without opening a browser.
 
 ## What it does
 
-- **Sync library to Questarr** — sends every game in your Playnite database and
-  reports which ones Questarr already tracks, which it has never heard of, and
-  (optionally) promotes installed games from _wanted_ to _owned_.
+- **Sync library to Questarr** — one command that runs the whole pass: it
+  flushes queued play sessions, reconciles which games Questarr knows, adds
+  everything Questarr is missing as owned games (the first run backfills the
+  whole library; later runs only pick up new games), sends completion
+  statuses, and sends the GOG/Epic play time totals Playnite already holds.
+  The sync runs in the background: the menu command returns immediately and
+  Playnite stays responsive, a notification marks the start and another
+  carries the summary when the run finishes. A lock keeps two syncs from
+  overlapping — if one is already running, the new request is skipped and
+  logged.
 - **Request on Questarr** — right-click one or more games and add them to your
   Questarr library. Requested games land as _wanted_, which is what hands them
   to Questarr's existing auto-search: it searches your indexers on schedule and
@@ -19,27 +26,27 @@ game from the couch without opening a browser.
   game's Playtime section, its journal and the Statistics page. Off by default:
   switch it on with **Extensions → Questarr → Toggle sending play time to
   Questarr**.
-- **Play status** — sends the completion status you set in Playnite (Playing,
-  On Hold, Beaten...) to Questarr, so the game shows the same status there
-  whatever store it comes from (Steam, GOG, Epic...). Run **Extensions →
-  Questarr → Sync play status to Questarr** whenever you like, or switch on
-  **Toggle sending play status after each library update**. Off by default.
-- **GOG and Epic library and play time** — **Import GOG library into Questarr**
-  and **Import Epic library into Questarr** add the games Questarr does not have
-  as owned games, and **Import GOG play time into Questarr** / **Import Epic play
-  time into Questarr** send the play time Playnite already holds for them. All
-  four are run by hand (see below).
 - **Automatic sync** — optionally re-syncs whenever Playnite finishes updating
   its library, so installing a game on the couch PC shows up in Questarr on its
-  own.
+  own. It is the same background push as the menu command, with the same
+  overlap guard.
+- **Titles IGDB cannot match** — a sync only adds games Questarr can match on
+  IGDB; anything else comes back unmatched. Those titles are cached in
+  `import-skip.json` next to `config.json`, so later syncs never pay the IGDB
+  lookup cost for them again. Delete that file to force a retry.
+
+Playnite offers script extensions no live progress bar (its progress dialog
+route does not invoke script delegates on current builds), so the extension's
+feedback is the two notifications plus the detail in `extensions.log`.
 
 ## Requirements
 
 - Playnite 10 or newer (script extensions run on Windows PowerShell 5.1).
 - A Questarr server reachable from the Playnite machine, new enough to expose
-  the `/api/integration` endpoints (play time needs `POST
-/api/integration/play-sessions`, available from Questarr 1.7; play status needs `POST
-/api/integration/play-status`, also from Questarr 1.7).
+  the `/api/integration` endpoints. The unified sync needs `POST
+/api/integration/library/sync`, `POST /api/integration/library/import` and
+  `POST /api/integration/play-status`; play time needs `POST
+/api/integration/play-sessions`, available from Questarr 1.7.
 
 ## Install
 
@@ -100,9 +107,11 @@ key's `scope` and `expiresAt`.
 
 Questarr matches an incoming Playnite entry by Steam App ID first (for games
 from Playnite's Steam library), then by a normalized title comparison —
-lowercased, punctuation flattened. Anything it cannot place comes back in the
-`unmatched` list rather than being added automatically, so a sync never invents
-library entries on its own. Use **Request on Questarr** for those.
+lowercased, punctuation flattened. A sync first asks Questarr which games it
+knows; only the ones it does not are sent for import, where IGDB does the
+matching. A title IGDB matches to a different game (a sequel, another
+subtitle) is skipped rather than added wrongly; "Game of the Year
+Edition"-style suffixes are accepted. Use **Request on Questarr** for the rest.
 
 ## Play time
 
@@ -119,7 +128,8 @@ timer has to be started by hand.
 - If a session cannot be sent for a retryable reason (Questarr unreachable, rate
   limited, a server error or a key problem), it waits in `play-sessions-queue.json`
   next to `config.json` (at most 200 entries, the oldest is dropped beyond that)
-  and is retried when the next game closes and when Playnite starts. A session
+  and is retried when the next game closes, when Playnite starts, and at the
+  front of every sync. A session
   Questarr rejects (unknown game, invalid times, a clock more than five minutes
   ahead) is dropped. A retry is never counted twice: Questarr
   ignores a session that starts at the same instant as a stored Playnite session of that game.
@@ -134,39 +144,30 @@ _On Hold_ and _Abandoned_ become **shelved**, _Beaten_ and _Completed_ become
 **completed**. A custom status Questarr does not know is skipped. The game's
 store (Steam, GOG or Epic) is sent along and recorded as where the status came from.
 
+- Statuses ride along with every sync; with the automatic option on they are
+  sent after each library update, entirely in the background.
 - A game is matched like in a library sync (Steam App ID, then normalized
   title) and is never created.
 - A status you set yourself in Questarr (playing, shelved or completed) is never
   overwritten; only a status that an earlier sync wrote can be replaced. Games
   Questarr is still downloading are left alone too.
-- A game that is only _wanted_ in Questarr stays wanted, unless **promoting
-  installed games to owned** is switched on.
 - Games with no completion status in Playnite are not sent.
-- With the automatic option on, the status is sent after each library update;
-  a failure is only logged in `extensions.log`, never shown as a dialog. The
-  manual command shows a summary instead.
 - It needs the **Playnite extension** access, like the library sync.
 
 ## GOG and Epic library and play time
 
 Steam games need no extension command: Questarr reads their total itself (Settings → Steam → Steam play time → Preview import).
 
-Playnite's own GOG and Epic plugins read the libraries; the extension never talks to GOG or Epic. Epic has no public library API and the extension does not scrape the store, so Playnite's Epic plugin is the only source. Each command below exists once for GOG and once for Epic, and only looks at the games of that store.
+Playnite's own GOG and Epic plugins read the libraries; the extension never talks to GOG or Epic. Epic has no public library API and the extension does not scrape the store, so Playnite's Epic plugin is the only source.
 
-- **Import GOG / Epic library into Questarr** asks for confirmation, then adds each game of that
-  store Questarr does not have as an **owned** game, matched on IGDB. A title IGDB
-  matches to a different game (a sequel, another subtitle) is skipped rather than
-  added wrongly; "Game of the Year Edition"-style suffixes are accepted. Games
-  already in Questarr are left alone. It looks up each new title, so a large
-  library takes a few minutes.
-- **Import GOG / Epic play time into Questarr** sends the total play time Playnite has for
-  each game of that store with at least ten minutes of it. Questarr subtracts the time it
+- Every sync adds the GOG and Epic games Questarr does not have as **owned**
+  games, matched on IGDB, and sends the total play time Playnite has for each
+  of them with at least ten minutes of it. Questarr subtracts the time it
   already recorded and adds the rest as one estimated session ending at the
-  game's last activity, so running it again changes nothing. A game with a timer
-  running is skipped. Run the library import first: a game missing from Questarr
-  is reported as not found.
+  game's last activity, so running a sync again changes nothing. A game with a
+  timer running is skipped.
 - The play time sent is whatever total Playnite holds for each game; a game with none recorded there is left out. The games are recorded with source `epic` (GOG ones with `gog`).
-- All of them need Questarr 1.7 and the **Playnite extension** access.
+- It needs Questarr 1.7 and the **Playnite extension** access.
 
 ## Troubleshooting
 
@@ -178,3 +179,4 @@ Extension logs go to Playnite's `extensions.log`, next to `playnite.log`.
 | `Questarr has no integration API at this address (404)` | Wrong address, or the server predates the integration API.                   |
 | `stored API key could not be decrypted`                 | `config.json` was copied from another Windows account or machine. Reconnect. |
 | `Questarr is rate limiting this client (429)`           | Too many requests in a short window; retry shortly.                          |
+| `a background sync is already running` (log only)      | A sync is in flight; the new request was skipped, nothing was lost.          |

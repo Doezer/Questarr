@@ -69,6 +69,17 @@ export async function getRetroAchievementsCredentials(userId: string): Promise<C
   }
 }
 
+/** The saved username, readable even when the key no longer decrypts. */
+async function getStoredUsername(userId: string): Promise<string | null> {
+  const raw = await storage.getSystemConfig(credentialsKey(userId));
+  if (!raw) return null;
+  try {
+    return stored.shape.username.parse((JSON.parse(raw) as { username?: unknown }).username);
+  } catch {
+    return null;
+  }
+}
+
 export const retroAchievementsProvider: AchievementProvider = {
   id: RETROACHIEVEMENTS_PROVIDER_ID,
   label: "RetroAchievements",
@@ -141,33 +152,55 @@ export async function getRetroAchievementsStatus(userId: string): Promise<RetroA
 
 export class RetroAchievementsKeyRequiredError extends Error {}
 
+/** Saving and removing the account of one user never overlap, so a removal stays final. */
+const accountLocks = new Map<string, Promise<unknown>>();
+function withAccountLock<T>(userId: string, task: () => Promise<T>): Promise<T> {
+  const result = (accountLocks.get(userId) ?? Promise.resolve()).then(task, task);
+  const tail = result.catch(() => undefined);
+  accountLocks.set(userId, tail);
+  void tail.then(() => {
+    if (accountLocks.get(userId) === tail) accountLocks.delete(userId);
+  });
+  return result;
+}
+
 /**
  * Save the username and key after the API accepted them. A different account drops the stored
  * progress, so the new account starts from a fresh baseline instead of notifying the difference.
+ * The cleanup runs before the new credentials are written: a failed cleanup leaves the old
+ * account saved, and a retry cleans up again.
  */
-export async function saveRetroAchievementsCredentials(
+export function saveRetroAchievementsCredentials(
   userId: string,
   input: z.infer<typeof credentialsSchema>
 ): Promise<void> {
-  const current = await getRetroAchievementsCredentials(userId);
-  const apiKey = input.apiKey ?? current?.apiKey;
-  if (!apiKey) throw new RetroAchievementsKeyRequiredError();
-  await verifyRetroAchievementsCredentials(input.username, apiKey);
-  await storage.setSystemConfig(
-    credentialsKey(userId),
-    JSON.stringify({ username: input.username, apiKey: await encryptCredential(apiKey) })
-  );
-  if (current && current.username.toLowerCase() !== input.username.toLowerCase()) {
-    await storage.deleteAchievementProgress(userId, RETROACHIEVEMENTS_PROVIDER_ID);
-    await resetAchievementsRun(retroAchievementsProvider, userId);
-  }
+  return withAccountLock(userId, async () => {
+    const current = await getRetroAchievementsCredentials(userId);
+    const previousUsername = current?.username ?? (await getStoredUsername(userId));
+    const apiKey = input.apiKey ?? current?.apiKey;
+    if (!apiKey) throw new RetroAchievementsKeyRequiredError();
+    await verifyRetroAchievementsCredentials(input.username, apiKey);
+    if (previousUsername && previousUsername.toLowerCase() !== input.username.toLowerCase()) {
+      // The run is invalidated first, so a sync still in flight cannot write the old account back.
+      await resetAchievementsRun(retroAchievementsProvider, userId);
+      await storage.deleteAchievementProgress(userId, RETROACHIEVEMENTS_PROVIDER_ID);
+    }
+    await storage.setSystemConfig(
+      credentialsKey(userId),
+      JSON.stringify({ username: input.username, apiKey: await encryptCredential(apiKey) })
+    );
+  });
 }
 
 /** Forget the account: credentials, switch and stored progress. */
-export async function clearRetroAchievements(userId: string): Promise<void> {
-  await storage.setSystemConfig(credentialsKey(userId), "");
-  await setAchievementsEnabled(retroAchievementsProvider, userId, false);
-  await storage.deleteAchievementProgress(userId, RETROACHIEVEMENTS_PROVIDER_ID);
+export function clearRetroAchievements(userId: string): Promise<void> {
+  return withAccountLock(userId, async () => {
+    await storage.setSystemConfig(credentialsKey(userId), "");
+    await setAchievementsEnabled(retroAchievementsProvider, userId, false);
+    // Also invalidates a run that started while the sync was on.
+    await resetAchievementsRun(retroAchievementsProvider, userId);
+    await storage.deleteAchievementProgress(userId, RETROACHIEVEMENTS_PROVIDER_ID);
+  });
 }
 
 export const setRetroAchievementsEnabled = (userId: string, enabled: boolean) =>

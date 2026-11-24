@@ -189,7 +189,13 @@ export async function syncAchievements(
     const sameAccount = (await provider.identity(userId)) === startIdentity;
     let gamesSynced = 0;
     const unlockedNow: { title: string; added: number }[] = [];
+    let stale = !sameAccount;
     for (const { game, summary } of sameAccount ? entries : []) {
+      // An account change or a toggle bumps the epoch: no row of this run may land after it.
+      if ((await readState(provider, userId)).epoch !== state.epoch) {
+        stale = true;
+        break;
+      }
       try {
         await storage.upsertAchievementProgress({
           gameId: game.id,
@@ -221,8 +227,10 @@ export async function syncAchievements(
         lastNewUnlocks: newUnlocks,
         lastError: failed > 0 && gamesSynced === 0 ? provider.failureMessage : null,
       });
+    } else {
+      stale = true;
     }
-    if (newUnlocks > 0) await notifyUnlocks(userId, unlockedNow, newUnlocks);
+    if (newUnlocks > 0 && !stale) await notifyUnlocks(userId, unlockedNow, newUnlocks);
     return { gamesSynced, newUnlocks };
   } finally {
     running.delete(lock);

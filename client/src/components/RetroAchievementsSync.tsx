@@ -92,6 +92,13 @@ export function RetroAchievementsSync() {
   });
 
   const error = saveAccount.error ?? removeAccount.error ?? toggle.error ?? syncNow.error;
+  // An error belongs to the action that failed: starting another one, or editing a field, clears it.
+  const clearErrors = () => {
+    saveAccount.reset();
+    removeAccount.reset();
+    toggle.reset();
+    syncNow.reset();
+  };
   const shownUsername = username ?? status?.username ?? "";
   const canSave =
     shownUsername.trim().length > 0 && (apiKey.trim().length > 0 || Boolean(status?.available));
@@ -120,7 +127,9 @@ export function RetroAchievementsSync() {
         className="grid gap-3 sm:grid-cols-2"
         onSubmit={(event) => {
           event.preventDefault();
-          if (canSave) saveAccount.mutate();
+          if (!canSave) return;
+          clearErrors();
+          saveAccount.mutate();
         }}
       >
         <div className="space-y-1.5">
@@ -129,7 +138,10 @@ export function RetroAchievementsSync() {
             id="retroachievements-username"
             autoComplete="off"
             value={shownUsername}
-            onChange={(event) => setUsername(event.target.value)}
+            onChange={(event) => {
+              clearErrors();
+              setUsername(event.target.value);
+            }}
           />
         </div>
         <div className="space-y-1.5">
@@ -140,7 +152,10 @@ export function RetroAchievementsSync() {
             autoComplete="off"
             placeholder={status?.available ? "Saved (leave empty to keep it)" : ""}
             value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
+            onChange={(event) => {
+              clearErrors();
+              setApiKey(event.target.value);
+            }}
           />
         </div>
         <div className="flex flex-wrap gap-2 sm:col-span-2">
@@ -152,7 +167,10 @@ export function RetroAchievementsSync() {
               type="button"
               variant="outline"
               disabled={removeAccount.isPending}
-              onClick={() => removeAccount.mutate()}
+              onClick={() => {
+                clearErrors();
+                removeAccount.mutate();
+              }}
             >
               Remove account
             </Button>
@@ -166,7 +184,10 @@ export function RetroAchievementsSync() {
         checked={status?.enabled ?? false}
         // An unavailable status only blocks turning the sync on; it can always be turned off.
         disabled={!status || toggle.isPending || (!status.available && !status.enabled)}
-        onCheckedChange={(enabled) => toggle.mutate(enabled)}
+        onCheckedChange={(enabled) => {
+          clearErrors();
+          toggle.mutate(enabled);
+        }}
       />
 
       {status && !status.available && (
@@ -194,7 +215,14 @@ export function RetroAchievementsSync() {
               {status.lastError}
             </p>
           )}
-          <Button variant="outline" disabled={syncNow.isPending} onClick={() => syncNow.mutate()}>
+          <Button
+            variant="outline"
+            disabled={syncNow.isPending}
+            onClick={() => {
+              clearErrors();
+              syncNow.mutate();
+            }}
+          >
             {syncNow.isPending ? "Syncing…" : "Sync now"}
           </Button>
         </div>

@@ -45,11 +45,21 @@ const raGame = (
   MostRecentAwardedDate: "2026-11-20 18:30:00",
 });
 
-function answer(results: ReturnType<typeof raGame>[], status = 200) {
-  fixtures.safeFetch.mockResolvedValue({
-    ok: status < 400,
-    status,
-    json: async () => ({ Count: results.length, Total: results.length, Results: results }),
+/** The completion list and the profile answer by URL; `profile` is what the profile endpoint says. */
+function answer(
+  results: ReturnType<typeof raGame>[],
+  status = 200,
+  profile: Record<string, unknown> | null = { User: "Mario", ID: 1 }
+) {
+  fixtures.safeFetch.mockImplementation(async (url: string) => {
+    if (String(url).includes("API_GetUserProfile.php")) {
+      return { ok: status < 400, status, json: async () => profile };
+    }
+    return {
+      ok: status < 400,
+      status,
+      json: async () => ({ Count: results.length, Total: results.length, Results: results }),
+    };
   });
 }
 
@@ -99,6 +109,52 @@ describe("RetroAchievements matching", () => {
     expect(matchRetroAchievementsGame({ title: "Super Mario World", platforms: null }, games)).toBe(
       null
     );
+  });
+
+  it("matches on the target platform alone when the library copy has one", async () => {
+    const { matchRetroAchievementsGame } = await import("../retroachievements.js");
+    const games = [
+      {
+        gameId: 1,
+        title: "Crash Bandicoot",
+        consoleName: "PlayStation",
+        total: 20,
+        unlocked: 4,
+        lastUnlockedAt: null,
+      },
+    ];
+    const both = ["PC (Microsoft Windows)", "PlayStation"];
+    expect(
+      matchRetroAchievementsGame(
+        { title: "Crash Bandicoot", platforms: both, targetPlatformName: "PC (Microsoft Windows)" },
+        games
+      )
+    ).toBeNull();
+    expect(
+      matchRetroAchievementsGame(
+        { title: "Crash Bandicoot", platforms: both, targetPlatformName: "PlayStation" },
+        games
+      )
+    ).toMatchObject({ gameId: 1 });
+    // Without a target platform the IGDB platform list decides.
+    expect(
+      matchRetroAchievementsGame({ title: "Crash Bandicoot", platforms: both }, games)
+    ).toMatchObject({
+      gameId: 1,
+    });
+  });
+
+  it("accepts the documented Mega Drive / Genesis console name", async () => {
+    const { consoleMatchesPlatforms } = await import("../retroachievements.js");
+    expect(consoleMatchesPlatforms("Mega Drive / Genesis", ["Sega Mega Drive/Genesis"])).toBe(true);
+  });
+
+  it("reads dates with or without a zone", async () => {
+    const { parseDate } = await import("../retroachievements.js");
+    expect(parseDate("2024-05-01 12:00:00")?.toISOString()).toBe("2024-05-01T12:00:00.000Z");
+    expect(parseDate("2023-10-27T02:52:34+00:00")?.toISOString()).toBe("2023-10-27T02:52:34.000Z");
+    expect(parseDate("2023-10-27T04:52:34+02:00")?.toISOString()).toBe("2023-10-27T02:52:34.000Z");
+    expect(parseDate("not a date")).toBeNull();
   });
 
   it("keeps the set with the most progress when several match", async () => {
@@ -227,6 +283,50 @@ describe.each(activeTestDialects())("RetroAchievements sync (%s)", (dialect) => 
       username: "Luigi",
       apiKey: KEY,
     });
+  });
+
+  it("refuses an unknown username without touching the saved account or its progress", async () => {
+    await sync.syncRetroAchievements(userId, { now: T0 });
+    answer([], 200, {});
+    await expect(
+      sync.saveRetroAchievementsCredentials(userId, { username: "Typo" })
+    ).rejects.toThrow(/rejected/);
+    expect((await sync.getRetroAchievementsCredentials(userId))?.username).toBe("Mario");
+    expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+  });
+
+  it("does not restore credentials when a save is still verifying while the account is removed", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fixtures.safeFetch.mockImplementation(async (url: string) => {
+      await gate;
+      if (String(url).includes("API_GetUserProfile.php")) {
+        return { ok: true, status: 200, json: async () => ({ User: "Luigi" }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ Count: 0, Total: 0, Results: [] }) };
+    });
+    const saving = sync.saveRetroAchievementsCredentials(userId, { username: "Luigi" });
+    const removing = sync.clearRetroAchievements(userId);
+    release();
+    await Promise.all([saving, removing]);
+    // The removal ran after the save finished, so the account is gone.
+    expect(await sync.getRetroAchievementsCredentials(userId)).toBeNull();
+  });
+
+  it("keeps the old account saved when the cleanup of a replacement fails, so a retry cleans up", async () => {
+    await sync.syncRetroAchievements(userId, { now: T0 });
+    const spy = vi
+      .spyOn(ctx.storage, "deleteAchievementProgress")
+      .mockRejectedValueOnce(new Error("db down"));
+    await expect(
+      sync.saveRetroAchievementsCredentials(userId, { username: "Luigi" })
+    ).rejects.toThrow("db down");
+    spy.mockRestore();
+    expect((await sync.getRetroAchievementsCredentials(userId))?.username).toBe("Mario");
+    await sync.saveRetroAchievementsCredentials(userId, { username: "Luigi" });
+    expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(0);
   });
 
   it("serves status, credentials, toggle and manual sync over HTTP, never returning the key", async () => {

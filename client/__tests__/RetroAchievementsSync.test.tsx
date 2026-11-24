@@ -134,5 +134,6 @@ describe("RetroAchievements sync card", () => {
     await waitFor(() =>
       expect(screen.getByRole("switch", { name: "Sync RetroAchievements" })).not.toBeChecked()
     );
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

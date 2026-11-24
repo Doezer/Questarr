@@ -43,10 +43,15 @@ interface CompletionProgressResponse {
   }[];
 }
 
-/** RetroAchievements dates are UTC without a zone ("2024-05-01 12:00:00"). */
-function parseDate(value: string | null | undefined): Date | null {
+/**
+ * RetroAchievements dates are UTC, either without a zone ("2024-05-01 12:00:00") or with an
+ * offset ("2023-10-27T02:52:34+00:00"). A value that already has a zone is read as it is.
+ */
+export function parseDate(value: string | null | undefined): Date | null {
   if (!value) return null;
-  const date = new Date(`${value.replace(" ", "T")}Z`);
+  const normalized = value.replace(" ", "T");
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+  const date = new Date(hasZone ? normalized : `${normalized}Z`);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -86,12 +91,42 @@ async function fetchPage(
   }
 }
 
-/** Check a username and Web API key with the smallest possible request. */
+/**
+ * Check a username and Web API key. The completion endpoint answers 200 with an empty list for an
+ * unknown username, the same as for an account without progress, so the profile endpoint confirms
+ * the account exists.
+ */
 export async function verifyRetroAchievementsCredentials(
   username: string,
   apiKey: string
 ): Promise<void> {
   await fetchPage(username, apiKey, 0, 1);
+  const params = new URLSearchParams({ z: username, y: apiKey, u: username });
+  let response: Response;
+  try {
+    response = await safeFetch(`${API_BASE}/API_GetUserProfile.php?${params}`, {
+      requireHttps: true,
+      redirect: "error",
+      headers: { Accept: "application/json" },
+    });
+  } catch {
+    throw new RetroAchievementsRequestError("Could not reach RetroAchievements.");
+  }
+  if (response.status === 401 || response.status === 403 || response.status === 404) {
+    throw new RetroAchievementsAuthError();
+  }
+  if (!response.ok) {
+    throw new RetroAchievementsRequestError(`RetroAchievements answered ${response.status}.`);
+  }
+  let profile: { User?: unknown; ID?: unknown } | null;
+  try {
+    profile = (await response.json()) as { User?: unknown; ID?: unknown } | null;
+  } catch {
+    throw new RetroAchievementsRequestError("RetroAchievements sent an unreadable answer.");
+  }
+  if (typeof profile?.User !== "string" || profile.User.length === 0) {
+    throw new RetroAchievementsAuthError();
+  }
 }
 
 /** Every game the user has progress in (games without any unlocked achievement included). */
@@ -136,6 +171,7 @@ const CONSOLE_ALIASES: Record<string, string[]> = {
   "Virtual Boy": ["Virtual Boy"],
   "Pokemon Mini": ["Pokémon mini", "Pokemon mini"],
   "Mega Drive": ["Sega Mega Drive/Genesis", "Sega Genesis", "Sega Mega Drive", "Genesis"],
+  "Mega Drive / Genesis": ["Sega Mega Drive/Genesis", "Sega Genesis", "Sega Mega Drive", "Genesis"],
   "Master System": ["Sega Master System/Mark III", "Sega Master System"],
   "Game Gear": ["Sega Game Gear"],
   "Sega CD": ["Sega CD", "Mega-CD"],
@@ -191,14 +227,17 @@ function titleKeys(title: string): string[] {
 const isOfficialSet = (title: string) => !/(?:^~)|(?:\[Subset)/i.test(title);
 
 /**
- * The RetroAchievements game of a library game: same title and a platform of the same console.
+ * The RetroAchievements game of a library game: same title and the same console as its target
+ * platform (or one of its platforms when no target platform is set).
  * When several sets match (regional releases), the one with the most progress wins.
  */
 export function matchRetroAchievementsGame(
-  game: { title: string; platforms: string[] | null },
+  game: { title: string; platforms: string[] | null; targetPlatformName?: string | null },
   candidates: RetroAchievementsGame[]
 ): RetroAchievementsGame | null {
-  const platforms = game.platforms ?? [];
+  // The console of the library copy is the only one that counts. A game without a target
+  // platform (not yet chosen) is matched on its IGDB platform list.
+  const platforms = game.targetPlatformName ? [game.targetPlatformName] : (game.platforms ?? []);
   if (platforms.length === 0) return null;
   const wanted = new Set(titleKeys(game.title));
   let best: RetroAchievementsGame | null = null;

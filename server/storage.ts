@@ -424,6 +424,8 @@ export interface IStorage {
   upsertAchievementProgress(
     progress: Omit<InsertGameAchievementProgress, "id">
   ): Promise<GameAchievementProgress>;
+  /** Drop every stored row of one provider for the user (the linked account changed). */
+  deleteAchievementProgress(userId: string, provider: string): Promise<void>;
 
   // Direct-download (DDL) jobs
   addDdlJob(job: InsertDdlJob): Promise<DdlJob>;
@@ -1091,6 +1093,12 @@ export class MemStorage implements IStorage {
 
   async getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]> {
     return [...this.achievementProgress.values()].filter((r) => r.userId === userId);
+  }
+
+  async deleteAchievementProgress(userId: string, provider: string): Promise<void> {
+    for (const [key, row] of this.achievementProgress) {
+      if (row.userId === userId && row.provider === provider) this.achievementProgress.delete(key);
+    }
   }
 
   async upsertAchievementProgress(
@@ -3637,6 +3645,17 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(gameAchievementProgress)
       .where(eq(gameAchievementProgress.userId, userId));
+  }
+
+  async deleteAchievementProgress(userId: string, provider: string): Promise<void> {
+    await db
+      .delete(gameAchievementProgress)
+      .where(
+        and(
+          eq(gameAchievementProgress.userId, userId),
+          eq(gameAchievementProgress.provider, provider)
+        )
+      );
   }
 
   async upsertAchievementProgress(

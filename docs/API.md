@@ -395,6 +395,14 @@ documented under [Settings](#settings).
 | ------ | -------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | POST   | `/api/stats/discord-share` | JWT           | `{ image: string (data URI, png/jpeg/gif/webp base64), message?: string }` — manual checks; webhook URL must match Discord's domain pattern | `{ success: true }`; 400 on missing/invalid config or image; 502 if Discord request fails |
 
+### Backlog quests
+
+`server/quest-routes.ts` — requires a JWT.
+
+| Method | Path          | Auth Required | Request Body | Response                                                                                                                                                                    |
+| ------ | ------------- | ------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/quests` | JWT           | —            | `{ enabled, current, history, medals, backlogProgress }`; makes sure the week and month have their quests and updates their progress; days follow `timeZone` (IANA) or `tz` |
+
 ## Play time
 
 All routes need a JWT; game routes also check that the game belongs to the caller (404 otherwise).

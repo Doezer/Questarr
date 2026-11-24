@@ -615,6 +615,7 @@ function New-QuestarrSyncWork {
     $epicTotals = New-Object System.Collections.ArrayList
     $excluded = 0
     $heldTotals = 0
+    $recentStops = Read-QuestarrRecentStopsFile -DataDir $DataDir
 
     $steamGuid = [Guid]"cb91dfc9-b977-43bf-8e70-55f46e410fab"
     $gogGuid = [Guid]"aebe8b7c-6dc3-4a66-af31-e7375c6b5e9e"
@@ -684,22 +685,30 @@ function New-QuestarrSyncWork {
         }
 
         # Play time totals: per store, at least ten minutes recorded.
+        # The total is captured FIRST, then the hold-back is decided: if the
+        # two reads straddle a session landing, the failure direction is an
+        # over-held total (harmless, the next sync sends it), never a
+        # double-counted one.
+        $playtime = [uint64]$game.Playtime
         if (($game.PluginId -eq $gogGuid -or $game.PluginId -eq $epicGuid) -and
-            [uint64]$game.Playtime -ge 600 -and $title.Length -le 500) {
-            # Playnite updates the total before OnGameStopped queues the
-            # session, so a sync starting in that gap would send the total as
-            # an estimate while the actual session is still coming: the play
-            # time would count twice. A recently played game is held back;
-            # the next sync sends its total once the session has landed.
-            if ($null -ne $game.LastActivity -and
-                $game.LastActivity.ToUniversalTime() -gt [DateTime]::UtcNow.AddMinutes(-15)) {
+            $playtime -ge 600 -and $title.Length -le 500) {
+            # Playnite adds the session to the total before OnGameStopped
+            # queues it, so a sync in that gap would send the total as an
+            # estimate and then the session too: the play time counts twice.
+            # Hold the total while the game is running, and for 15 minutes
+            # after it closed, keyed on the extension's own stop times
+            # (Playnite stamps LastActivity at launch only, so a session
+            # longer than the window would slip a LastActivity-keyed hold).
+            $recentStop = $recentStops[$game.Id.ToString()]
+            if ([bool]$game.IsRunning -or
+                ($null -ne $recentStop -and $recentStop.ToUniversalTime() -gt [DateTime]::UtcNow.AddMinutes(-15))) {
                 $heldTotals += 1
                 continue
             }
             $totalEntry = @{
                 title           = $title
                 externalId      = $game.Id.ToString()
-                playtimeSeconds = [int64][Math]::Min([uint64]$game.Playtime, 100000000)
+                playtimeSeconds = [int64][Math]::Min($playtime, 100000000)
             }
             if ($null -ne $game.LastActivity) {
                 $totalEntry.lastPlayedAt = Format-QuestarrUtc $game.LastActivity
@@ -775,6 +784,64 @@ function Write-QuestarrPlayQueueFile {
 }
 
 <#
+    Per-game UTC stop times, written by OnGameStopped under the queue mutex
+    and pruned to the hold-back window on every write. Playnite only stamps
+    LastActivity when a game STARTS (GamesEditor.UpdateGameState), so a
+    window keyed on it would miss any session longer than the window; this
+    map is the stop time the totals hold-back actually relies on.
+#>
+function Read-QuestarrRecentStopsFile {
+    param([Parameter(Mandatory)] [string] $DataDir)
+
+    $path = Join-Path $DataDir "recent-stops.json"
+    if (-not (Test-Path $path)) { return @{} }
+    try {
+        $raw = Get-Content -Path $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($null -eq $raw) { return @{} }
+        $map = @{}
+        foreach ($p in $raw.PSObject.Properties) {
+            try {
+                $map[$p.Name] = [DateTime]::Parse([string]$p.Value, [Globalization.CultureInfo]::InvariantCulture)
+            }
+            catch {
+                # A value that is not a timestamp is debris; ignore it.
+            }
+        }
+        return $map
+    }
+    catch {
+        return @{}
+    }
+}
+
+function Write-QuestarrRecentStopsFile {
+    param(
+        [Parameter(Mandatory)] [string] $DataDir,
+        $Map
+    )
+
+    if (-not (Test-Path $DataDir)) {
+        New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
+    }
+    # Prune to the hold-back window so the file stays the size of the
+    # games actually played in the last quarter hour.
+    $cutoff = [DateTime]::UtcNow.AddMinutes(-15)
+    $keep = @{}
+    foreach ($k in $Map.Keys) {
+        if ($Map[$k] -gt $cutoff) { $keep[$k] = $Map[$k].ToUniversalTime().ToString("o") }
+    }
+    $path = Join-Path $DataDir "recent-stops.json"
+    $temp = "$path.tmp"
+    ConvertTo-Json -InputObject $keep -Depth 3 | Set-Content -Path $temp -Encoding UTF8
+    if (Test-Path $path) {
+        [System.IO.File]::Replace($temp, $path, [NullString]::Value)
+    }
+    else {
+        Move-Item -Path $temp -Destination $path
+    }
+}
+
+<#
     A named mutex serializes every queue file mutation between the lifecycle
     hooks, the menu thread and the background runspace (all in this process,
     plus any second Playnite window): reads and writes of the queue never
@@ -841,7 +908,8 @@ function Add-QuestarrQueuedSession {
 function Invoke-QuestarrQueueDrain {
     param(
         [Parameter(Mandatory)] $Config,
-        [Parameter(Mandatory)] [string] $DataDir
+        [Parameter(Mandatory)] [string] $DataDir,
+        $GameIdByExternalId = @{}
     )
 
     $result = @{ Sent = 0; Dropped = 0; Remaining = 0 }
@@ -863,7 +931,8 @@ function Invoke-QuestarrQueueDrain {
         foreach ($entry in $snapshot) {
             if (-not $stopped -and [DateTime]::UtcNow -ge $deadline) { $stopped = $true }
             if ($stopped) { break }
-            $outcome = Send-QuestarrPlaySession -Config $Config -Entry $entry
+            $sessionGameId = $GameIdByExternalId[[string]$entry.externalId]
+            $outcome = Send-QuestarrPlaySession -Config $Config -Entry $entry -GameId $sessionGameId
             if ($outcome -eq "retry") { break }
             $appIdPart = if ($entry.steamAppId) { "|$($entry.steamAppId)" } else { "" }
             [void]$sends.Add(@{ Key = "$($entry.title)|$($entry.startedAt)|$($entry.endedAt)$appIdPart"; Outcome = $outcome })
@@ -910,7 +979,8 @@ function Invoke-QuestarrQueueDrain {
 function Send-QuestarrPlaySession {
     param(
         [Parameter(Mandatory)] $Config,
-        [Parameter(Mandatory)] $Entry
+        [Parameter(Mandatory)] $Entry,
+        [string] $GameId = ""
     )
 
     $body = @{
@@ -918,6 +988,11 @@ function Send-QuestarrPlaySession {
         startedAt = $Entry.startedAt
         endedAt   = $Entry.endedAt
     }
+    # The server matches a session by gameId first, then the Steam App ID,
+    # then an exactly-normalized title; an edition-suffixed title fails that
+    # last one, so the id (learned from the import in the same sync, or a
+    # previous one) is what makes the session land on the right game.
+    if ($GameId) { $body.gameId = $GameId }
     if ($Entry.steamAppId -and [int]$Entry.steamAppId -gt 0) {
         $body.steamAppId = [int]$Entry.steamAppId
     }
@@ -1149,7 +1224,7 @@ function Invoke-QuestarrSyncCore {
     #    GAME_NOT_FOUND response only drops a session the import genuinely
     #    could not resolve. The drain still runs before the store totals.
     try {
-        $drain = Invoke-QuestarrQueueDrain -Config $Config -DataDir $DataDir
+        $drain = Invoke-QuestarrQueueDrain -Config $Config -DataDir $DataDir -GameIdByExternalId $gameIds
         $report.SessionsSent = $drain.Sent
         $report.SessionsDropped = $drain.Dropped
         $queueRemaining = $drain.Remaining
@@ -1550,6 +1625,7 @@ function OnGameStopped {
         if ($seconds -ge 60 -and $seconds -le 24 * 60 * 60) {
             $entry = [PSCustomObject]@{
                 title      = $game.Name
+                externalId = $game.Id.ToString()
                 steamAppId = Get-QuestarrSteamAppId $game
                 startedAt  = Format-QuestarrUtc $startedAt
                 endedAt    = Format-QuestarrUtc $endedAt
@@ -1569,6 +1645,26 @@ function OnGameStopped {
                 return
             }
         }
+    }
+
+    # Persist the stop time the totals hold-back relies on: Playnite only
+    # stamps LastActivity when a game starts, so the window must be keyed on
+    # a timestamp the extension writes itself.
+    try {
+        $mutex = Get-QuestarrQueueMutex
+        $hadLock = Wait-QuestarrQueueMutex $mutex
+        if ($hadLock) {
+            try {
+                $stops = Read-QuestarrRecentStopsFile -DataDir $CurrentExtensionDataPath
+                $stops[$key] = [DateTime]::UtcNow
+                Write-QuestarrRecentStopsFile -DataDir $CurrentExtensionDataPath -Map $stops
+            }
+            finally { $mutex.ReleaseMutex() }
+        }
+        $mutex.Dispose()
+    }
+    catch {
+        $__logger.Error("Questarr: could not record the stop time: $($_.Exception.Message)")
     }
 
     try {

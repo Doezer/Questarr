@@ -425,7 +425,8 @@ export interface IStorage {
     progress: Omit<InsertGameAchievementProgress, "id">
   ): Promise<GameAchievementProgress>;
   /** Drop every stored row of one provider for the user (the linked account changed). */
-  deleteAchievementProgress(userId: string, provider: string): Promise<void>;
+  /** Forget a provider's rows of one user: all of them, or only those of the given games. */
+  deleteAchievementProgress(userId: string, provider: string, gameIds?: string[]): Promise<void>;
 
   // Direct-download (DDL) jobs
   addDdlJob(job: InsertDdlJob): Promise<DdlJob>;
@@ -1095,9 +1096,14 @@ export class MemStorage implements IStorage {
     return [...this.achievementProgress.values()].filter((r) => r.userId === userId);
   }
 
-  async deleteAchievementProgress(userId: string, provider: string): Promise<void> {
+  async deleteAchievementProgress(
+    userId: string,
+    provider: string,
+    gameIds?: string[]
+  ): Promise<void> {
     for (const [key, row] of this.achievementProgress) {
-      if (row.userId === userId && row.provider === provider) this.achievementProgress.delete(key);
+      if (row.userId !== userId || row.provider !== provider) continue;
+      if (!gameIds || gameIds.includes(row.gameId)) this.achievementProgress.delete(key);
     }
   }
 
@@ -3647,13 +3653,19 @@ export class DatabaseStorage implements IStorage {
       .where(eq(gameAchievementProgress.userId, userId));
   }
 
-  async deleteAchievementProgress(userId: string, provider: string): Promise<void> {
+  async deleteAchievementProgress(
+    userId: string,
+    provider: string,
+    gameIds?: string[]
+  ): Promise<void> {
+    if (gameIds && gameIds.length === 0) return;
     await db
       .delete(gameAchievementProgress)
       .where(
         and(
           eq(gameAchievementProgress.userId, userId),
-          eq(gameAchievementProgress.provider, provider)
+          eq(gameAchievementProgress.provider, provider),
+          gameIds ? inArray(gameAchievementProgress.gameId, gameIds) : undefined
         )
       );
   }

@@ -329,6 +329,30 @@ describe.each(activeTestDialects())("RetroAchievements sync (%s)", (dialect) => 
     expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(0);
   });
 
+  it("keeps the account saved when removing it fails to delete the progress, so a retry finishes", async () => {
+    await sync.syncRetroAchievements(userId, { now: T0 });
+    const spy = vi
+      .spyOn(ctx.storage, "deleteAchievementProgress")
+      .mockRejectedValueOnce(new Error("db down"));
+    await expect(sync.clearRetroAchievements(userId)).rejects.toThrow("db down");
+    spy.mockRestore();
+    expect((await sync.getRetroAchievementsCredentials(userId))?.username).toBe("Mario");
+    await sync.clearRetroAchievements(userId);
+    expect(await sync.getRetroAchievementsCredentials(userId)).toBeNull();
+    expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(0);
+  });
+
+  it("drops the stored progress of a game whose target platform no longer matches", async () => {
+    await sync.syncRetroAchievements(userId, { now: T0 });
+    expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+    await ctx.storage.updateGame(gameId, {
+      targetPlatformId: 6,
+      targetPlatformName: "PC (Microsoft Windows)",
+    });
+    await sync.syncRetroAchievements(userId, { now: hours(13) });
+    expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(0);
+  });
+
   it("serves status, credentials, toggle and manual sync over HTTP, never returning the key", async () => {
     const status = await request(app).get("/api/retroachievements");
     expect(status.status).toBe(200);

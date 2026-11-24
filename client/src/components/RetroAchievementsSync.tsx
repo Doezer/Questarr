@@ -94,10 +94,10 @@ export function RetroAchievementsSync() {
   const error = saveAccount.error ?? removeAccount.error ?? toggle.error ?? syncNow.error;
   // An error belongs to the action that failed: starting another one, or editing a field, clears it.
   const clearErrors = () => {
-    saveAccount.reset();
-    removeAccount.reset();
-    toggle.reset();
-    syncNow.reset();
+    // A request still running keeps its pending state: only settled ones are reset.
+    for (const mutation of [saveAccount, removeAccount, toggle, syncNow]) {
+      if (!mutation.isPending) mutation.reset();
+    }
   };
   const shownUsername = username ?? status?.username ?? "";
   const canSave =

@@ -34,6 +34,11 @@ export interface ProviderCollectResult {
   entries: { game: Game; summary: ProgressSummary }[];
   /** Games the provider could not read. A failure on one game never stops the others. */
   failed: number;
+  /**
+   * Games the provider read successfully and found no progress for (for example a game whose
+   * target platform changed). Their stored rows are removed.
+   */
+  dropped?: string[];
 }
 
 export interface AchievementProvider {
@@ -153,6 +158,27 @@ export async function resetAchievementsRun(
 
 const running = new Set<string>();
 
+const commitLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * Run `task` while no other commit or account change of the same user and provider runs. Sync
+ * runs hold it only while they write, never while they wait for the provider.
+ */
+export function withCommitLock<T>(
+  provider: AchievementProvider,
+  userId: string,
+  task: () => Promise<T>
+): Promise<T> {
+  const key = `${provider.id}:${userId}`;
+  const result = (commitLocks.get(key) ?? Promise.resolve()).then(task, task);
+  const tail = result.catch(() => undefined);
+  commitLocks.set(key, tail);
+  void tail.then(() => {
+    if (commitLocks.get(key) === tail) commitLocks.delete(key);
+  });
+  return result;
+}
+
 /**
  * Sync one user. `force` ignores the minimum gap (the "Sync now" button). A failure on one game
  * never stops the rest.
@@ -183,53 +209,55 @@ export async function syncAchievements(
       stored.filter((r) => r.provider === provider.id).map((r) => [r.gameId, r])
     );
 
-    const { entries, failed } = await provider.collect(userId, games);
+    const { entries, failed, dropped: dropIds } = await provider.collect(userId, games);
 
     // The account changed during the run: these counts belong to the old account.
     const sameAccount = (await provider.identity(userId)) === startIdentity;
-    let gamesSynced = 0;
     const unlockedNow: { title: string; added: number }[] = [];
+    let gamesSynced = 0;
     let stale = !sameAccount;
-    for (const { game, summary } of sameAccount ? entries : []) {
-      // An account change or a toggle bumps the epoch: no row of this run may land after it.
-      if ((await readState(provider, userId)).epoch !== state.epoch) {
-        stale = true;
-        break;
+    // The commit holds the user's lock, as does every account change: a reset or a removal either
+    // finishes before the epoch check below (and the run is dropped) or waits for the writes, then
+    // deletes them. No row of an old account can land after the cleanup.
+    await withCommitLock(provider, userId, async () => {
+      const latest = await readState(provider, userId);
+      // The sync was turned on or off, or the account changed meanwhile: the user's choice wins.
+      if (latest.epoch !== state.epoch) stale = true;
+      if (stale) return;
+      const dropped = (dropIds ?? []).filter((id) => previous.has(id));
+      if (dropped.length > 0) {
+        await storage.deleteAchievementProgress(userId, provider.id, dropped);
+        changed = true;
       }
-      try {
-        await storage.upsertAchievementProgress({
-          gameId: game.id,
-          userId,
-          provider: provider.id,
-          ...summary,
-          syncedAt: now,
-        });
-      } catch {
-        // A game deleted while the request was pending lands here and must not stop the others.
-        continue;
+      for (const { game, summary } of entries) {
+        try {
+          await storage.upsertAchievementProgress({
+            gameId: game.id,
+            userId,
+            provider: provider.id,
+            ...summary,
+            syncedAt: now,
+          });
+        } catch {
+          // A game deleted while the request was pending lands here and must not stop the others.
+          continue;
+        }
+        changed = true;
+        gamesSynced++;
+        const before = previous.get(game.id);
+        if (before && summary.unlocked > before.unlocked) {
+          unlockedNow.push({ title: game.title, added: summary.unlocked - before.unlocked });
+        }
       }
-      changed = true;
-      gamesSynced++;
-      const before = previous.get(game.id);
-      if (before && summary.unlocked > before.unlocked) {
-        unlockedNow.push({ title: game.title, added: summary.unlocked - before.unlocked });
-      }
-    }
-
-    const newUnlocks = unlockedNow.reduce((sum, g) => sum + g.added, 0);
-    // The sync was turned on or off meanwhile: the user's choice wins over this run's status.
-    const latest = await readState(provider, userId);
-    if (latest.epoch === state.epoch) {
       await writeState(provider, userId, {
         ...latest,
         lastSyncAt: now.getTime(),
         lastGamesSynced: gamesSynced,
-        lastNewUnlocks: newUnlocks,
+        lastNewUnlocks: unlockedNow.reduce((sum, g) => sum + g.added, 0),
         lastError: failed > 0 && gamesSynced === 0 ? provider.failureMessage : null,
       });
-    } else {
-      stale = true;
-    }
+    });
+    const newUnlocks = unlockedNow.reduce((sum, g) => sum + g.added, 0);
     if (newUnlocks > 0 && !stale) await notifyUnlocks(userId, unlockedNow, newUnlocks);
     return { gamesSynced, newUnlocks };
   } finally {

@@ -27,6 +27,10 @@ die() {
 command -v systemctl >/dev/null || die "systemd is required."
 [ -x "${SRC}/node/bin/node" ] && [ -f "${SRC}/dist/server/index.js" ] || die "Run this script from the extracted questarr/ directory."
 
+case "${SRC}/" in
+  "${APP_DIR}/"*) die "Extract the archive outside ${APP_DIR} (for example in /tmp or your home directory) and run install.sh from there." ;;
+esac
+
 id "${APP_USER}" >/dev/null 2>&1 ||
   useradd --system --home-dir "${APP_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
 
@@ -37,6 +41,7 @@ find "${APP_DIR}" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec rm -rf
 cp -a "${SRC}/dist" "${SRC}/migrations" "${SRC}/migrations-pg" "${SRC}/shared" \
   "${SRC}/node_modules" "${SRC}/node" "${SRC}/package.json" "${SRC}/VERSION" "${SRC}/.env.example" "${APP_DIR}/"
 mkdir -p "${APP_DIR}/data"
+ln -sfn "${APP_DIR}/data/server.log" "${APP_DIR}/server.log"
 
 if [ ! -f "${APP_DIR}/.env" ]; then
   cat >"${APP_DIR}/.env" <<ENVEOF
@@ -65,7 +70,8 @@ echo "  URL:    http://$(hostname -I 2>/dev/null | awk '{print $1}'):${PORT}"
 echo "  Config: ${APP_DIR}/.env"
 echo "  Data:   ${APP_DIR}/data"
 echo "  Logs:   journalctl -u questarr -f"
-echo "  Library and download folders outside ${APP_DIR}/data are read-only for the service by default."
-echo "  Grant write access: systemctl edit questarr, then add"
+echo "  Library and download folders: the service writes there as user ${APP_USER}, so grant that user"
+echo "  filesystem permissions. Folders under /home are read-only for the service; to allow them run"
+echo "  systemctl edit questarr and add"
 echo "    [Service]"
 echo "    ReadWritePaths=/path/to/library /path/to/downloads"

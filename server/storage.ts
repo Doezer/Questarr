@@ -222,6 +222,7 @@ function buildImportConfigFromSettings(
     | "sortExtras"
     | "upgradeReplaceMode"
     | "folderForSingleFiles"
+    | "addonSubfolders"
   >
 ): ImportConfig {
   const parsed = importConfigSchema.safeParse({
@@ -238,6 +239,7 @@ function buildImportConfigFromSettings(
     sortExtras: settings?.sortExtras ?? false,
     upgradeReplaceMode: settings?.upgradeReplaceMode ?? "off",
     folderForSingleFiles: settings?.folderForSingleFiles ?? true,
+    addonSubfolders: settings?.addonSubfolders ?? false,
   });
 
   if (parsed.success) return parsed.data;
@@ -256,6 +258,7 @@ function buildImportConfigFromSettings(
     sortExtras: settings?.sortExtras ?? false,
     upgradeReplaceMode: "off",
     folderForSingleFiles: settings?.folderForSingleFiles ?? true,
+    addonSubfolders: settings?.addonSubfolders ?? false,
   };
 }
 
@@ -2373,6 +2376,7 @@ export class MemStorage implements IStorage {
       sortExtras: insertSettings.sortExtras ?? false,
       upgradeReplaceMode: insertSettings.upgradeReplaceMode ?? "off",
       folderForSingleFiles: insertSettings.folderForSingleFiles ?? true,
+      addonSubfolders: insertSettings.addonSubfolders ?? false,
 
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,

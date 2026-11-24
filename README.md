@@ -176,7 +176,9 @@ again: your `.env` and `data/` are kept. Logs: `journalctl -u questarr -f`. Set 
 `QUESTARR_HOST` when running `install.sh` to change the defaults on first install.
 
 The service runs as `questarr` with a hardened unit: the application files are owned by root and only
-`/opt/questarr/data` is writable inside `/opt`. Your library and download folders (for example under
+`/opt/questarr/data` is the only application path the service writes to by default. `ProtectSystem=full`
+does not restrict other paths under `/opt`; writes there depend on Unix permissions. Your library and
+download folders (for example under
 `/mnt` or `/srv`) must be writable by the `questarr` user through normal filesystem permissions. Folders
 under `/home` are read-only for the service; to allow them, run `sudo systemctl edit questarr`, add
 `[Service]` followed by `ReadWritePaths=/path/to/library`, then `sudo systemctl restart questarr`.

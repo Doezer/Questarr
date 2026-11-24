@@ -47,6 +47,7 @@ const EXPECTED_TABLES = [
   "notifications",
   "pathMappings",
   "platformMappings",
+  "quests",
   "releaseBlacklist",
   "releaseProfiles",
   "rootFolders",

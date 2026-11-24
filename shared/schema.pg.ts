@@ -144,6 +144,7 @@ export const userSettings = pgTable("user_settings", {
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: boolean("telemetry_enabled").notNull().default(false),
+  questsEnabled: boolean("quests_enabled").notNull().default(true),
   updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
 });
 
@@ -499,6 +500,31 @@ export const gameStatusEvents = pgTable(
   (t) => [
     index("game_status_events_game_idx").on(t.gameId),
     index("game_status_events_user_created_idx").on(t.userId, t.createdAt),
+  ]
+);
+
+export const quests = pgTable(
+  "quests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    periodStart: text("period_start").notNull(),
+    kind: text("kind").notNull(),
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    target: integer("target").notNull(),
+    progress: integer("progress").notNull().default(0),
+    status: text("status").notNull().default("active"),
+    completedAt: timestampMs("completed_at"),
+    createdAt: timestampMs("created_at")
+      .notNull()
+      .default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [
+    uniqueIndex("quests_user_period_kind_idx").on(t.userId, t.period, t.periodStart, t.kind),
+    index("quests_user_start_idx").on(t.userId, t.periodStart),
   ]
 );
 

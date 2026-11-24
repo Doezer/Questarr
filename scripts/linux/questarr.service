@@ -16,13 +16,13 @@ RestartSec=10
 
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
+ProtectSystem=full
+ProtectHome=read-only
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
-ReadWritePaths=/opt/questarr
+ReadWritePaths=/opt/questarr/data
 
 [Install]
 WantedBy=multi-user.target

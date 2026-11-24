@@ -47,7 +47,9 @@ SQLITE_DB_PATH=${APP_DIR}/data/sqlite.db
 ENVEOF
 fi
 
-chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+chown -R root:root "${APP_DIR}"
+chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}/data"
+chown root:"${APP_USER}" "${APP_DIR}/.env"
 chmod 0640 "${APP_DIR}/.env"
 
 install -m 0644 "${SRC}/questarr.service" /etc/systemd/system/questarr.service
@@ -55,8 +57,15 @@ systemctl daemon-reload
 systemctl enable -q questarr
 systemctl restart questarr
 
+PORT="$(sed -n 's/^PORT=//p' "${APP_DIR}/.env" | tail -n1)"
+PORT="${PORT:-5000}"
+
 echo "Questarr $(cat "${APP_DIR}/VERSION") is installed and running."
 echo "  URL:    http://$(hostname -I 2>/dev/null | awk '{print $1}'):${PORT}"
 echo "  Config: ${APP_DIR}/.env"
 echo "  Data:   ${APP_DIR}/data"
 echo "  Logs:   journalctl -u questarr -f"
+echo "  Library and download folders outside ${APP_DIR}/data are read-only for the service by default."
+echo "  Grant write access: systemctl edit questarr, then add"
+echo "    [Service]"
+echo "    ReadWritePaths=/path/to/library /path/to/downloads"

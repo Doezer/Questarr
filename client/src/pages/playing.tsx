@@ -12,6 +12,7 @@ import GridColumnsControl from "@/components/GridColumnsControl";
 import { useViewControls } from "@/hooks/use-view-controls";
 import PageToolbar from "@/components/PageToolbar";
 import BacklogRoulette from "@/components/BacklogRoulette";
+import QuestsCard from "@/components/QuestsCard";
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import { compareDates } from "@/lib/game-sort";
 
@@ -167,6 +168,8 @@ export default function PlayingPage() {
             </p>
           )}
         </div>
+
+        <QuestsCard />
 
         <PageToolbar
           search={searchQuery}

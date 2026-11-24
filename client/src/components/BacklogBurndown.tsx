@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { CalendarCheck, Hourglass, Library, TrendingDown } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { useViewerZone } from "@/hooks/use-viewer-zone";
 import StatsCard from "@/components/StatsCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,19 +41,7 @@ function formatDay(iso: string): string {
 export default function BacklogBurndown() {
   const [grain, setGrain] = useState<Grain>("week");
   const [metric, setMetric] = useState<Metric>("games");
-  const tz = useMemo(() => new Date().getTimezoneOffset(), []);
-  const timeZone = useMemo(() => {
-    try {
-      return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-    } catch {
-      return "";
-    }
-  }, []);
-  const search = useMemo(() => {
-    const params = new URLSearchParams({ tz: String(tz) });
-    if (timeZone) params.set("timeZone", timeZone);
-    return params.toString();
-  }, [tz, timeZone]);
+  const { tz, timeZone, search } = useViewerZone();
 
   const { data } = useQuery<BacklogData>({
     queryKey: ["/api/stats/backlog", tz, timeZone],

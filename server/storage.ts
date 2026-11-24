@@ -93,6 +93,8 @@ import {
   DEFAULT_UPGRADE_POLICY,
   type DetectedVersionSource,
   type GameStatusEvent,
+  type Quest,
+  type InsertQuest,
   type GameAchievementProgress,
   type InsertGameAchievementProgress,
   type DdlJob,
@@ -132,6 +134,7 @@ import {
   gameMilestones,
   gamePlaySessions,
   gameStatusEvents,
+  quests,
   gameAchievementProgress,
   ddlJobs,
   gameScreenshots,
@@ -156,6 +159,7 @@ import {
   not,
   inArray,
   count,
+  max,
   isNull,
   isNotNull,
   type SQL,
@@ -408,6 +412,15 @@ export interface IStorage {
   /** The user's status history (one row per status change), oldest first. */
   getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]>;
 
+  // Backlog quests
+  /** The user's quests, newest period first. */
+  getUserQuests(userId: string): Promise<Quest[]>;
+  /** Adds quests; one that already exists for the same user, period and kind is left alone. */
+  addQuests(rows: InsertQuest[]): Promise<void>;
+  updateQuest(
+    id: string,
+    patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
+  ): Promise<boolean>;
   // Achievement progress (one row per game, user and provider)
   getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]>;
   /** Insert or replace the row for (gameId, userId, provider). */
@@ -793,6 +806,7 @@ export class MemStorage implements IStorage {
   private gameMilestones: Map<string, GameMilestone>;
   private gamePlaySessions: Map<string, GamePlaySession>;
   private gameStatusEvents: GameStatusEvent[];
+  private quests: Quest[];
   private achievementProgress: Map<string, GameAchievementProgress>;
   private ddlJobs = new Map<string, DdlJob>();
   private gameScreenshots: Map<string, GameScreenshot>;
@@ -833,6 +847,7 @@ export class MemStorage implements IStorage {
     this.gameMilestones = new Map();
     this.gamePlaySessions = new Map();
     this.gameStatusEvents = [];
+    this.quests = [];
     this.achievementProgress = new Map();
     this.gameScreenshots = new Map();
   }
@@ -1018,17 +1033,63 @@ export class MemStorage implements IStorage {
 
   private recordStatusEvent(game: Game): void {
     if (!game.userId) return;
+    // Strictly increasing per game, so quick successive changes keep their order.
+    const last = this.gameStatusEvents
+      .filter((e) => e.gameId === game.id)
+      .reduce((max, e) => Math.max(max, e.createdAt.getTime()), 0);
     this.gameStatusEvents.push({
       id: randomUUID(),
       gameId: game.id,
       userId: game.userId,
       status: game.status,
-      createdAt: new Date(),
+      createdAt: new Date(Math.max(Date.now(), last + 1)),
     });
   }
 
   async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {
     return this.gameStatusEvents.filter((e) => e.userId === userId);
+  }
+
+  async getUserQuests(userId: string): Promise<Quest[]> {
+    return this.quests
+      .filter((q) => q.userId === userId)
+      .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+  }
+
+  async addQuests(rows: InsertQuest[]): Promise<void> {
+    for (const row of rows) {
+      const exists = this.quests.some(
+        (q) =>
+          q.userId === row.userId &&
+          q.period === row.period &&
+          q.periodStart === row.periodStart &&
+          q.kind === row.kind
+      );
+      if (exists) continue;
+      this.quests.push({
+        id: row.id,
+        userId: row.userId,
+        period: row.period,
+        periodStart: row.periodStart,
+        kind: row.kind,
+        gameId: row.gameId ?? null,
+        target: row.target,
+        progress: row.progress ?? 0,
+        status: row.status ?? "active",
+        completedAt: row.completedAt ?? null,
+        createdAt: new Date(),
+      });
+    }
+  }
+
+  async updateQuest(
+    id: string,
+    patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
+  ): Promise<boolean> {
+    const quest = this.quests.find((q) => q.id === id);
+    if (quest?.status !== "active") return false;
+    Object.assign(quest, patch);
+    return true;
   }
 
   async getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]> {
@@ -2312,6 +2373,7 @@ export class MemStorage implements IStorage {
       hideShelvedByDefault: insertSettings.hideShelvedByDefault ?? true,
       hideOwnedInHasResults: insertSettings.hideOwnedInHasResults ?? true,
       telemetryEnabled: insertSettings.telemetryEnabled ?? false,
+      questsEnabled: insertSettings.questsEnabled ?? true,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -3496,16 +3558,42 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  /** Tail of the pending status writes of each game, so those writes run one at a time. */
+  private statusEventQueues = new Map<string, Promise<unknown>>();
+
+  /** Runs `task` after the earlier status writes of the same game, keeping their order. */
+  private runPerGame<T>(gameId: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.statusEventQueues.get(gameId) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    const tail = run.catch(() => undefined);
+    this.statusEventQueues.set(gameId, tail);
+    void tail.then(() => {
+      if (this.statusEventQueues.get(gameId) === tail) this.statusEventQueues.delete(gameId);
+    });
+    return run;
+  }
+
+  /** Writes one status-history row, queued behind the other status writes of the game. */
+  private recordStatusEvent(game: Game): Promise<void> {
+    return this.runPerGame(game.id, () => this.writeStatusEvent(game));
+  }
+
   /** Writes one status-history row; a game with no owner has no history. */
-  private async recordStatusEvent(game: Game): Promise<void> {
+  private async writeStatusEvent(game: Game): Promise<void> {
     if (!game.userId) return;
     try {
+      // Strictly increasing per game, so changes made within the same millisecond keep their order.
+      const [latest] = await db
+        .select({ at: max(gameStatusEvents.createdAt) })
+        .from(gameStatusEvents)
+        .where(eq(gameStatusEvents.gameId, game.id));
+      const last = latest?.at ? new Date(latest.at).getTime() : 0;
       await db.insert(gameStatusEvents).values({
         id: randomUUID(),
         gameId: game.id,
         userId: game.userId,
         status: game.status,
-        createdAt: new Date(),
+        createdAt: new Date(Math.max(Date.now(), last + 1)),
       });
     } catch (error) {
       // The history is a nice-to-have; never fail the status change because of it.
@@ -3519,6 +3607,33 @@ export class DatabaseStorage implements IStorage {
       .from(gameStatusEvents)
       .where(eq(gameStatusEvents.userId, userId))
       .orderBy(asc(gameStatusEvents.createdAt), asc(gameStatusEvents.id));
+  }
+
+  async getUserQuests(userId: string): Promise<Quest[]> {
+    return db
+      .select()
+      .from(quests)
+      .where(eq(quests.userId, userId))
+      .orderBy(desc(quests.periodStart), asc(quests.kind));
+  }
+
+  async addQuests(rows: InsertQuest[]): Promise<void> {
+    if (rows.length === 0) return;
+    await db.insert(quests).values(rows).onConflictDoNothing();
+  }
+
+  async updateQuest(
+    id: string,
+    patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
+  ): Promise<boolean> {
+    // Only an open quest changes: a completed or missed one is final, even if two syncs overlap.
+    const rows = await db
+      .update(quests)
+      .set(patch)
+      .where(and(eq(quests.id, id), eq(quests.status, "active")))
+      .returning({ id: quests.id });
+    // False when another sync already changed it, so only one of them notifies.
+    return rows.length > 0;
   }
 
   async getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]> {
@@ -3581,6 +3696,15 @@ export class DatabaseStorage implements IStorage {
     statusUpdate: UpdateGameStatus,
     options?: { preserveCurated?: boolean; syncSource?: string; allowWanted?: boolean }
   ): Promise<Game | undefined> {
+    // The UPDATE and its history row share one queue entry, so the history follows the commit order.
+    return this.runPerGame(id, () => this.applyGameStatus(id, statusUpdate, options));
+  }
+
+  private async applyGameStatus(
+    id: string,
+    statusUpdate: UpdateGameStatus,
+    options?: { preserveCurated?: boolean; syncSource?: string; allowWanted?: boolean }
+  ): Promise<Game | undefined> {
     const existingGame = await this.getGame(id);
     const leavingWanted = existingGame?.status === "wanted" && statusUpdate.status !== "wanted";
 
@@ -3624,7 +3748,7 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     if (updatedGame && existingGame?.status !== updatedGame.status) {
-      await this.recordStatusEvent(updatedGame);
+      await this.writeStatusEvent(updatedGame);
     }
     return updatedGame || undefined;
   }

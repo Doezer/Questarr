@@ -15,6 +15,7 @@ import { NZBGetClient } from "./nzbget.js";
 import { SynologyDownloadStationClient } from "./synology.js";
 import { DelugeClient } from "./deluge.js";
 import { RealDebridClient } from "./realdebrid.js";
+import { TorBoxClient } from "./torbox.js";
 import { getErrorMessage } from "./utils.js";
 
 // To add a new downloader:
@@ -43,6 +44,8 @@ export class DownloaderManager {
         return new DelugeClient(downloader);
       case "realdebrid":
         return new RealDebridClient(downloader);
+      case "torbox":
+        return new TorBoxClient(downloader);
       default:
         throw new Error(`Unsupported downloader type: ${downloader.type}`);
     }
@@ -183,6 +186,12 @@ export class DownloaderManager {
       const errorMessage = getErrorMessage(error);
       return { success: false, message: errorMessage };
     }
+  }
+
+  /** A fresh download link for a finished link-only download, or null when there is none. */
+  static async getRemoteDownloadUrl(downloader: Downloader, id: string): Promise<string | null> {
+    const client = this.createClient(downloader);
+    return client.getRemoteDownloadUrl ? await client.getRemoteDownloadUrl(id) : null;
   }
 
   static async getFreeSpace(downloader: Downloader): Promise<number> {

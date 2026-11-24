@@ -168,16 +168,119 @@ describe("Backlog roulette", () => {
       if (array instanceof Uint32Array) array[0] = 2 ** 32 - 1;
       return array;
     });
-    render(
-      <BacklogRoulette
-        games={[game("a"), game("b"), game("c")]}
-        loading={false}
-        onStartPlaying={vi.fn()}
-      />
-    );
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
     expect(crypto.getRandomValues).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest a");
+  });
+
+  it("maps the last ticket to the last game", () => {
+    vi.mocked(crypto.getRandomValues).mockImplementation((array) => {
+      if (array instanceof Uint32Array) array[0] = 2999;
+      return array;
+    });
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest c");
+  });
+
+  it("does not offer a skipped game again until the draw runs dry", () => {
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    const seen: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      seen.push(screen.getByTestId("roulette-title").textContent ?? "");
+      fireEvent.click(screen.getByRole("button", { name: "Roll again" }));
+    }
+    expect(new Set(seen).size).toBe(3);
+  });
+
+  it("favours quick wins when asked", async () => {
+    render(
+      <BacklogRoulette
+        games={[
+          { ...game("long"), timeToBeatNormally: 90 },
+          { ...game("quick"), timeToBeatNormally: 1 },
+        ]}
+        loading={false}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    // Ticket 500: "long" under equal weights, "quick" under Quick wins weights.
+    vi.mocked(crypto.getRandomValues).mockImplementation((array) => {
+      if (array instanceof Uint32Array) array[0] = 500;
+      return array;
+    });
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest long");
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Favour" }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Quick wins" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest quick");
+  });
+
+  it("keeps games snoozed in an earlier visit out of the opening draw", () => {
+    localStorage.setItem(
+      "questarr:roulette-snoozed",
+      JSON.stringify({ a: Date.now() + 86_400_000 })
+    );
+    render(<BacklogRoulette games={[game("a"), game("b")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest b");
+    expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
+    localStorage.clear();
+  });
+
+  it("keeps earlier snoozes in the session when storage cannot be written", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    fireEvent.click(screen.getByRole("button", { name: /Not now/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Not now/ }));
+    expect(
+      screen.getByText("2 snoozed games are resting for up to 7 days.", { exact: false })
+    ).toBeVisible();
+    expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
+  });
+
+  it("skips a game another tab snoozed when drawing after Not now", () => {
+    render(<BacklogRoulette games={[game("a"), game("b"), game("c")]} loading={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest a");
+    localStorage.setItem(
+      "questarr:roulette-snoozed",
+      JSON.stringify({ b: Date.now() + 86_400_000 })
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Not now/ }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest c");
+    localStorage.clear();
+  });
+
+  it("filters by installed games and snoozes a game with Not now", async () => {
+    localStorage.clear();
+    render(
+      <BacklogRoulette
+        games={[
+          game("a"),
+          { ...game("b"), libraryPath: "/games/b" },
+          { ...game("c"), libraryPath: "/games/c" },
+        ]}
+        loading={false}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pick a game" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Only installed games" }));
+    expect(screen.getByText("Chosen from 2 matching games.")).toBeVisible();
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest b");
+    fireEvent.click(screen.getByRole("button", { name: /Not now/ }));
+    expect(screen.getByTestId("roulette-title")).toHaveTextContent("Quest c");
+    expect(screen.getByText("Chosen from 1 matching game.")).toBeVisible();
+    expect(JSON.parse(localStorage.getItem("questarr:roulette-snoozed") ?? "{}")).toHaveProperty(
+      "b"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Bring them back" }));
+    expect(screen.getByText("Chosen from 2 matching games.")).toBeVisible();
+    localStorage.clear();
   });
 
   it("draws within the completion budget and keeps unknown lengths in Any length", async () => {

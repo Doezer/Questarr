@@ -20,6 +20,10 @@ const { apiRequestMock, invalidateQueriesMock, toastMock, mutationState, mobileS
   })
 );
 
+vi.mock("@/hooks/use-achievement-progress", () => ({
+  useAchievementProgress: () => ({ data: undefined }),
+}));
+
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
   return {

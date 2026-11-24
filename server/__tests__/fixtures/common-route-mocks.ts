@@ -207,6 +207,7 @@ export function createIgdbMock() {
     getRecentReleases: vi.fn().mockResolvedValue([]),
     getUpcomingReleases: vi.fn().mockResolvedValue([]),
     getRecommendations: vi.fn().mockResolvedValue([]),
+    getRecommendationCandidates: vi.fn().mockResolvedValue([]),
     getGamesByGenre: vi.fn().mockResolvedValue([]),
     getGamesByPlatform: vi.fn().mockResolvedValue([]),
     getGenres: vi.fn().mockResolvedValue([]),
@@ -369,6 +370,7 @@ export function createDownloaderManagerMock() {
     getAllDownloads: vi.fn().mockResolvedValue([]),
     getDownloadStatus: vi.fn(),
     getDownloadDetails: vi.fn(),
+    getRemoteDownloadUrl: vi.fn(),
     addDownload: vi.fn().mockResolvedValue({ success: true }),
     addDownloadWithFallback: vi
       .fn()

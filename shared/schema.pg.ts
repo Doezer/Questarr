@@ -144,6 +144,7 @@ export const userSettings = pgTable("user_settings", {
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: boolean("telemetry_enabled").notNull().default(false),
+  questsEnabled: boolean("quests_enabled").notNull().default(true),
   updatedAt: timestampMs("updated_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
 });
 
@@ -502,6 +503,80 @@ export const gameStatusEvents = pgTable(
   ]
 );
 
+export const quests = pgTable(
+  "quests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    periodStart: text("period_start").notNull(),
+    kind: text("kind").notNull(),
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    target: integer("target").notNull(),
+    progress: integer("progress").notNull().default(0),
+    status: text("status").notNull().default("active"),
+    completedAt: timestampMs("completed_at"),
+    createdAt: timestampMs("created_at")
+      .notNull()
+      .default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [
+    uniqueIndex("quests_user_period_kind_idx").on(t.userId, t.period, t.periodStart, t.kind),
+    index("quests_user_start_idx").on(t.userId, t.periodStart),
+  ]
+);
+
+export const gameAchievementProgress = pgTable(
+  "game_achievement_progress",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    unlocked: integer("unlocked").notNull().default(0),
+    total: integer("total").notNull().default(0),
+    rarestName: text("rarest_name"),
+    rarestPercent: doublePrecision("rarest_percent"),
+    lastUnlockedAt: timestampMs("last_unlocked_at"),
+    syncedAt: timestampMs("synced_at")
+      .notNull()
+      .default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [
+    uniqueIndex("game_achievement_progress_unique_idx").on(t.gameId, t.userId, t.provider),
+    index("game_achievement_progress_user_idx").on(t.userId),
+  ]
+);
+
+// Direct-download (DDL) jobs: a list of file-hoster links a debrid downloader fetches into local
+// staging. Progress lives on disk and in memory; this row only keeps what a restart needs to
+// resume (the links and the archive password).
+export const ddlJobs = pgTable(
+  "ddl_jobs",
+  {
+    id: text("id").primaryKey(),
+    downloaderId: text("downloader_id")
+      .notNull()
+      .references(() => downloaders.id, { onDelete: "cascade" }),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    links: jsonb("links").$type<string[]>().notNull(),
+    password: text("password"),
+    createdAt: timestampMs("created_at")
+      .notNull()
+      .default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
+  },
+  (t) => [index("ddl_jobs_downloader_idx").on(t.downloaderId)]
+);
+
 export const webhookSubscriptions = pgTable(
   "webhook_subscriptions",
   {
@@ -590,6 +665,7 @@ export const rssFeeds = pgTable("rss_feeds", {
   type: text("type").notNull().default("custom"), // 'preset' or 'custom'
   enabled: boolean("enabled").notNull().default(true),
   mapping: jsonb("mapping").$type<{ titleField?: string; linkField?: string }>(),
+  extractLinks: boolean("extract_links").notNull().default(false),
   lastCheck: timestampMs("last_check"),
   status: text("status").default("ok"), // 'ok' or 'error'
   errorMessage: text("error_message"),
@@ -610,6 +686,7 @@ export const rssFeedItems = pgTable("rss_feed_items", {
   igdbGameId: integer("igdb_game_id"),
   igdbGameName: text("igdb_game_name"),
   coverUrl: text("cover_url"),
+  links: jsonb("links").$type<string[]>(),
   createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
 });
 

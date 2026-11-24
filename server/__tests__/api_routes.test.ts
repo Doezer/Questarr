@@ -2047,6 +2047,86 @@ describe("API Routes - Extended Coverage", () => {
       });
     });
 
+    describe("PATCH /api/downloaders/:id switching TorBox to link-only", () => {
+      it("falls back to the saved mode when the staging mode lookup fails", async () => {
+        const { stagingJobs } = await import("../downloaders/debrid-staging.js");
+        const abort = new AbortController();
+        stagingJobs.set("dl-tb:9", {
+          state: "running",
+          bytesDone: 0,
+          bytesTotal: 10,
+          startedAt: Date.now(),
+          attempts: 1,
+          cancelled: false,
+          abort,
+          done: Promise.resolve(),
+        });
+        const saved = {
+          id: "dl-tb",
+          type: "torbox",
+          url: "https://api.torbox.app",
+          settings: JSON.stringify({ fetchMode: "linkOnly" }),
+        } as unknown as Downloader;
+        vi.mocked(storage.updateDownloader).mockResolvedValue(saved);
+        vi.mocked(storage.getDownloader).mockRejectedValue(new Error("db down"));
+
+        const response = await request(app)
+          .patch("/api/downloaders/dl-tb")
+          .send({ settings: { fetchMode: "linkOnly" } });
+
+        expect(response.status).toBe(200);
+        expect(abort.signal.aborted).toBe(true);
+      });
+
+      it("still answers 200 when the staging mode lookup fails", async () => {
+        const saved = {
+          id: "dl-tb",
+          type: "torbox",
+          url: "https://api.torbox.app",
+          settings: JSON.stringify({ fetchMode: "linkOnly" }),
+        } as unknown as Downloader;
+        vi.mocked(storage.updateDownloader).mockResolvedValue(saved);
+        vi.mocked(storage.getDownloader).mockRejectedValue(new Error("db down"));
+
+        const response = await request(app)
+          .patch("/api/downloaders/dl-tb")
+          .send({ settings: { fetchMode: "linkOnly" } });
+
+        expect(response.status).toBe(200);
+      });
+
+      it("aborts the staging copies still running for that downloader", async () => {
+        const { stagingJobs } = await import("../downloaders/debrid-staging.js");
+        const abort = new AbortController();
+        stagingJobs.set("dl-tb:7", {
+          state: "running",
+          bytesDone: 0,
+          bytesTotal: 10,
+          startedAt: Date.now(),
+          attempts: 1,
+          cancelled: false,
+          abort,
+          done: Promise.resolve(),
+        });
+        const linkOnly = {
+          id: "dl-tb",
+          type: "torbox",
+          url: "https://api.torbox.app",
+          settings: JSON.stringify({ fetchMode: "linkOnly" }),
+        } as unknown as Downloader;
+        vi.mocked(storage.updateDownloader).mockResolvedValue(linkOnly);
+        vi.mocked(storage.getDownloader).mockResolvedValue(linkOnly);
+
+        const response = await request(app)
+          .patch("/api/downloaders/dl-tb")
+          .send({ settings: JSON.stringify({ fetchMode: "linkOnly" }) });
+
+        expect(response.status).toBe(200);
+        expect(abort.signal.aborted).toBe(true);
+        expect(stagingJobs.has("dl-tb:7")).toBe(false);
+      });
+    });
+
     describe("GET /api/downloaders", () => {
       it("should return all downloaders", async () => {
         vi.mocked(storage.getAllDownloaders).mockResolvedValue([]);
@@ -3061,6 +3141,55 @@ describe("API Routes - Extended Coverage", () => {
 
       const response = await request(app).get("/api/downloaders/dl-1/downloads/d-missing/details");
       expect(response.status).toBe(404);
+    });
+  });
+
+  // ─── Link-only download link route ───
+  describe("GET /api/downloaders/:id/downloads/:downloadId/link", () => {
+    const linkOnlyDownloader = {
+      id: "tb-1",
+      type: "torbox",
+      settings: JSON.stringify({ fetchMode: "linkOnly" }),
+    } as unknown as Downloader;
+
+    it("returns a fresh link without caching it", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(linkOnlyDownloader);
+      vi.mocked(DownloaderManager.getRemoteDownloadUrl).mockResolvedValue("https://cdn.example/x");
+
+      const response = await request(app).get("/api/downloaders/tb-1/downloads/7/link");
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ url: "https://cdn.example/x" });
+      expect(response.headers["cache-control"]).toBe("no-store");
+    });
+
+    it("returns 404 for a missing downloader", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(undefined);
+      const response = await request(app).get("/api/downloaders/nope/downloads/7/link");
+      expect(response.status).toBe(404);
+    });
+
+    it("refuses downloaders that are not link-only", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue({
+        id: "tb-2",
+        type: "torbox",
+        settings: JSON.stringify({ fetchMode: "local" }),
+      } as unknown as Downloader);
+      const response = await request(app).get("/api/downloaders/tb-2/downloads/7/link");
+      expect(response.status).toBe(400);
+    });
+
+    it("returns 404 while no link is available", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(linkOnlyDownloader);
+      vi.mocked(DownloaderManager.getRemoteDownloadUrl).mockResolvedValue(null);
+      const response = await request(app).get("/api/downloaders/tb-1/downloads/7/link");
+      expect(response.status).toBe(404);
+    });
+
+    it("returns 500 when the lookup fails", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(linkOnlyDownloader);
+      vi.mocked(DownloaderManager.getRemoteDownloadUrl).mockRejectedValue(new Error("boom"));
+      const response = await request(app).get("/api/downloaders/tb-1/downloads/7/link");
+      expect(response.status).toBe(500);
     });
   });
 

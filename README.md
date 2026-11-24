@@ -75,11 +75,11 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 - Sync indexers from [Prowlarr](docs/INDEXERS.md).
 - G4u.to: the site offers an API to VIP members, which can be used in Questarr.
 
-| Indexers                   | Downloaders                                                                                                                            |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Torznab protocol (Torrent) | - qBittorent<br>- Transmission<br>- rTorrent<br>- Deluge<br>- Synology Download Station<br>- Real-Debrid ([docs](docs/REAL-DEBRID.md)) |
-| Newznab protocol (Usenet)  | - Sabnzbd<br>- Nzbget                                                                                                                  |
-| G4U.to                     | Same as Newznab                                                                                                                        |
+| Indexers                   | Downloaders                                                                                                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Torznab protocol (Torrent) | - qBittorent<br>- Transmission<br>- rTorrent<br>- Deluge<br>- Synology Download Station<br>- Real-Debrid ([docs](docs/REAL-DEBRID.md))<br>- TorBox ([docs](docs/TORBOX.md)) |
+| Newznab protocol (Usenet)  | - Sabnzbd<br>- Nzbget                                                                                                                                                       |
+| G4U.to                     | Same as Newznab                                                                                                                                                             |
 
 ## Installation
 

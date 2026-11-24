@@ -108,6 +108,32 @@ describe("GameCard", () => {
     expect(screen.getByTestId("text-release-1")).toHaveTextContent("2024");
   });
 
+  it("shows the stored achievement percentage on library cards only", () => {
+    queryClient.setQueryData(["/api/achievements/progress"], {
+      progress: [
+        {
+          gameId: "1",
+          title: "Test Game",
+          provider: "steam",
+          unlocked: 3,
+          total: 4,
+          rarestName: null,
+          rarestPercent: null,
+          lastUnlockedAt: null,
+        },
+      ],
+      summary: {},
+    });
+    renderComponent();
+    expect(screen.getByTestId("text-achievements-1")).toHaveTextContent("75%");
+    expect(
+      screen.getByRole("img", { name: "Achievements for Test Game: 3 of 4 unlocked" })
+    ).toBeInTheDocument();
+
+    renderComponent({ game: { ...mockGame, id: "2" } });
+    expect(screen.queryByTestId("text-achievements-2")).not.toBeInTheDocument();
+  });
+
   it("offers a play timer only for games being played", () => {
     renderComponent();
     expect(screen.queryByRole("button", { name: /Start timer/ })).not.toBeInTheDocument();

@@ -28,6 +28,7 @@ import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { runScheduledSteamPlaytimeSync } from "./steam-playtime.js";
+import { runScheduledSteamAchievementsSync } from "./steam-achievements.js";
 import { runScheduledRommSync } from "./romm-sync.js";
 import { runScheduledLibraryRescan, LIBRARY_RESCAN_TICK_MS } from "./library-rescan.js";
 import { appriseClient } from "./apprise.js";
@@ -162,6 +163,7 @@ const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const ROMM_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const STEAM_PLAYTIME_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const STEAM_ACHIEVEMENTS_SYNC_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const RSS_REFRESH_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -840,6 +842,15 @@ function registerCronTasks(): void {
       run: runScheduledSteamPlaytimeSync,
     },
     {
+      name: "steam-achievements",
+      title: "Steam achievements sync",
+      description:
+        "Refresh achievement progress of owned and playing Steam games for users who turned the sync on.",
+      intervalMs: STEAM_ACHIEVEMENTS_SYNC_INTERVAL_MS,
+      runOnStartup: false,
+      run: runScheduledSteamAchievementsSync,
+    },
+    {
       name: "romm-sync",
       title: "RomM sync",
       description: "Synchronise the library with the configured RomM server.",
@@ -1361,38 +1372,22 @@ async function runDownloadStatusCheck() {
               );
               notifyUser("downloadUpdate", download.gameId);
               const unregisteredGame = await storage.getGame(download.gameId);
-              emitWebhookEvent(
-                "download.failed",
-                {
-                  gameId: download.gameId,
-                  gameTitle: unregisteredGame?.title ?? download.downloadTitle,
-                  downloadId: download.id,
-                  downloadTitle: download.downloadTitle,
-                  reason: "The download client never registered this download.",
-                },
-                unregisteredGame?.userId
+              emitDownloadFailed(
+                download,
+                unregisteredGame,
+                "The download client never registered this download."
               );
               // Mirror the normal error path: reset the game to "wanted"
               // only when no sibling download for the same game is still
               // actively downloading.
               await replayAfterMainFailure(storage, download);
-              const siblings = await storage.getDownloadsByGameId(download.gameId);
-              const hasActiveSibling = siblings.some(
-                (s) => s.id !== download.id && ACTIVE_DOWNLOAD_STATUSES.has(s.status)
-              );
-              if (!hasActiveSibling) {
-                const failedGame = await storage.getGame(download.gameId);
-                if (
-                  failedGame &&
-                  failedGame.status !== "wanted" &&
-                  !keepsStatusDuringDownloads(failedGame.status)
-                ) {
-                  await applyFailureStatus(storage, download, failedGame);
-                  igdbLogger.debug(
-                    { gameId: download.gameId, oldStatus: failedGame.status, newStatus: "wanted" },
-                    "Reset game status after async tag resolution failure"
-                  );
-                }
+              const failedGame = await storage.getGame(download.gameId);
+              if (await shouldResetGameAfterFailure(download, failedGame)) {
+                await applyFailureStatus(storage, download, failedGame);
+                igdbLogger.debug(
+                  { gameId: download.gameId, oldStatus: failedGame?.status, newStatus: "wanted" },
+                  "Reset game status after async tag resolution failure"
+                );
               }
               igdbLogger.warn(
                 {
@@ -1513,7 +1508,7 @@ async function runDownloadStatusCheck() {
 
             let shouldSendCompletionNotification = true;
 
-            if (importConfig.enablePostProcessing) {
+            if (importConfig.enablePostProcessing && !remoteDownload.linkOnly) {
               const details = await DownloaderManager.getDownloadDetails(
                 downloader,
                 download.downloadHash
@@ -1558,7 +1553,8 @@ async function runDownloadStatusCheck() {
             } else {
               // Update DB - mark as completed
               await storage.updateGameDownloadStatus(download.id, "completed");
-              // With post-processing on, the import records it once the files are in place.
+              // With post-processing on, the import records it once the files are in place
+              // (a link-only download is never imported: the user fetches it from the link).
               await recordDeliveredVersion(storage, download);
 
               // Update Game status to 'owned' (which means we have the files), unless
@@ -1673,17 +1669,7 @@ async function runDownloadStatusCheck() {
               const settings = await storage.getUserSettings(game?.userId ?? "");
               const prefs = resolvePrefs(settings);
               const message = `Download aborted for "${gameTitle}": ${newErrorMessage}`;
-              emitWebhookEvent(
-                "download.failed",
-                {
-                  gameId: download.gameId,
-                  gameTitle,
-                  downloadId: download.id,
-                  downloadTitle: download.downloadTitle,
-                  reason: newErrorMessage ?? "Download aborted",
-                },
-                game?.userId
-              );
+              emitDownloadFailed(download, game, newErrorMessage ?? "Download aborted");
 
               if (prefs.downloadFailed.inApp) {
                 // A failing notification must not skip the game-status settlement below.
@@ -1830,18 +1816,9 @@ async function runDownloadStatusCheck() {
           const missedSettings = await storage.getUserSettings(game?.userId ?? "");
           const missedPrefs = resolvePrefs(missedSettings);
 
-          // If a sibling download for the same game is still actively in progress, leave
-          // the game status as-is to avoid a false regression. Mirrors the active-status
-          // set used for the analogous async tag-resolution failure path above.
-          const siblings = await storage.getDownloadsByGameId(download.gameId);
-          const hasActiveSibling = siblings.some(
-            (s) => s.id !== download.id && ACTIVE_DOWNLOAD_STATUSES.has(s.status)
-          );
-          const willResetGame =
-            !hasActiveSibling &&
-            !!game &&
-            game.status !== "wanted" &&
-            !keepsStatusDuringDownloads(game.status);
+          // Leave the game status alone while a sibling download is still in progress, as
+          // on the async tag-resolution failure path above.
+          const willResetGame = await shouldResetGameAfterFailure(download, game);
 
           const missedErrorMessage = willResetGame
             ? "Download disappeared from the downloader before completing. It may have " +
@@ -1853,17 +1830,7 @@ async function runDownloadStatusCheck() {
 
           await storage.updateGameDownloadStatus(download.id, "failed", missedErrorMessage);
           notifyUser("downloadUpdate", download.gameId);
-          emitWebhookEvent(
-            "download.failed",
-            {
-              gameId: download.gameId,
-              gameTitle,
-              downloadId: download.id,
-              downloadTitle: download.downloadTitle,
-              reason: missedErrorMessage,
-            },
-            game?.userId
-          );
+          emitDownloadFailed(download, game, missedErrorMessage);
 
           await replayAfterMainFailure(storage, download);
           if (willResetGame) {
@@ -1963,6 +1930,38 @@ function emitDownloadCompleted(
     },
     userId
   );
+}
+
+function emitDownloadFailed(
+  download: GameDownload,
+  game: { title: string; userId: string | null } | null | undefined,
+  reason: string
+): void {
+  emitWebhookEvent(
+    "download.failed",
+    {
+      gameId: download.gameId,
+      gameTitle: game?.title ?? download.downloadTitle,
+      downloadId: download.id,
+      downloadTitle: download.downloadTitle,
+      reason,
+    },
+    game?.userId
+  );
+}
+
+/**
+ * Whether a failed download should send its game back to "wanted": the game must still be
+ * in a status the download had set, and no sibling download of it may still be in progress
+ * (that would be a false regression).
+ */
+async function shouldResetGameAfterFailure(
+  download: GameDownload,
+  game: { status: string | null } | null | undefined
+): Promise<boolean> {
+  if (!game || game.status === "wanted" || keepsStatusDuringDownloads(game.status)) return false;
+  const siblings = await storage.getDownloadsByGameId(download.gameId);
+  return !siblings.some((s) => s.id !== download.id && ACTIVE_DOWNLOAD_STATUSES.has(s.status));
 }
 
 async function handleProbablyFinishedDisappearance(

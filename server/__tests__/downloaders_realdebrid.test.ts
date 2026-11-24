@@ -21,6 +21,7 @@ vi.mock("../storage.js", () => ({
   storage: {
     getDownloadingGameDownloads: (...args: unknown[]) => getDownloadingMock(...args),
     updateDownloader: vi.fn(),
+    getDdlJobsByDownloader: vi.fn().mockResolvedValue([]),
   },
 }));
 

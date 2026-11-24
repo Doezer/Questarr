@@ -47,6 +47,9 @@ export interface DownloaderClient {
   resumeDownload(id: string): Promise<DownloaderActionResult>;
   removeDownload(id: string, deleteFiles?: boolean): Promise<DownloaderActionResult>;
   getFreeSpace(): Promise<number>;
+  // A fresh link to fetch a finished download straight from a cloud client (link-only mode).
+  // Absent on clients that keep the files themselves.
+  getRemoteDownloadUrl?(id: string): Promise<string | null>;
   // Resolve a correlation tag to a real torrent hash (qBittorrent async adds).
   // Returns null for downloaders that don't use this mechanism.
   findTorrentByTag(tag: string): Promise<string | null>;

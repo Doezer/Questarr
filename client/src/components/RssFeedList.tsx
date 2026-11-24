@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { apiRequest } from "@/lib/queryClient";
 import CompactRssFeedItem from "./CompactRssFeedItem";
+import RssItemLinks from "./RssItemLinks";
 import { cn, safeUrl } from "@/lib/utils";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 
@@ -147,7 +148,7 @@ export default function RssFeedList() {
                   {item.title}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-4 pt-0 mt-auto">
+              <CardContent className="p-4 pt-0 mt-auto flex flex-wrap items-center justify-between gap-2">
                 <a
                   href={safeUrl(item.link)}
                   target="_blank"
@@ -158,6 +159,7 @@ export default function RssFeedList() {
                   <ExternalLink className="h-3 w-3" aria-hidden="true" />
                   View Original
                 </a>
+                <RssItemLinks item={item} />
               </CardContent>
             </Card>
           )

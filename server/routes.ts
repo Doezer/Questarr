@@ -41,12 +41,35 @@ import {
   resolveUpgradePolicy,
   OWNED_GAME_STATUSES,
 } from "../shared/schema.js";
-import { isUsenetDownloaderType } from "../shared/downloader-types.js";
+import { isLinkOnlyDownloader, isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient, type NewznabResult } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
+import { cancelStagingJobs, setStagingBlocked } from "./downloaders/debrid-staging.js";
+
+const stagingModeQueue = new Map<string, Promise<void>>();
+
+function applyStagingMode(saved: Downloader): Promise<void> {
+  const downloaderId = saved.id;
+  const run = (stagingModeQueue.get(downloaderId) ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(async () => {
+      // If the re-read fails, fall back to the mode this request just saved.
+      const current = await storage.getDownloader(downloaderId).catch(() => saved);
+      if (!current) return;
+      if (isLinkOnlyDownloader(current)) await cancelStagingJobs(downloaderId);
+      else setStagingBlocked(downloaderId, false);
+    });
+  stagingModeQueue.set(downloaderId, run);
+  void run
+    .finally(() => {
+      if (stagingModeQueue.get(downloaderId) === run) stagingModeQueue.delete(downloaderId);
+    })
+    .catch(() => undefined);
+  return run;
+}
 import {
   DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
   isDownloaderDebugLoggingEnabled,
@@ -323,6 +346,7 @@ import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { steamLibraryRoutes } from "./steam-library-routes.js";
 import { steamPlaytimeRoutes } from "./steam-playtime-routes.js";
+import { steamAchievementsRoutes } from "./steam-achievements-routes.js";
 import { playniteSyncRoutes } from "./playnite-sync-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
@@ -340,10 +364,17 @@ import {
   type XrelPredbTypes,
 } from "./xrel-predb.js";
 import { evaluateReleases } from "../shared/release-scoring.js";
+import { buildTasteProfile, rankRecommendations, topFeatures } from "../shared/recommendations.js";
+import {
+  MAX_RECOMMENDATIONS,
+  getCachedRecommendations,
+  recommendationLibrarySignature,
+} from "./recommendations-cache.js";
 import { collectionRoutes } from "./collection-routes.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import { playSessionRoutes } from "./play-session-routes.js";
 import { backlogRoutes } from "./backlog-routes.js";
+import { questRoutes } from "./quest-routes.js";
 import { default as tagRoutes } from "./tag-routes.js";
 import {
   getContentFilterFlags,
@@ -360,6 +391,7 @@ import { setupChecksRouter } from "./routes/setup-checks.js";
 import { backupsRouter } from "./routes/backups.js";
 import { activityRouter } from "./routes/activity.js";
 import { realDebridRouter } from "./routes/realdebrid.js";
+import { ddlRouter } from "./routes/ddl.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 import {
   listExternalGames,
@@ -1113,6 +1145,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(steamRoutes);
   app.use(steamLibraryRoutes);
   app.use(steamPlaytimeRoutes);
+  app.use(steamAchievementsRoutes);
   app.use(playniteSyncRoutes);
   app.use(releaseScoringRoutes);
   app.use(classificationCandidatesRoutes);
@@ -1120,6 +1153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(gameJournalRoutes);
   app.use(playSessionRoutes);
   app.use(backlogRoutes);
+  app.use(questRoutes);
   app.use(collectionRoutes);
   app.use(tagRoutes);
   // Use PCGamingWiki Routes
@@ -1817,6 +1851,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/system", systemRouter);
   app.use("/api/activity", activityRouter);
   app.use("/api/downloaders/:id/realdebrid", realDebridRouter);
+  app.use("/api/games/:gameId/ddl", ddlRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
   // reasoning as the mounts above.
   app.use("/api/integration", integrationRateLimiter, integrationRouter);
@@ -3482,6 +3517,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Library-driven recommendations ("Recommended for you"), each with the reasons behind it.
+  app.get("/api/games/recommendations", igdbRateLimiter, async (req, res) => {
+    try {
+      const rawLimit = req.query.limit;
+      const parsedLimit = typeof rawLimit === "string" ? Number.parseInt(rawLimit, 10) : Number.NaN;
+      const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 50);
+      const userId = req.user!.id;
+
+      const userGames = await storage.getUserGames(userId, true);
+      const profile = buildTasteProfile(
+        userGames
+          .filter((g) => !g.hidden)
+          .map((g) => ({
+            igdbId: g.igdbId,
+            title: g.title,
+            status: g.status,
+            userRating: g.userRating,
+            genres: g.genres,
+            themes: g.themes,
+            developers: g.developers,
+            gameModes: g.gameModes,
+          }))
+      );
+      // Nothing to learn from yet: the Discover page keeps its generic rows.
+      if (profile.empty) {
+        res.set("Cache-Control", CC_NO_STORE);
+        return res.json([]);
+      }
+
+      // Every game already in the library (owned, wishlisted or hidden) is never recommended.
+      const excludeIgdbIds = new Set<number>();
+      for (const g of userGames) if (g.igdbId != null) excludeIgdbIds.add(g.igdbId);
+
+      const signature = recommendationLibrarySignature(userGames);
+      const formatted = await getCachedRecommendations(userId, signature, async () => {
+        const candidates = await igdbClient.getRecommendationCandidates({
+          anchorIgdbIds: profile.anchors.map((a) => a.igdbId),
+          genres: topFeatures(profile, "genres", 3),
+          themes: topFeatures(profile, "themes", 3),
+          developers: topFeatures(profile, "developers", 3),
+          excludeIgdbIds: [...excludeIgdbIds],
+        });
+        const similarTo = new Map(candidates.map((c) => [c.game.id, c.similarTo]));
+        const ranked = rankRecommendations(
+          candidates.map(({ game }) => ({
+            igdbId: game.id,
+            title: game.name,
+            genres: game.genres?.map((x) => x.name),
+            themes: game.themes?.map((x) => x.name),
+            developers: game.involved_companies
+              ?.filter((c) => c.developer)
+              .map((c) => c.company.name),
+            gameModes: game.game_modes?.map((x) => x.name),
+            aggregatedRating: game.aggregated_rating,
+            similarToIgdbIds: similarTo.get(game.id),
+            game,
+          })),
+          profile,
+          { excludeIgdbIds, limit: MAX_RECOMMENDATIONS }
+        );
+        return ranked.map(({ candidate, recommendation }) => ({
+          ...igdbClient.formatGameData(candidate.game),
+          recommendation,
+        }));
+      });
+
+      const flags = await getContentFilterFlags(userId);
+      const visible = excludeFilteredContent(formatted, flags).slice(0, limit);
+      res.set("Cache-Control", CC_NO_STORE);
+      return res.json(visible);
+    } catch (error) {
+      routesLogger.error({ error }, "error getting library recommendations");
+      return res.status(500).json({ error: "Failed to get recommendations" });
+    }
+  });
+
   // Get popular games
   registerIgdbListRoute(app, "/api/igdb/popular", "popular games", (fetchLimit) =>
     igdbClient.getPopularGames(fetchLimit)
@@ -3794,7 +3905,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(storageCache.data);
       }
 
-      const enabledDownloaders = await storage.getEnabledDownloaders();
+      // Link-only downloaders keep nothing on this server, so there is no space to report.
+      const enabledDownloaders = (await storage.getEnabledDownloaders()).filter(
+        (downloader) => !isLinkOnlyDownloader(downloader)
+      );
       routesLogger.debug(
         { count: enabledDownloaders.length },
         "fetching storage info for downloaders"
@@ -3921,6 +4035,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const downloader = await storage.updateDownloader(id, updates);
         if (!downloader) {
           return res.status(404).json({ error: "Downloader not found" });
+        }
+        // Switched to link-only: copies still running would keep filling the staging folder.
+        // Effects run one at a time per downloader and follow the latest saved mode, so
+        // overlapping PATCH requests cannot leave the staging block out of step with it.
+        try {
+          await applyStagingMode(downloader);
+        } catch (error) {
+          routesLogger.error({ error, downloaderId: downloader.id }, "staging mode update failed");
         }
         return res.json(maskDownloader(downloader));
       } catch (error) {
@@ -4303,6 +4425,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting download details:", error);
       return res.status(500).json({ error: "Failed to get download details" });
+    }
+  });
+
+  // A fresh download link for a finished link-only download (e.g. TorBox). Requested on
+  // demand, never stored: such links are short-lived.
+  app.get("/api/downloaders/:id/downloads/:downloadId/link", async (req, res) => {
+    try {
+      const { id, downloadId } = req.params as { id: string; downloadId: string };
+      const downloader = await storage.getDownloader(id);
+
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+      if (!isLinkOnlyDownloader(downloader)) {
+        return res.status(400).json({ error: "This downloader does not provide download links" });
+      }
+
+      const url = await DownloaderManager.getRemoteDownloadUrl(downloader, downloadId);
+      if (!url) {
+        return res.status(404).json({ error: "No download link is available yet" });
+      }
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ url });
+    } catch (error) {
+      routesLogger.error({ error }, "error getting download link");
+      return res.status(500).json({ error: "Failed to get download link" });
     }
   });
 

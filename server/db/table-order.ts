@@ -23,6 +23,7 @@ export const TABLE_ORDER = [
   "customFormats",
   // Reference games / downloaders / importTasks.
   "gameDownloads",
+  "ddlJobs",
   "xrelNotifiedReleases",
   "releaseBlacklist",
   "downloadEvents",
@@ -36,6 +37,8 @@ export const TABLE_ORDER = [
   "gameMilestones",
   "gamePlaySessions",
   "gameStatusEvents",
+  "quests",
+  "gameAchievementProgress",
   "gameScreenshots",
   // References games and gameDownloads, so it goes last.
   "gameFiles",

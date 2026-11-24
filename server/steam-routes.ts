@@ -59,8 +59,8 @@ router.post("/api/steam/wishlist/sync", authenticateToken, async (req, res) => {
 
 // Player achievements for a game, only available when a Steam Web API key is
 // configured server-side, the user has linked a Steam ID, and the game has a
-// known Steam App ID. Any missing piece returns an empty list rather than an
-// error, so the client can simply hide the section.
+// known Steam App ID. Any missing piece returns an empty list with a `reason` rather
+// than an error, so the client can explain what is missing.
 router.get(
   "/api/games/:id/achievements",
   authenticateToken,
@@ -87,12 +87,22 @@ router.get(
         return res.json({ achievements: [], reason: "no_steam_id" });
       }
 
-      const achievements = await steamService.getPlayerAchievements(
-        config.steam.apiKey!,
-        user.steamId64,
-        game.steamAppId
-      );
-      return res.json({ achievements });
+      try {
+        const achievements = await steamService.getPlayerAchievements(
+          config.steam.apiKey!,
+          user.steamId64,
+          game.steamAppId,
+          { throwIfPrivate: true }
+        );
+        return res.json({ achievements });
+      } catch (error) {
+        // A private profile / "Game details" setting is something the user can fix, so say so
+        // instead of showing an empty list.
+        if (error instanceof Error && error.message === "Steam achievements are private") {
+          return res.json({ achievements: [], reason: "private" });
+        }
+        throw error;
+      }
     } catch (error) {
       routesLogger.error({ error }, "Error fetching Steam achievements");
       return res.status(500).json({ error: "Failed to fetch achievements" });

@@ -188,7 +188,7 @@ function titleKeys(title: string): string[] {
 }
 
 /** Hacks, homebrew and subsets are not the game itself. */
-const isOfficialSet = (title: string) => !/^~|\[Subset/i.test(title);
+const isOfficialSet = (title: string) => !/(?:^~)|(?:\[Subset)/i.test(title);
 
 /**
  * The RetroAchievements game of a library game: same title and a platform of the same console.

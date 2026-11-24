@@ -202,18 +202,28 @@ export async function syncAchievements(
   running.add(lock);
   let changed = false;
   try {
-    if (!(await provider.isAvailable(userId))) throw new AchievementsUnavailableError();
-
-    const state = await readState(provider, userId);
-    if (!force && state.lastSyncAt && now.getTime() - state.lastSyncAt < ACHIEVEMENTS_MIN_GAP_MS) {
-      return { gamesSynced: 0, newUnlocks: 0 };
-    }
-
-    const startIdentity = await provider.identity(userId);
-    const [games, stored] = await Promise.all([
-      storage.getUserGames(userId, true),
-      storage.getUserAchievementProgress(userId),
-    ]);
+    // The baseline (availability, epoch, identity, stored rows) is read under the commit lock: a
+    // removal or a replacement either finished before this snapshot (and is seen) or runs after
+    // the commit below (and deletes what it writes). Collection itself stays outside the lock.
+    const snapshot = await withCommitLock(provider, userId, async () => {
+      if (!(await provider.isAvailable(userId))) throw new AchievementsUnavailableError();
+      const state = await readState(provider, userId);
+      if (
+        !force &&
+        state.lastSyncAt &&
+        now.getTime() - state.lastSyncAt < ACHIEVEMENTS_MIN_GAP_MS
+      ) {
+        return null;
+      }
+      const startIdentity = await provider.identity(userId);
+      const [games, stored] = await Promise.all([
+        storage.getUserGames(userId, true),
+        storage.getUserAchievementProgress(userId),
+      ]);
+      return { state, startIdentity, games, stored };
+    });
+    if (!snapshot) return { gamesSynced: 0, newUnlocks: 0 };
+    const { state, startIdentity, games, stored } = snapshot;
     const previous = new Map(
       stored.filter((r) => r.provider === provider.id).map((r) => [r.gameId, r])
     );

@@ -614,6 +614,7 @@ function New-QuestarrSyncWork {
     $gogTotals = New-Object System.Collections.ArrayList
     $epicTotals = New-Object System.Collections.ArrayList
     $excluded = 0
+    $heldTotals = 0
 
     $steamGuid = [Guid]"cb91dfc9-b977-43bf-8e70-55f46e410fab"
     $gogGuid = [Guid]"aebe8b7c-6dc3-4a66-af31-e7375c6b5e9e"
@@ -640,6 +641,17 @@ function New-QuestarrSyncWork {
                 $steamAppId = $parsed
             }
         }
+        # The server's title normalizer only considers Latin letters and
+        # digits, so a title containing none of them flattens to an empty key
+        # that matches any other such title already stored. A title like that
+        # can only be reconciled through its Steam App ID; without one it is
+        # not sent at all (IGDB import by request, and manual adding, still
+        # work for it).
+        if ($steamAppId -le 0 -and $title -notmatch "[A-Za-z0-9]") {
+            $excluded += 1
+            continue
+        }
+
         $platform = ""
         if ($game.PluginId -eq $steamGuid) { $platform = "steam" }
         elseif ($game.PluginId -eq $gogGuid) { $platform = "gog" }
@@ -674,6 +686,16 @@ function New-QuestarrSyncWork {
         # Play time totals: per store, at least ten minutes recorded.
         if (($game.PluginId -eq $gogGuid -or $game.PluginId -eq $epicGuid) -and
             [uint64]$game.Playtime -ge 600 -and $title.Length -le 500) {
+            # Playnite updates the total before OnGameStopped queues the
+            # session, so a sync starting in that gap would send the total as
+            # an estimate while the actual session is still coming: the play
+            # time would count twice. A recently played game is held back;
+            # the next sync sends its total once the session has landed.
+            if ($null -ne $game.LastActivity -and
+                $game.LastActivity.ToUniversalTime() -gt [DateTime]::UtcNow.AddMinutes(-15)) {
+                $heldTotals += 1
+                continue
+            }
             $totalEntry = @{
                 title           = $title
                 externalId      = $game.Id.ToString()
@@ -695,6 +717,7 @@ function New-QuestarrSyncWork {
         GogTotals     = $gogTotals
         EpicTotals    = $epicTotals
         Excluded      = $excluded
+        HeldTotals    = $heldTotals
     }
 }
 
@@ -842,7 +865,8 @@ function Invoke-QuestarrQueueDrain {
             if ($stopped) { break }
             $outcome = Send-QuestarrPlaySession -Config $Config -Entry $entry
             if ($outcome -eq "retry") { break }
-            [void]$sends.Add(@{ Key = "$($entry.title)|$($entry.startedAt)|$($entry.endedAt)"; Outcome = $outcome })
+            $appIdPart = if ($entry.steamAppId) { "|$($entry.steamAppId)" } else { "" }
+            [void]$sends.Add(@{ Key = "$($entry.title)|$($entry.startedAt)|$($entry.endedAt)$appIdPart"; Outcome = $outcome })
         }
 
         if (-not (Wait-QuestarrQueueMutex $Mutex)) {
@@ -861,7 +885,8 @@ function Invoke-QuestarrQueueDrain {
             }
             $keep = New-Object System.Collections.ArrayList
             foreach ($entry in $latest) {
-                $key = "$($entry.title)|$($entry.startedAt)|$($entry.endedAt)"
+                $appIdPart = if ($entry.steamAppId) { "|$($entry.steamAppId)" } else { "" }
+                $key = "$($entry.title)|$($entry.startedAt)|$($entry.endedAt)$appIdPart"
                 if ($sentKeys.ContainsKey($key) -or $droppedKeys.ContainsKey($key)) { continue }
                 [void]$keep.Add($entry)
             }
@@ -984,18 +1009,19 @@ function Write-QuestarrImportSkipList {
     it runs identically on the menu thread, a hook thread, or a background
     runspace. Sections, in order:
 
-    1. drain queued play sessions (a store total sent before a queued session
-       lands would count that session twice),
-    2. reconcile the library: which games Questarr knows, and their Questarr
-       game ids,
-    3. import everything Questarr does not know yet, as owned games -- the
-       first run backfills the whole library, later runs only pick up new
-       games; IGDB-unmatchable titles are cached (with the title that was
-       tried) and skipped afterwards,
-    4. play statuses, matched by Questarr game id when the id is known,
-    5. GOG/Epic play time totals -- deferred while sessions are still queued,
+    1. reconcile the library, then import everything Questarr does not know
+       yet as owned games -- the first run backfills the whole library, later
+       runs only pick up new games; IGDB-unmatchable titles are cached (with
+       the title that was tried) and skipped afterwards,
+    2. drain queued play sessions -- after the import, so a session waiting
+       for a missing game gets its game first, and before the totals, because
+       a store total sent while a session is still queued would count it
+       twice,
+    3. play statuses, matched by Questarr game id when the id is known,
+    4. GOG/Epic play time totals -- deferred while sessions are still queued,
        since Questarr dedupes actual sessions against each other but not
-       against store-total estimates.
+       against store-total estimates, and held back for games played within
+       the last 15 minutes while their session is still landing.
 
     Each section is independent: one failing never hides the results of the
     others; every successful batch updates the report immediately, so a later
@@ -1023,6 +1049,7 @@ function Invoke-QuestarrSyncCore {
         Totals          = @{}
         TotalsDeferred  = 0
         Excluded        = [int]$Work.Excluded
+        HeldTotals      = [int]$Work.HeldTotals
         Errors          = (New-Object System.Collections.ArrayList)
     }
 
@@ -1032,19 +1059,7 @@ function Invoke-QuestarrSyncCore {
     $gameIds = @{}
     $queueRemaining = 0
 
-    # 1. queued play sessions first.
-    try {
-        $drain = Invoke-QuestarrQueueDrain -Config $Config -DataDir $DataDir
-        $report.SessionsSent = $drain.Sent
-        $report.SessionsDropped = $drain.Dropped
-        $queueRemaining = $drain.Remaining
-    }
-    catch {
-        [void]$report.Errors.Add("play sessions: $(Get-QuestarrErrorMessage $_)")
-        $queueRemaining = @(Read-QuestarrPlayQueueFile -DataDir $DataDir).Count
-    }
-
-    # 2 + 3. reconcile, then import what is missing.
+    # 1. reconcile, then import what is missing.
     try {
         $entries = $Work.SyncEntries
         $report.Games = $entries.Count
@@ -1129,7 +1144,22 @@ function Invoke-QuestarrSyncCore {
         [void]$report.Errors.Add("library import: $(Get-QuestarrErrorMessage $_)")
     }
 
-    # 4. play status, matched by Questarr game id whenever one is known.
+    # 2. queued play sessions, AFTER the import: a session waiting for a game
+    #    Questarr did not know gets its game imported first, so a
+    #    GAME_NOT_FOUND response only drops a session the import genuinely
+    #    could not resolve. The drain still runs before the store totals.
+    try {
+        $drain = Invoke-QuestarrQueueDrain -Config $Config -DataDir $DataDir
+        $report.SessionsSent = $drain.Sent
+        $report.SessionsDropped = $drain.Dropped
+        $queueRemaining = $drain.Remaining
+    }
+    catch {
+        [void]$report.Errors.Add("play sessions: $(Get-QuestarrErrorMessage $_)")
+        $queueRemaining = @(Read-QuestarrPlayQueueFile -DataDir $DataDir).Count
+    }
+
+    # 3. play status, matched by Questarr game id whenever one is known.
     try {
         $statuses = $Work.StatusEntries
         $report.StatusEntries = $statuses.Count
@@ -1161,7 +1191,7 @@ function Invoke-QuestarrSyncCore {
         [void]$report.Errors.Add("play status: $(Get-QuestarrErrorMessage $_)")
     }
 
-    # 5. store play time totals, unless sessions are still waiting: Questarr
+    # 4. store play time totals, unless sessions are still waiting: Questarr
     #    dedupes actual sessions against each other but not against these
     #    estimates, so sending a total while its session is queued would count
     #    that play time twice once the session lands.
@@ -1219,6 +1249,9 @@ function Get-QuestarrSyncSummary {
     }
     if ($Report.StatusEntries -gt 0) {
         [void]$parts.Add(("play status: {0} updated" -f $Report.Updated))
+    }
+    if ($Report.HeldTotals -gt 0) {
+        [void]$parts.Add("$($Report.HeldTotals) play-time totals held back (played in the last 15 min, sent next sync)")
     }
     if ($Report.TotalsDeferred -gt 0) {
         [void]$parts.Add(("GOG/Epic play time deferred: {0} sessions still queued" -f $Report.TotalsDeferred))
@@ -1315,6 +1348,12 @@ try {
 }
 catch {
     try { `$Logger.Error("Questarr: background sync failed: " + `$_.Exception.Message) } catch { }
+    try {
+        `$Api.Notifications.Remove('questarr-sync-running') | Out-Null
+        `$fail = New-Object -TypeName Playnite.SDK.NotificationMessage -ArgumentList @('questarr-sync-failed', 'Questarr sync failed; see extensions.log for the reason', [Playnite.SDK.NotificationType]::Error)
+        `$Api.Notifications.Add(`$fail)
+    }
+    catch { }
 }
 finally {
     try { Remove-QuestarrSyncLock -DataDir `$DataDir -Token `$Token } catch { }

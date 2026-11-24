@@ -31,7 +31,10 @@ game from the couch without opening a browser.
 - **Automatic sync** — optionally re-syncs whenever Playnite finishes updating
   its library, so installing a game on the couch PC shows up in Questarr on its
   own. It is the same background push as the menu command, with the same
-  overlap guard.
+  overlap guard: a lock file keeps two syncs from running at once (a request
+  arriving while one runs is skipped and logged). The guard holds for runs up
+  to 15 minutes; a lock older than that is treated as debris from a crashed
+  run, so a new sync may start alongside a run that somehow takes longer.
 - **Titles IGDB cannot match** — a sync only adds games Questarr can match on
   IGDB; anything else comes back unmatched. Those titles are cached in
   `import-skip.json` next to `config.json`, so later syncs never pay the IGDB
@@ -110,7 +113,12 @@ key's `scope` and `expiresAt`.
 
 Questarr matches an incoming Playnite entry by Steam App ID first (for games
 from Playnite's Steam library), then by a normalized title comparison —
-lowercased, punctuation flattened. A sync first asks Questarr which games it
+lowercased, punctuation flattened, Latin letters and digits only. A title
+with no Latin letter or digit at all (some Japanese-titled games, for
+example) cannot be matched by title on the server, so the extension only
+sends it when it has a Steam App ID to match by; without one, such a title is
+not sent at all and can be added by hand or requested from the game's
+context menu instead. A sync first asks Questarr which games it
 knows; only the ones it does not are sent for import, where IGDB does the
 matching. A title IGDB matches to a different game (a sequel, another
 subtitle) is skipped rather than added wrongly; "Game of the Year
@@ -170,7 +178,10 @@ Playnite's own GOG and Epic plugins read the libraries; the extension never talk
   of them with at least ten minutes of it. Questarr subtracts the time it
   already recorded and adds the rest as one estimated session ending at the
   game's last activity, so running a sync again changes nothing. A game with a
-  timer running is skipped.
+  timer running is skipped. A game played within the last 15 minutes is held
+  back for the next sync: Playnite updates its total before the finished
+  session is even queued, and sending the estimate in that window would count
+  the same play time twice once the session lands.
 - The play time sent is whatever total Playnite holds for each game; a game with none recorded there is left out. The games are recorded with source `epic` (GOG ones with `gog`).
 - It needs Questarr 1.7 and the **Playnite extension** access.
 

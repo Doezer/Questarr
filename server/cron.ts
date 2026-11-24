@@ -851,6 +851,19 @@ function registerCronTasks(): void {
       run: runScheduledSteamAchievementsSync,
     },
     {
+      name: "retroachievements-achievements",
+      title: "RetroAchievements sync",
+      description:
+        "Refresh achievement progress of owned and playing retro games for users who saved a RetroAchievements account and turned the sync on.",
+      intervalMs: STEAM_ACHIEVEMENTS_SYNC_INTERVAL_MS,
+      runOnStartup: false,
+      run: async () => {
+        // Loaded on demand: it reads encrypted credentials, which needs the database module.
+        const { runScheduledRetroAchievementsSync } = await import("./retroachievements-sync.js");
+        await runScheduledRetroAchievementsSync();
+      },
+    },
+    {
       name: "romm-sync",
       title: "RomM sync",
       description: "Synchronise the library with the configured RomM server.",

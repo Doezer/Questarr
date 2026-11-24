@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
 import { SteamAchievementsSync } from "@/components/SteamAchievementsSync";
+import { RetroAchievementsSync } from "@/components/RetroAchievementsSync";
 import { PlayniteSyncStatus } from "@/components/PlayniteSyncStatus";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
@@ -2469,6 +2470,7 @@ export default function SettingsPage() {
 
           <SteamPlaytimeSync />
           <SteamAchievementsSync />
+          <RetroAchievementsSync />
 
           <PlayniteSyncStatus />
 

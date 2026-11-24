@@ -726,52 +726,7 @@ export class TransmissionClient implements DownloaderClient {
       if (sessionId) {
         this.sessionId = sessionId;
         headers["X-Transmission-Session-Id"] = sessionId;
-
-        downloadersLogger.debug({ method, url }, "Retrying Transmission request with session ID");
-
-        // Retry with session ID
-        const retryResponse = await safeFetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(30000),
-          requireHttps: isHttpsUrl(url),
-        });
-        await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
-
-        if (!retryResponse.ok) {
-          const errorText = await retryResponse.text().catch(() => "No error details available");
-          if (retryResponse.status === 401) {
-            downloadersLogger.error(
-              {
-                status: retryResponse.status,
-                url,
-                username: this.downloader.username,
-                method,
-                errorText,
-              },
-              "Transmission authentication failed - check username and password"
-            );
-            throw new Error(
-              `Authentication failed: Invalid username or password for Transmission - ${errorText}`
-            );
-          }
-          downloadersLogger.error(
-            {
-              status: retryResponse.status,
-              statusText: retryResponse.statusText,
-              url,
-              method,
-              errorText,
-            },
-            "Transmission request failed after session ID retry"
-          );
-          throw new Error(
-            `HTTP ${retryResponse.status}: ${retryResponse.statusText} - ${errorText}`
-          );
-        }
-
-        return retryResponse.json();
+        return this.retryWithSessionId(url, method, headers, body);
       }
     }
 
@@ -808,5 +763,57 @@ export class TransmissionClient implements DownloaderClient {
     }
 
     return response.json();
+  }
+
+  /** Repeats a request that Transmission rejected for lacking a session ID. */
+  private async retryWithSessionId(
+    url: string,
+    method: string,
+    headers: Record<string, string>,
+    body: unknown
+  ): Promise<TransmissionRpcResponse> {
+    downloadersLogger.debug({ method, url }, "Retrying Transmission request with session ID");
+
+    // Retry with session ID
+    const retryResponse = await safeFetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
+      requireHttps: isHttpsUrl(url),
+    });
+    await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
+
+    if (!retryResponse.ok) {
+      const errorText = await retryResponse.text().catch(() => "No error details available");
+      if (retryResponse.status === 401) {
+        downloadersLogger.error(
+          {
+            status: retryResponse.status,
+            url,
+            username: this.downloader.username,
+            method,
+            errorText,
+          },
+          "Transmission authentication failed - check username and password"
+        );
+        throw new Error(
+          `Authentication failed: Invalid username or password for Transmission - ${errorText}`
+        );
+      }
+      downloadersLogger.error(
+        {
+          status: retryResponse.status,
+          statusText: retryResponse.statusText,
+          url,
+          method,
+          errorText,
+        },
+        "Transmission request failed after session ID retry"
+      );
+      throw new Error(`HTTP ${retryResponse.status}: ${retryResponse.statusText} - ${errorText}`);
+    }
+
+    return retryResponse.json();
   }
 }

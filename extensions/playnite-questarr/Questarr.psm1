@@ -708,6 +708,16 @@ function Read-QuestarrPlayQueueFile {
         $raw = Get-Content -Path $path -Raw -Encoding UTF8 | ConvertFrom-Json
     }
     catch {
+        # Keep the damaged file aside: returning empty here would let the
+        # next write replace the only copy with a fresh queue, losing every
+        # session still in it. If it cannot be moved, throw so the caller
+        # never proceeds to write over it.
+        try {
+            Move-Item -LiteralPath $path -Destination "$path.bad" -Force -ErrorAction Stop
+        }
+        catch {
+            throw
+        }
         return @()
     }
     if ($null -eq $raw) { return @() }
@@ -938,7 +948,9 @@ function Read-QuestarrImportSkipList {
             return $map
         }
         foreach ($p in $raw.PSObject.Properties) {
-            $map[$p.Name] = [string]$p.Value
+            # A JSON null value (a legacy entry with no recorded title) stays
+            # null so it keeps its skip-unconditionally behaviour.
+            $map[$p.Name] = if ($null -eq $p.Value) { $null } else { [string]$p.Value }
         }
         return $map
     }

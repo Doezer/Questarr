@@ -12,6 +12,7 @@ import {
   AchievementsUnavailableError,
   getAchievementsStatus,
   resetAchievementsRun,
+  setAchievementsEnabledUnlocked,
   runScheduledAchievementsSync,
   setAchievementsEnabled,
   syncAchievements,
@@ -207,7 +208,7 @@ export function clearRetroAchievements(userId: string): Promise<void> {
   return withAccountLock(userId, () =>
     withCommitLock(retroAchievementsProvider, userId, async () => {
       // Progress goes first: if its deletion fails the account stays saved and a retry finishes.
-      await setAchievementsEnabled(retroAchievementsProvider, userId, false);
+      await setAchievementsEnabledUnlocked(retroAchievementsProvider, userId, false);
       // Also invalidates a run that started while the sync was on.
       await resetAchievementsRun(retroAchievementsProvider, userId);
       await storage.deleteAchievementProgress(userId, RETROACHIEVEMENTS_PROVIDER_ID);

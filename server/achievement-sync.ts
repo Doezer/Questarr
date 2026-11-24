@@ -122,7 +122,8 @@ export async function getAchievementsStatus(
   };
 }
 
-export async function setAchievementsEnabled(
+/** Turn the sync on or off. For callers that already hold the user's commit lock. */
+export async function setAchievementsEnabledUnlocked(
   provider: AchievementProvider,
   userId: string,
   enabled: boolean
@@ -139,6 +140,14 @@ export async function setAchievementsEnabled(
     lastError: null,
   });
 }
+
+/** Turn the sync on or off; never in the middle of a sync run's commit, which would undo it. */
+export const setAchievementsEnabled = (
+  provider: AchievementProvider,
+  userId: string,
+  enabled: boolean
+): Promise<void> =>
+  withCommitLock(provider, userId, () => setAchievementsEnabledUnlocked(provider, userId, enabled));
 
 /** Forget the last run, so the next sync of a changed account records a fresh baseline. */
 export async function resetAchievementsRun(

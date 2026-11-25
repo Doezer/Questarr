@@ -35,6 +35,81 @@ export interface StepProps {
   status: WizardStatus;
 }
 
+function useSaveError() {
+  const { toast } = useToast();
+  return (error: Error) =>
+    toast({ title: "Could not save", description: error.message, variant: "destructive" });
+}
+
+/** Save part of the account settings (`PATCH /api/settings`) and refresh them. */
+function useSettingsPatch<T extends object>() {
+  const queryClient = useQueryClient();
+  const onError = useSaveError();
+  const { data } = useQuery<T>({ queryKey: ["/api/settings"] });
+  const patch = useMutation({
+    mutationFn: async (update: Partial<T>) =>
+      (await apiRequest("PATCH", "/api/settings", update)).json(),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["/api/settings"] }),
+    onError,
+  });
+  return { data, patch };
+}
+
+/** A secret field with its own Save button, for a key saved through one endpoint. */
+function SecretKeyField({
+  id,
+  label,
+  endpoint,
+  toastTitle,
+  status,
+  help,
+}: Readonly<{
+  id: string;
+  label: string;
+  endpoint: string;
+  toastTitle: string;
+  status: WizardStatus;
+  help: { href: string; text: string };
+}>) {
+  const { toast } = useToast();
+  const onError = useSaveError();
+  const [apiKey, setApiKey] = useState("");
+  const save = useMutation({
+    mutationFn: async () => (await apiRequest("POST", endpoint, { apiKey: apiKey.trim() })).json(),
+    onSuccess: () => {
+      toast({ title: toastTitle });
+      setApiKey("");
+      status.refresh();
+    },
+    onError,
+  });
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          autoComplete="off"
+        />
+        <Button onClick={() => save.mutate()} disabled={save.isPending || !apiKey.trim()}>
+          Save
+        </Button>
+      </div>
+      <a
+        className="text-xs text-primary underline"
+        href={help.href}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {help.text}
+      </a>
+    </div>
+  );
+}
+
 function StepSection({ children }: Readonly<{ children: ReactNode }>) {
   return <div className="space-y-4">{children}</div>;
 }
@@ -123,6 +198,7 @@ export function QuestionsStep({
 
 export function IgdbStep({ status }: Readonly<StepProps>) {
   const { toast } = useToast();
+  const onError = useSaveError();
   const queryClient = useQueryClient();
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
@@ -136,8 +212,7 @@ export function IgdbStep({ status }: Readonly<StepProps>) {
       void queryClient.invalidateQueries({ queryKey: ["/api/config"] });
       status.refresh();
     },
-    onError: (error: Error) =>
-      toast({ title: "Could not save", description: error.message, variant: "destructive" }),
+    onError,
   });
   return (
     <StepSection>
@@ -279,16 +354,7 @@ interface AutomationSettings {
 }
 
 export function AutomationStep() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const { data } = useQuery<AutomationSettings>({ queryKey: ["/api/settings"] });
-  const patch = useMutation({
-    mutationFn: async (update: Partial<AutomationSettings>) =>
-      (await apiRequest("PATCH", "/api/settings", update)).json(),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["/api/settings"] }),
-    onError: (error: Error) =>
-      toast({ title: "Could not save", description: error.message, variant: "destructive" }),
-  });
+  const { data, patch } = useSettingsPatch<AutomationSettings>();
   if (!data) return <p className="text-sm text-muted-foreground">Loading…</p>;
   return (
     <StepSection>
@@ -331,20 +397,9 @@ export function AutomationStep() {
 
 export function SteamStep({ status }: Readonly<StepProps>) {
   const { toast } = useToast();
+  const onError = useSaveError();
   const queryClient = useQueryClient();
-  const [apiKey, setApiKey] = useState("");
   const [steamId, setSteamId] = useState("");
-  const saveKey = useMutation({
-    mutationFn: async () =>
-      (await apiRequest("POST", "/api/settings/steam", { apiKey: apiKey.trim() })).json(),
-    onSuccess: () => {
-      toast({ title: "Steam API key saved" });
-      setApiKey("");
-      status.refresh();
-    },
-    onError: (error: Error) =>
-      toast({ title: "Could not save", description: error.message, variant: "destructive" }),
-  });
   const saveId = useMutation({
     mutationFn: async () =>
       (await apiRequest("PATCH", "/api/user/steam-id", { steamId: steamId.trim() })).json(),
@@ -352,8 +407,7 @@ export function SteamStep({ status }: Readonly<StepProps>) {
       toast({ title: "Steam ID saved" });
       void queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     },
-    onError: (error: Error) =>
-      toast({ title: "Could not save", description: error.message, variant: "destructive" }),
+    onError,
   });
   return (
     <StepSection>
@@ -362,29 +416,17 @@ export function SteamStep({ status }: Readonly<StepProps>) {
         With a Steam Web API key and your 64-bit Steam ID, Questarr can import your library and
         wishlist and track playtime and achievements. Your Steam profile must be public.
       </p>
-      <div className="space-y-2">
-        <Label htmlFor="wizard-steam-key">Steam Web API key</Label>
-        <div className="flex gap-2">
-          <Input
-            id="wizard-steam-key"
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            autoComplete="off"
-          />
-          <Button onClick={() => saveKey.mutate()} disabled={saveKey.isPending || !apiKey.trim()}>
-            Save
-          </Button>
-        </div>
-        <a
-          className="text-xs text-primary underline"
-          href="https://steamcommunity.com/dev/apikey"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Get a key on steamcommunity.com
-        </a>
-      </div>
+      <SecretKeyField
+        id="wizard-steam-key"
+        label="Steam Web API key"
+        endpoint="/api/settings/steam"
+        toastTitle="Steam API key saved"
+        status={status}
+        help={{
+          href: "https://steamcommunity.com/dev/apikey",
+          text: "Get a key on steamcommunity.com",
+        }}
+      />
       <div className="space-y-2">
         <Label htmlFor="wizard-steam-id">Steam ID (64-bit)</Label>
         <div className="flex gap-2">
@@ -425,48 +467,23 @@ export function RetroAchievementsStep() {
 // --- NexusMods ---------------------------------------------------------------------
 
 export function NexusModsStep({ status }: Readonly<StepProps>) {
-  const { toast } = useToast();
-  const [apiKey, setApiKey] = useState("");
-  const save = useMutation({
-    mutationFn: async () =>
-      (await apiRequest("POST", "/api/settings/nexusmods", { apiKey: apiKey.trim() })).json(),
-    onSuccess: () => {
-      toast({ title: "NexusMods key saved" });
-      setApiKey("");
-      status.refresh();
-    },
-    onError: (error: Error) =>
-      toast({ title: "Could not save", description: error.message, variant: "destructive" }),
-  });
   return (
     <StepSection>
       <ConfiguredBadge configured={Boolean(status.configured.nexusmods)} />
       <p className="text-sm text-muted-foreground">
         A personal NexusMods API key lets game pages show popular and trending mods.
       </p>
-      <div className="space-y-2">
-        <Label htmlFor="wizard-nexus-key">Personal API key</Label>
-        <div className="flex gap-2">
-          <Input
-            id="wizard-nexus-key"
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            autoComplete="off"
-          />
-          <Button onClick={() => save.mutate()} disabled={save.isPending || !apiKey.trim()}>
-            Save
-          </Button>
-        </div>
-        <a
-          className="text-xs text-primary underline"
-          href="https://www.nexusmods.com/users/myaccount?tab=api"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Get a key on nexusmods.com
-        </a>
-      </div>
+      <SecretKeyField
+        id="wizard-nexus-key"
+        label="Personal API key"
+        endpoint="/api/settings/nexusmods"
+        toastTitle="NexusMods key saved"
+        status={status}
+        help={{
+          href: "https://www.nexusmods.com/users/myaccount?tab=api",
+          text: "Get a key on nexusmods.com",
+        }}
+      />
     </StepSection>
   );
 }
@@ -479,16 +496,7 @@ interface PrivacySettings {
 }
 
 export function PrivacyStep() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-  const { data } = useQuery<PrivacySettings>({ queryKey: ["/api/settings"] });
-  const patch = useMutation({
-    mutationFn: async (update: Partial<PrivacySettings>) =>
-      (await apiRequest("PATCH", "/api/settings", update)).json(),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["/api/settings"] }),
-    onError: (error: Error) =>
-      toast({ title: "Could not save", description: error.message, variant: "destructive" }),
-  });
+  const { data, patch } = useSettingsPatch<PrivacySettings>();
   if (!data) return <p className="text-sm text-muted-foreground">Loading…</p>;
   return (
     <StepSection>

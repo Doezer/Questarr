@@ -56,106 +56,40 @@ export interface WizardStepDef {
   /** Shown only when this returns true. */
   when: (answers: WizardAnswers) => boolean;
   /** Questions and summary are never skipped as "already configured". */
-  alwaysShown?: boolean;
+  alwaysShown: boolean;
 }
 
 const always = () => true;
 const plays = (platform: WizardPlatform) => (a: WizardAnswers) => a.platforms.includes(platform);
 
+function step(
+  id: WizardStepId,
+  title: string,
+  summary: string,
+  when: WizardStepDef["when"],
+  alwaysShown = false
+): WizardStepDef {
+  return { id, title, summary, when, alwaysShown };
+}
+
+const hasDownload = (a: WizardAnswers) => a.download;
+
 export const WIZARD_STEPS: readonly WizardStepDef[] = [
-  {
-    id: "questions",
-    title: "About your setup",
-    summary: "Where you play and what Questarr should do for you",
-    when: always,
-    alwaysShown: true,
-  },
-  {
-    id: "igdb",
-    title: "Game database (IGDB)",
-    summary: "Credentials Questarr uses to find game metadata and covers",
-    when: always,
-  },
-  {
-    id: "platforms",
-    title: "Platforms",
-    summary: "Limit platform filters and imports to the ones you use",
-    when: always,
-  },
-  {
-    id: "indexers",
-    title: "Indexers",
-    summary: "Where Questarr looks for releases",
-    when: (a) => a.download,
-  },
-  {
-    id: "downloaders",
-    title: "Download clients",
-    summary: "The client that fetches releases",
-    when: (a) => a.download,
-  },
-  {
-    id: "automation",
-    title: "Automatic search and download",
-    summary: "How often to search, and whether to grab releases for you",
-    when: (a) => a.download,
-  },
-  {
-    id: "import",
-    title: "Library folder and import",
-    summary: "Where finished downloads end up and how they are renamed",
-    when: (a) => a.download,
-  },
-  {
-    id: "steam",
-    title: "Steam",
-    summary: "Import your Steam library, playtime and achievements",
-    when: plays("pc"),
-  },
-  {
-    id: "retroachievements",
-    title: "RetroAchievements",
-    summary: "Track retro achievements",
-    when: plays("retro"),
-  },
-  {
-    id: "xbox",
-    title: "Xbox achievements",
-    summary: "Track Xbox achievements",
-    when: plays("xbox"),
-  },
-  {
-    id: "psn",
-    title: "PlayStation trophies",
-    summary: "Track PlayStation trophies",
-    when: plays("playstation"),
-  },
-  {
-    id: "nexusmods",
-    title: "NexusMods",
-    summary: "Find mods for your PC games",
-    when: plays("pc"),
-  },
-  {
-    id: "notifications",
-    title: "Notifications",
-    summary: "Get alerts outside the app",
-    when: (a) => a.notifications,
-  },
-  {
-    id: "privacy",
-    title: "Quests and diagnostics",
-    summary: "Backlog quests and error reporting",
-    when: always,
-    alwaysShown: true,
-  },
-  {
-    id: "summary",
-    title: "All set",
-    summary: "What was configured",
-    when: always,
-    alwaysShown: true,
-  },
+  step("questions", "About your setup", "Where you play and what Questarr should do", always, true),
+  step("igdb", "Game database (IGDB)", "Credentials used to find metadata and covers", always),
+  step("platforms", "Platforms", "Limit filters and imports to the ones you use", always),
+  step("indexers", "Indexers", "Where Questarr looks for releases", hasDownload),
+  step("downloaders", "Download clients", "The client that fetches releases", hasDownload),
+  step("automation", "Automatic search and download", "How often to search and grab", hasDownload),
+  step("import", "Library folder and import", "Where finished downloads end up", hasDownload),
+  step("steam", "Steam", "Import your library, playtime and achievements", plays("pc")),
+  step("retroachievements", "RetroAchievements", "Track retro achievements", plays("retro")),
+  step("xbox", "Xbox achievements", "Track Xbox achievements", plays("xbox")),
+  step("psn", "PlayStation trophies", "Track PlayStation trophies", plays("playstation")),
+  step("nexusmods", "NexusMods", "Find mods for your PC games", plays("pc")),
+  step("notifications", "Notifications", "Get alerts outside the app", (a) => a.notifications),
+  step("privacy", "Quests and diagnostics", "Backlog quests and error reporting", always, true),
+  step("summary", "All set", "What was configured", always, true),
 ];
 
 /**

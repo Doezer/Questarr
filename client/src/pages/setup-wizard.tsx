@@ -76,6 +76,14 @@ export default function SetupWizardPage() {
       toast({ title: "Could not finish", description: error.message, variant: "destructive" }),
   });
 
+  // The summary reads configuration saved by cards that do not report back to the wizard
+  // (platforms, RetroAchievements, import), so read it again when the summary opens.
+  const refreshStatus = status.refresh;
+  const onSummary = step?.id === "summary";
+  useEffect(() => {
+    if (onSummary) refreshStatus();
+  }, [onSummary, refreshStatus]);
+
   if (!loaded || !step) {
     return (
       <div className="p-6 text-sm text-muted-foreground" role="status">

@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { WizardConfigured } from "@shared/setup-wizard";
@@ -65,11 +66,12 @@ export function useWizardStatus(): WizardStatus {
       return { configured, indexerCount, downloaderCount };
     },
   });
+  const refresh = useCallback(() => void refetch(), [refetch]);
   return {
     configured: data?.configured ?? {},
     indexerCount: data?.indexerCount ?? 0,
     downloaderCount: data?.downloaderCount ?? 0,
     isLoading,
-    refresh: () => void refetch(),
+    refresh,
   };
 }

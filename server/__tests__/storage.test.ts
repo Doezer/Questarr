@@ -1421,6 +1421,7 @@ describe("Import And Mapping Helpers", () => {
       sortExtras: false,
       upgradeReplaceMode: "off",
       folderForSingleFiles: true,
+      addonSubfolders: false,
     });
   });
 

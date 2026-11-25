@@ -9,6 +9,42 @@ import { logger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { detectVersionFromInstallFolder } from "./install-version.js";
 
+type VersionStore = Pick<IStorage, "getGame" | "replaceGameInstalledVersion">;
+type StoredGame = NonNullable<Awaited<ReturnType<VersionStore["getGame"]>>>;
+
+/**
+ * Compare-and-set of a release-name version, retried a couple of times when something else
+ * wrote first. Returns the game as it was before the write, or null when nothing was written.
+ */
+async function writeReleaseVersion(
+  store: VersionStore,
+  gameId: string,
+  detected: string
+): Promise<StoredGame | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const game = await store.getGame(gameId);
+    if (!game) return null;
+    // A version the user typed is only ever moved forward: a download whose version is
+    // strictly newer and comparable advances it; anything else leaves it alone.
+    const typed = !canAutoWriteVersion(game);
+    if (game.installedVersion?.trim()) {
+      const cmp = compareVersions(detected, game.installedVersion);
+      if (cmp === null || cmp <= 0) return null;
+    } else if (typed) {
+      return null;
+    }
+    const written = await store.replaceGameInstalledVersion(
+      game.id,
+      game.installedVersion ?? null,
+      detected,
+      "release",
+      typed
+    );
+    if (written) return game;
+  }
+  return null;
+}
+
 /**
  * Records the version carried by an installed download's release name (e.g. "v1.2.3") as the
  * game's installed version. Call it once the files are really in place: when the download
@@ -22,7 +58,7 @@ import { detectVersionFromInstallFolder } from "./install-version.js";
  * recorded, if any.
  */
 export async function recordVersionFromCompletedDownload(
-  store: Pick<IStorage, "getGame" | "replaceGameInstalledVersion">,
+  store: VersionStore,
   gameId: string,
   downloadTitle: string,
   category: string | null = null
@@ -37,29 +73,8 @@ export async function recordVersionFromCompletedDownload(
     // edited the version or another import may have advanced it. The write only lands if the
     // version is still the one just compared against; if something else wrote first, compare
     // again against what it wrote, so a concurrent older import can't hold back a newer one.
-    let game: Awaited<ReturnType<typeof store.getGame>>;
-    for (let attempt = 0; ; attempt++) {
-      game = await store.getGame(gameId);
-      if (!game) return null;
-      // A version the user typed is only ever moved forward: a download whose version is
-      // strictly newer and comparable advances it; anything else leaves it alone.
-      const typed = !canAutoWriteVersion(game);
-      if (game.installedVersion?.trim()) {
-        const cmp = compareVersions(detected, game.installedVersion);
-        if (cmp === null || cmp <= 0) return null;
-      } else if (typed) {
-        return null;
-      }
-      const written = await store.replaceGameInstalledVersion(
-        game.id,
-        game.installedVersion ?? null,
-        detected,
-        "release",
-        typed
-      );
-      if (written) break;
-      if (attempt >= 2) return null;
-    }
+    const game = await writeReleaseVersion(store, gameId, detected);
+    if (!game) return null;
     logger.info(
       { gameId: game.id, previous: game.installedVersion, installedVersion: detected },
       "Recorded game version from completed download"
@@ -76,6 +91,21 @@ export async function recordVersionFromCompletedDownload(
   }
 }
 
+/** Whether the version found in the install files should replace the stored one. */
+function shouldWriteInstallVersion(game: StoredGame, detected: string): boolean {
+  if (!canAutoWriteVersion(game)) return false;
+  if (game.installedVersion?.trim() === detected && game.installedVersionSource === "install") {
+    return false;
+  }
+  // Files can lag behind (a patch downloaded but not yet applied to the folder): when the
+  // two versions compare, the files never move the version backwards.
+  if (game.installedVersion?.trim()) {
+    const cmp = compareVersions(detected, game.installedVersion);
+    if (cmp !== null && cmp < 0) return false;
+  }
+  return true;
+}
+
 /**
  * Reads the version from the files of a game's install folder (version.txt, a GOG .info file,
  * a Steam app manifest, an .nfo) and records it. The files are what is really installed, so
@@ -83,7 +113,7 @@ export async function recordVersionFromCompletedDownload(
  * version the user typed is left alone. Never throws. Returns the version recorded, if any.
  */
 export async function recordVersionFromInstallFolder(
-  store: Pick<IStorage, "getGame" | "replaceGameInstalledVersion">,
+  store: VersionStore,
   gameId: string,
   folder: string | null | undefined
 ): Promise<string | null> {
@@ -94,16 +124,7 @@ export async function recordVersionFromInstallFolder(
 
     for (let attempt = 0; attempt < 3; attempt++) {
       const game = await store.getGame(gameId);
-      if (!game || !canAutoWriteVersion(game)) return null;
-      if (game.installedVersion?.trim() === detected && game.installedVersionSource === "install") {
-        return null;
-      }
-      // Files can lag behind (a patch downloaded but not yet applied to the folder): when the
-      // two versions compare, the files never move the version backwards.
-      if (game.installedVersion?.trim()) {
-        const cmp = compareVersions(detected, game.installedVersion);
-        if (cmp !== null && cmp < 0) return null;
-      }
+      if (!game || !shouldWriteInstallVersion(game, detected)) return null;
       const written = await store.replaceGameInstalledVersion(
         game.id,
         game.installedVersion ?? null,

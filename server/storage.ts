@@ -222,6 +222,7 @@ function buildImportConfigFromSettings(
     | "sortExtras"
     | "upgradeReplaceMode"
     | "folderForSingleFiles"
+    | "addonSubfolders"
   >
 ): ImportConfig {
   const parsed = importConfigSchema.safeParse({
@@ -238,6 +239,7 @@ function buildImportConfigFromSettings(
     sortExtras: settings?.sortExtras ?? false,
     upgradeReplaceMode: settings?.upgradeReplaceMode ?? "off",
     folderForSingleFiles: settings?.folderForSingleFiles ?? true,
+    addonSubfolders: settings?.addonSubfolders ?? false,
   });
 
   if (parsed.success) return parsed.data;
@@ -256,6 +258,7 @@ function buildImportConfigFromSettings(
     sortExtras: settings?.sortExtras ?? false,
     upgradeReplaceMode: "off",
     folderForSingleFiles: settings?.folderForSingleFiles ?? true,
+    addonSubfolders: settings?.addonSubfolders ?? false,
   };
 }
 
@@ -424,6 +427,9 @@ export interface IStorage {
   upsertAchievementProgress(
     progress: Omit<InsertGameAchievementProgress, "id">
   ): Promise<GameAchievementProgress>;
+  /** Drop every stored row of one provider for the user (the linked account changed). */
+  /** Forget a provider's rows of one user: all of them, or only those of the given games. */
+  deleteAchievementProgress(userId: string, provider: string, gameIds?: string[]): Promise<void>;
 
   // Direct-download (DDL) jobs
   addDdlJob(job: InsertDdlJob): Promise<DdlJob>;
@@ -1093,6 +1099,17 @@ export class MemStorage implements IStorage {
     return [...this.achievementProgress.values()].filter((r) => r.userId === userId);
   }
 
+  async deleteAchievementProgress(
+    userId: string,
+    provider: string,
+    gameIds?: string[]
+  ): Promise<void> {
+    for (const [key, row] of this.achievementProgress) {
+      if (row.userId !== userId || row.provider !== provider) continue;
+      if (!gameIds || gameIds.includes(row.gameId)) this.achievementProgress.delete(key);
+    }
+  }
+
   async upsertAchievementProgress(
     progress: Omit<InsertGameAchievementProgress, "id">
   ): Promise<GameAchievementProgress> {
@@ -1147,11 +1164,7 @@ export class MemStorage implements IStorage {
     const game = this.games.get(id);
     if (!game) return undefined;
     if (options?.preserveCurated && isUserCuratedGameStatus(game.status)) return undefined;
-    if (options?.syncSource) {
-      if (game.status === "downloading") return undefined;
-      if (game.status === "wanted" && !options.allowWanted) return undefined;
-      if (isUserCuratedGameStatus(game.status) && game.statusSyncSource === null) return undefined;
-    }
+    if (options?.syncSource && isSyncBlocked(game, options.allowWanted)) return undefined;
 
     const leavingWanted = game.status === "wanted" && statusUpdate.status !== "wanted";
 
@@ -2359,6 +2372,7 @@ export class MemStorage implements IStorage {
       sortExtras: insertSettings.sortExtras ?? false,
       upgradeReplaceMode: insertSettings.upgradeReplaceMode ?? "off",
       folderForSingleFiles: insertSettings.folderForSingleFiles ?? true,
+      addonSubfolders: insertSettings.addonSubfolders ?? false,
 
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
@@ -3637,6 +3651,23 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(gameAchievementProgress)
       .where(eq(gameAchievementProgress.userId, userId));
+  }
+
+  async deleteAchievementProgress(
+    userId: string,
+    provider: string,
+    gameIds?: string[]
+  ): Promise<void> {
+    if (gameIds && gameIds.length === 0) return;
+    await db
+      .delete(gameAchievementProgress)
+      .where(
+        and(
+          eq(gameAchievementProgress.userId, userId),
+          eq(gameAchievementProgress.provider, provider),
+          gameIds ? inArray(gameAchievementProgress.gameId, gameIds) : undefined
+        )
+      );
   }
 
   async upsertAchievementProgress(
@@ -6076,3 +6107,10 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+/** Whether a sync-sourced status change must leave the game alone. */
+function isSyncBlocked(game: Game, allowWanted?: boolean): boolean {
+  if (game.status === "downloading") return true;
+  if (game.status === "wanted" && !allowWanted) return true;
+  return isUserCuratedGameStatus(game.status) && game.statusSyncSource === null;
+}

@@ -77,12 +77,16 @@ async function getJson<T>(apiKey: string, path: string): Promise<T> {
  * the answer has no gamertag. A key whose account cannot be told apart from another is refused,
  * because a switch of account would go unnoticed and keep the old progress.
  */
-export async function verifyXboxKey(apiKey: string): Promise<string> {
+export async function verifyXboxKey(apiKey: string): Promise<{
+  username: string;
+  accountId?: string;
+}> {
   const account = await getJson<AccountResponse>(apiKey, "/account");
   const user = account.profileUsers?.[0];
   const gamertag = user?.settings?.find((s) => s.id?.toLowerCase() === "gamertag")?.value?.trim();
-  if (gamertag) return gamertag;
-  if (user?.id) return `Xbox ${user.id}`;
+  // The XUID is what stays when the gamertag is renamed.
+  if (gamertag) return { username: gamertag, ...(user?.id ? { accountId: String(user.id) } : {}) };
+  if (user?.id) return { username: `Xbox ${user.id}`, accountId: String(user.id) };
   throw new XboxRequestError("OpenXBL did not say which account the key belongs to.");
 }
 
@@ -96,7 +100,13 @@ export async function fetchXboxTitles(apiKey: string): Promise<XboxTitle[]> {
     const rawTitles = data.titles ?? [];
     // Titles that come without achievement counts mean the answer is not shaped as expected: report
     // it instead of reading it as "no progress", which would erase the stored progress.
-    if (rawTitles.length > 0 && !rawTitles.some((t) => t.name && t.achievement !== undefined)) {
+    if (
+      rawTitles.some(
+        (t) =>
+          typeof t.achievement?.totalAchievements !== "number" ||
+          typeof t.achievement.currentAchievements !== "number"
+      )
+    ) {
       throw new XboxRequestError("OpenXBL sent an unreadable answer.");
     }
     for (const t of rawTitles) {

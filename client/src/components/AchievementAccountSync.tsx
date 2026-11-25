@@ -80,16 +80,17 @@ export function AchievementAccountSync({
   };
 
   const saveAccount = useMutation({
-    mutationFn: async () =>
+    mutationFn: async (submitted: { username: string; secret: string }) =>
       (
         await apiRequest("PUT", `${apiPath}/credentials`, {
-          ...(usernameLabel ? { username: (username ?? status?.username ?? "").trim() } : {}),
-          ...(secret.trim() ? { [secretBodyKey]: secret.trim() } : {}),
+          ...(usernameLabel ? { username: submitted.username } : {}),
+          ...(submitted.secret ? { [secretBodyKey]: submitted.secret } : {}),
         })
       ).json(),
-    onSuccess: (next: AchievementAccountStatus) => {
-      setUsername(null);
-      setSecret("");
+    onSuccess: (next: AchievementAccountStatus, submitted) => {
+      // Keep what the user typed while the save was pending: only the submitted values are cleared.
+      setUsername((current) => (current?.trim() === submitted.username ? null : current));
+      setSecret((current) => (current.trim() === submitted.secret ? "" : current));
       applyStatus(next);
     },
   });
@@ -140,7 +141,10 @@ export function AchievementAccountSync({
           event.preventDefault();
           if (!canSave) return;
           clearErrors();
-          saveAccount.mutate();
+          saveAccount.mutate({
+            username: (username ?? status?.username ?? "").trim(),
+            secret: secret.trim(),
+          });
         }}
       >
         {usernameLabel && (

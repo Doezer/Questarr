@@ -415,6 +415,76 @@ describe.each(activeTestDialects())("PlayStation and Xbox sync (%s)", (dialect) 
       expect((await xbox.xboxAccount.getStatus(userId)).lastError).toMatch(/Xbox/);
     });
 
+    it("keeps the progress when the gamertag is renamed but the account id is the same", async () => {
+      await xbox.xboxAccount.sync(userId, { now: T0 });
+      fixtures.safeFetch.mockImplementation(async () =>
+        json({ profileUsers: [{ id: "1", settings: [{ id: "Gamertag", value: "Renamed" }] }] })
+      );
+      await xbox.xboxAccount.saveAccount(userId, {});
+      expect((await xbox.xboxAccount.getStatus(userId)).username).toBe("Renamed");
+      expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+
+      fixtures.safeFetch.mockImplementation(async () =>
+        json({ profileUsers: [{ id: "2", settings: [{ id: "Gamertag", value: "Other" }] }] })
+      );
+      await xbox.xboxAccount.saveAccount(userId, {
+        secret: "zzzz1234-ef56-7890-abcd-ef1234567890",
+      });
+      expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(0);
+    });
+
+    it("rejects titles whose counts are missing instead of reading zero progress", async () => {
+      await xbox.xboxAccount.sync(userId, { now: T0 });
+      fixtures.safeFetch.mockImplementation(async () =>
+        json({
+          titles: [
+            xboxTitle("1", "Halo Infinite", ["XboxSeries"], 20, 119),
+            {
+              titleId: "2",
+              name: "Other",
+              devices: ["XboxOne"],
+              achievement: { totalAchievements: 5 },
+            },
+          ],
+        })
+      );
+      await xbox.xboxAccount.sync(userId, { now: hours(13) });
+      const [row] = await ctx.storage.getUserAchievementProgress(userId);
+      expect(row).toMatchObject({ unlocked: 20 });
+      expect((await xbox.xboxAccount.getStatus(userId)).lastError).toMatch(/Xbox/);
+    });
+
+    it("keeps a failed read of an empty library as an error, not a success", async () => {
+      for (const game of await ctx.storage.getUserGames(userId, true)) {
+        await ctx.storage.removeGame(game.id);
+      }
+      fixtures.safeFetch.mockImplementation(async () => json({}, 500));
+      await xbox.xboxAccount.sync(userId, { now: T0 });
+      const status = await xbox.xboxAccount.getStatus(userId);
+      expect(status.lastError).not.toBeNull();
+    });
+
+    it("drops the in-flight run when only the key changes", async () => {
+      await xbox.xboxAccount.sync(userId, { now: T0 });
+      expect((await xbox.xboxAccount.getStatus(userId)).lastSyncAt).not.toBeNull();
+      await xbox.xboxAccount.saveAccount(userId, {
+        secret: "zzzz1234-ef56-7890-abcd-ef1234567890",
+      });
+      const status = await xbox.xboxAccount.getStatus(userId);
+      expect(status.lastSyncAt).toBeNull();
+      expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+    });
+
+    it("fetches nothing when the sync was turned off before the run took its baseline", async () => {
+      await xbox.xboxAccount.setEnabled(userId, false);
+      fixtures.safeFetch.mockClear();
+      expect(await xbox.xboxAccount.sync(userId, { force: true })).toEqual({
+        gamesSynced: 0,
+        newUnlocks: 0,
+      });
+      expect(fixtures.safeFetch).not.toHaveBeenCalled();
+    });
+
     it("reports a rate limit as an upstream failure", async () => {
       await xbox.xboxAccount.clearAccount(userId);
       answerXbox([], 429);

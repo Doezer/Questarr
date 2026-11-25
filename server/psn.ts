@@ -168,7 +168,7 @@ export async function fetchPsnTrophyTitles(npsso: string): Promise<PsnTrophyTitl
     const results = data.trophyTitles ?? [];
     // Sets that come without trophy counts mean the answer is not shaped as expected: report it
     // instead of reading it as "no progress", which would erase the stored progress.
-    if (results.length > 0 && !results.some((t) => t.trophyTitleName && t.definedTrophies)) {
+    if (results.some((t) => !t.definedTrophies || !t.earnedTrophies)) {
       throw new PsnRequestError("PlayStation sent an unreadable answer.");
     }
     for (const t of results) {

@@ -1,20 +1,59 @@
-import { normalizeTitle } from "../shared/title-utils.js";
-
 /** Lowercase letters and digits only, so "Sega Mega Drive/Genesis" and "sega-mega-drive genesis" meet. */
 export const squash = (value: string) => value.toLowerCase().replaceAll(/[^a-z0-9]+/g, "");
+
+/** Region and disc markers of a release name; any other parenthetical (an edition) stays in the key. */
+const RELEASE_TAGS = new Set([
+  "usa",
+  "europe",
+  "japan",
+  "world",
+  "korea",
+  "asia",
+  "australia",
+  "brazil",
+  "canada",
+  "china",
+  "france",
+  "germany",
+  "italy",
+  "netherlands",
+  "russia",
+  "spain",
+  "sweden",
+  "taiwan",
+  "uk",
+  "en",
+  "fr",
+  "de",
+  "es",
+  "it",
+  "ja",
+  "nl",
+  "pt",
+  "sv",
+]);
+const isReleaseTag = (tag: string) => {
+  const t = tag.trim().toLowerCase();
+  return RELEASE_TAGS.has(t) || /^(?:disc|cd) ?\d+$/.test(t);
+};
 
 /** Titles with region tags and alternative names reduced to comparable keys. */
 export function titleKeys(title: string): string[] {
   return title
     .split(/\s+\|\s+/)
     .map((part) =>
-      normalizeTitle(
-        part
-          .normalize("NFD")
-          .replaceAll(/[̀-ͯ]/g, "") // Pokémon and Pokemon are the same title
-          .replaceAll(/[™®©]/g, " ")
-          .replaceAll(/\([^)]*\)/g, " ")
-      )
+      part
+        .normalize("NFD")
+        .replaceAll(/[̀-ͯ]/g, "") // Pokémon and Pokemon are the same title
+        .replaceAll(/[™®©]/g, " ")
+        .replaceAll(/\(([^()]*)\)/g, (_m, inner: string) =>
+          inner.split(",").every(isReleaseTag) ? " " : ` ${inner} `
+        )
+        .toLowerCase()
+        // Letters and digits of every script: 大神 is a title, not punctuation.
+        .replaceAll(/[^\p{L}\p{N}\s]/gu, " ")
+        .replaceAll(/\s+/g, " ")
+        .trim()
     )
     .filter(Boolean);
 }

@@ -27,6 +27,8 @@ import { OWNED_GAME_STATUSES, type Game } from "../shared/schema.js";
 export interface AccountCredentials {
   /** The account the progress belongs to, as the provider reports it. */
   username: string;
+  /** Stable id of the account when the name can change (a gamertag rename is not a new account). */
+  accountId?: string | undefined;
   /** Decrypted secret (API key, token). Never logged and never returned by the API. */
   secret: string;
 }
@@ -50,11 +52,17 @@ export interface AccountProviderDefinition {
    * Check the secret against the provider and return the canonical account name. `username` is
    * what the user typed, when the provider asks for one. Throws when the secret is refused.
    */
-  verify(input: { username: string | null; secret: string }): Promise<string>;
+  verify(input: { username: string | null; secret: string }): Promise<string | VerifiedAccount>;
   /** Read the progress of the tracked games. Throws when the provider cannot be read. */
   read(credentials: AccountCredentials, tracked: Game[]): Promise<AccountProgress>;
   /** The error means the secret is refused: one failure is reported instead of one per game. */
   isAuthError(error: unknown): boolean;
+}
+
+/** What a provider reports about an accepted secret: the name to show and, optionally, a stable id. */
+export interface VerifiedAccount {
+  username: string;
+  accountId?: string | undefined;
 }
 
 export class AccountSecretRequiredError extends Error {}
@@ -95,6 +103,7 @@ function withAccountLock<T>(key: string, task: () => Promise<T>): Promise<T> {
 interface StoredCredentials {
   username: string;
   apiKey: string;
+  accountId?: string;
 }
 
 function parseStored(raw: string | null | undefined): StoredCredentials | null {
@@ -103,7 +112,13 @@ function parseStored(raw: string | null | undefined): StoredCredentials | null {
     const parsed = JSON.parse(raw) as Partial<StoredCredentials>;
     if (typeof parsed.username !== "string" || !parsed.username) return null;
     if (typeof parsed.apiKey !== "string" || !parsed.apiKey) return null;
-    return { username: parsed.username, apiKey: parsed.apiKey };
+    return {
+      username: parsed.username,
+      apiKey: parsed.apiKey,
+      ...(typeof parsed.accountId === "string" && parsed.accountId
+        ? { accountId: parsed.accountId }
+        : {}),
+    };
   } catch {
     return null;
   }
@@ -111,25 +126,30 @@ function parseStored(raw: string | null | undefined): StoredCredentials | null {
 
 export function createAccountAchievements(def: AccountProviderDefinition): AccountAchievements {
   async function getCredentials(userId: string): Promise<AccountCredentials | null> {
-    const stored = parseStored(await storage.getSystemConfig(def.credentialsKey(userId)));
-    if (!stored) return null;
-    try {
-      const secret = await decryptCredential(stored.apiKey);
-      return secret ? { username: stored.username, secret } : null;
-    } catch {
-      // Do not log the value: a secret that no longer decrypts counts as not saved.
-      return null;
-    }
+    return (await readAccount(userId)).credentials;
   }
 
-  /** The saved account name, readable even when the secret no longer decrypts. */
-  async function getStoredUsername(userId: string): Promise<string | null> {
+  /**
+   * The saved account from one read of its record: the credentials when the secret decrypts, and
+   * the account key (stable id, else name) even when it no longer does. Storage errors propagate.
+   */
+  async function readAccount(
+    userId: string
+  ): Promise<{ credentials: AccountCredentials | null; key: string | null }> {
+    const stored = parseStored(await storage.getSystemConfig(def.credentialsKey(userId)));
+    if (!stored) return { credentials: null, key: null };
+    const key = (stored.accountId ?? stored.username).toLowerCase();
     try {
-      const raw = await storage.getSystemConfig(def.credentialsKey(userId));
-      const username = raw ? (JSON.parse(raw) as { username?: unknown }).username : null;
-      return typeof username === "string" && username ? username : null;
+      const secret = await decryptCredential(stored.apiKey);
+      return {
+        credentials: secret
+          ? { username: stored.username, accountId: stored.accountId, secret }
+          : null,
+        key,
+      };
     } catch {
-      return null;
+      // Do not log the value: a secret that no longer decrypts counts as not saved.
+      return { credentials: null, key };
     }
   }
 
@@ -144,7 +164,8 @@ export function createAccountAchievements(def: AccountProviderDefinition): Accou
     },
 
     async identity(userId) {
-      return (await getCredentials(userId))?.username.toLowerCase() ?? null;
+      const { credentials, key } = await readAccount(userId);
+      return credentials ? key : null;
     },
 
     async scheduledUserIds() {
@@ -166,7 +187,8 @@ export function createAccountAchievements(def: AccountProviderDefinition): Accou
         return { entries, failed: 0, dropped };
       } catch (error) {
         // The request can hold the secret: report the failure without the error.
-        return { entries: [], failed: def.isAuthError(error) ? 1 : tracked.length };
+        // At least one failure, so a failed read of an empty library is not recorded as a success.
+        return { entries: [], failed: def.isAuthError(error) ? 1 : Math.max(1, tracked.length) };
       }
     },
   };
@@ -176,11 +198,18 @@ export function createAccountAchievements(def: AccountProviderDefinition): Accou
     getCredentials,
 
     async getStatus(userId) {
-      const [status, credentials] = await Promise.all([
-        getAchievementsStatus(provider, userId),
-        getCredentials(userId),
-      ]);
-      return { ...status, username: credentials?.username ?? null };
+      // One view of the account: a removal cannot land between the reads of the three parts.
+      return withCommitLock(provider, userId, async () => {
+        const [status, credentials] = await Promise.all([
+          getAchievementsStatus(provider, userId),
+          getCredentials(userId),
+        ]);
+        return {
+          ...status,
+          available: credentials !== null,
+          username: credentials?.username ?? null,
+        };
+      });
     },
 
     /**
@@ -191,23 +220,32 @@ export function createAccountAchievements(def: AccountProviderDefinition): Accou
      */
     saveAccount(userId, input) {
       return withAccountLock(`${def.id}:${userId}`, async () => {
-        const current = await getCredentials(userId);
-        const previousUsername = current?.username ?? (await getStoredUsername(userId));
+        const { credentials: current, key: previousKey } = await readAccount(userId);
         const secret = input.secret ?? current?.secret;
         if (!secret) throw new AccountSecretRequiredError();
-        const username = await def.verify({ username: input.username ?? null, secret });
+        const verified = await def.verify({ username: input.username ?? null, secret });
+        const { username, accountId } =
+          typeof verified === "string" ? { username: verified, accountId: undefined } : verified;
         const accountChanged =
-          previousUsername !== null && previousUsername.toLowerCase() !== username.toLowerCase();
+          previousKey !== null && previousKey !== (accountId ?? username).toLowerCase();
+        const secretChanged = current !== null && current.secret !== secret;
         const encryptedSecret = await encryptCredential(secret);
         await withCommitLock(provider, userId, async () => {
           if (accountChanged) {
             // The run is invalidated first, so a sync still in flight cannot write the old account back.
             await resetAchievementsRun(provider, userId);
             await storage.deleteAchievementProgress(userId, def.id);
+          } else if (secretChanged) {
+            // A request made with the old secret must not record its failure against the new one.
+            await resetAchievementsRun(provider, userId);
           }
           await storage.setSystemConfig(
             def.credentialsKey(userId),
-            JSON.stringify({ username, apiKey: encryptedSecret })
+            JSON.stringify({
+              username,
+              apiKey: encryptedSecret,
+              ...(accountId ? { accountId } : {}),
+            })
           );
         });
       });
@@ -229,7 +267,8 @@ export function createAccountAchievements(def: AccountProviderDefinition): Accou
 
     setEnabled: (userId, enabled) => setAchievementsEnabled(provider, userId, enabled),
 
-    sync: (userId, options) => syncAchievements(provider, userId, options),
+    sync: (userId, options) =>
+      syncAchievements(provider, userId, { ...options, requireEnabled: true }),
 
     runScheduled: () => runScheduledAchievementsSync(provider),
   };

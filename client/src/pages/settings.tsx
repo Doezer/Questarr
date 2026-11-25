@@ -33,7 +33,9 @@ import {
   Archive,
   Filter,
   Trophy,
+  Wand2,
 } from "lucide-react";
+import { routePaths } from "@/lib/routes";
 import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -1646,6 +1648,24 @@ export default function SettingsPage() {
           <PlatformsSettings />
 
           <TagsSettings />
+
+          <Card id="setup-wizard">
+            <CardHeader>
+              <div className="flex items-center space-x-3">
+                <Wand2 className="h-5 w-5 text-muted-foreground" />
+                <CardTitle as="h2" className="text-lg">
+                  Setup wizard
+                </CardTitle>
+              </div>
+              <CardDescription>
+                Answer a few questions about your platforms and how you use Questarr, and only see
+                the settings that matter to you. Services you already configured can be skipped.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => navigate(routePaths.setupWizard)}>Run the setup wizard</Button>
+            </CardContent>
+          </Card>
         </SettingsPanel>
 
         <SettingsPanel id="discovery" active={activeTab}>

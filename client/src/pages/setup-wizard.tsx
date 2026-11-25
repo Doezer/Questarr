@@ -58,9 +58,8 @@ export default function SetupWizardPage() {
   }, [loaded, status.configured, wizardState.data?.state]);
 
   const steps = useMemo(
-    () =>
-      visibleWizardSteps(answers, snapshot ?? {}, onlyUnconfigured && index > 0).filter(hasScreen),
-    [answers, snapshot, onlyUnconfigured, index]
+    () => visibleWizardSteps(answers, snapshot ?? {}, onlyUnconfigured).filter(hasScreen),
+    [answers, snapshot, onlyUnconfigured]
   );
   const safeIndex = Math.min(index, steps.length - 1);
   const step = steps[safeIndex];

@@ -316,23 +316,25 @@ export function questProgress(
     case "backlog_cleanup":
     case "monthly_finisher":
       return completed.size;
-    case "backlog_slayer": {
-      let count = 0;
-      for (const id of touched) {
-        const game = gameById.get(id);
-        if (game && isOld(game, p.startDay, toDay)) count++;
-      }
-      return count;
-    }
-    case "retro_explorer": {
-      let count = 0;
-      for (const id of touched) {
-        const game = gameById.get(id);
-        if (game && isRetro(game)) count++;
-      }
-      return count;
-    }
+    case "backlog_slayer":
+      return countTouched(touched, gameById, (game) => isOld(game, p.startDay, toDay));
+    case "retro_explorer":
+      return countTouched(touched, gameById, isRetro);
   }
+}
+
+/** Counts the touched games that are known and satisfy the predicate. */
+function countTouched<G>(
+  touched: ReadonlySet<string>,
+  gameById: ReadonlyMap<string, G>,
+  matches: (game: G) => boolean
+): number {
+  let count = 0;
+  for (const id of touched) {
+    const game = gameById.get(id);
+    if (game && matches(game)) count++;
+  }
+  return count;
 }
 
 export interface QuestMedal {

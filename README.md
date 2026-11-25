@@ -8,7 +8,6 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/doezer/questarr?logo=docker&logoColor=white)](https://hub.docker.com/r/doezer/questarr)
 [![GHCR](https://img.shields.io/badge/ghcr.io-questarr-blue?logo=github&logoColor=white)](https://github.com/Doezer/Questarr/pkgs/container/questarr)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/questarr)](https://artifacthub.io/packages/search?repo=questarr)
 [![License](https://img.shields.io/github/license/Doezer/Questarr)](https://github.com/Doezer/Questarr/blob/main/COPYING)
 [![GitHub release](https://img.shields.io/github/v/release/Doezer/Questarr)](https://github.com/Doezer/Questarr/releases)
 [![GitHub release date](https://img.shields.io/github/release-date/Doezer/Questarr)](https://github.com/Doezer/Questarr/releases)

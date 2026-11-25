@@ -479,18 +479,21 @@ describe.each(activeTestDialects())("PlayStation and Xbox sync (%s)", (dialect) 
       await xbox.xboxAccount.sync(userId, { now: T0 });
       let release: (value: unknown) => void = () => {};
       const gate = new Promise((resolve) => (release = resolve));
+      let markRequestStarted: (value: unknown) => void = () => {};
+      const requestStarted = new Promise((resolve) => (markRequestStarted = resolve));
       fixtures.safeFetch.mockImplementation(async (url: string) => {
         if (String(url).endsWith("/account")) {
           return json({
             profileUsers: [{ id: "1", settings: [{ id: "Gamertag", value: "MasterChief" }] }],
           });
         }
+        markRequestStarted(undefined);
         await gate;
         return json({ titles: [xboxTitle("1", "Halo Infinite", ["XboxSeries"], 99, 119)] });
       });
       fixtures.notify.mockClear();
       const running = xbox.xboxAccount.sync(userId, { now: hours(13) });
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await requestStarted;
       await xbox.xboxAccount.saveAccount(userId, {
         secret: "zzzz1234-ef56-7890-abcd-ef1234567890",
       });

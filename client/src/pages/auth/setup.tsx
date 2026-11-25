@@ -96,7 +96,7 @@ export default function SetupPage() {
       await checkSetup();
       toast({ title: "Setup complete! Welcome." });
       // Force reload to pick up auth state or navigate
-      window.location.href = withBasePath("/");
+      window.location.href = withBasePath("/setup-wizard");
     },
     onError: (error: Error) => {
       toast({

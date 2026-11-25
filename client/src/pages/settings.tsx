@@ -3,6 +3,8 @@ import { SteamLibraryImport } from "@/components/SteamLibraryImport";
 import { SteamPlaytimeSync } from "@/components/SteamPlaytimeSync";
 import { SteamAchievementsSync } from "@/components/SteamAchievementsSync";
 import { RetroAchievementsSync } from "@/components/RetroAchievementsSync";
+import { PsnAchievementsSync } from "@/components/PsnAchievementsSync";
+import { XboxAchievementsSync } from "@/components/XboxAchievementsSync";
 import { PlayniteSyncStatus } from "@/components/PlayniteSyncStatus";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient, useIsMutating } from "@tanstack/react-query";
@@ -2471,6 +2473,8 @@ export default function SettingsPage() {
           <SteamPlaytimeSync />
           <SteamAchievementsSync />
           <RetroAchievementsSync />
+          <PsnAchievementsSync />
+          <XboxAchievementsSync />
 
           <PlayniteSyncStatus />
 

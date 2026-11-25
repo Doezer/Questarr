@@ -29,6 +29,62 @@ export interface QuestsResponse {
 
 const HISTORY_LIMIT = 30;
 
+interface SettleContext {
+  userId: string;
+  zone: PlayStatsZone;
+  now: Date;
+  today: number;
+  games: Parameters<typeof questProgress>[1];
+  eventInputs: Parameters<typeof questProgress>[2];
+  sessionInputs: Parameters<typeof questProgress>[3];
+}
+
+/** Brings one quest up to date, notifying the user when it completes, and returns its new state. */
+async function settleQuest(quest: Quest, ctx: SettleContext): Promise<Quest> {
+  if (quest.status !== "active") return quest;
+  const { userId, zone, now, today } = ctx;
+  const period = quest.period as QuestPeriod;
+  const progress = Math.min(
+    quest.target,
+    questProgress(
+      {
+        kind: quest.kind as QuestKind,
+        period,
+        periodStart: quest.periodStart,
+        gameId: quest.gameId,
+      },
+      ctx.games,
+      ctx.eventInputs,
+      ctx.sessionInputs,
+      zone
+    )
+  );
+  const ended = today >= periodFromStart(period, quest.periodStart).endDay;
+  let status = "active";
+  if (progress >= quest.target) status = "completed";
+  else if (ended) status = "missed";
+  if (progress === quest.progress && status === quest.status) return quest;
+
+  const completedAt = status === "completed" ? now : null;
+  const changed = await storage.updateQuest(quest.id, { progress, status, completedAt });
+  if (!changed) {
+    // Another sync already settled this quest; show what is stored.
+    const stored = (await storage.getUserQuests(userId)).find((q) => q.id === quest.id);
+    return stored ?? quest;
+  }
+  if (status === "completed") {
+    const notification = await storage.addNotification({
+      userId,
+      type: "success",
+      title: "Quest completed",
+      message: `You completed a ${quest.period === "week" ? "weekly" : "monthly"} backlog quest.`,
+      link: "/stats",
+    });
+    notifyUser("notification", notification, userId);
+  }
+  return { ...quest, progress, status, completedAt };
+}
+
 /**
  * Makes sure the current week and month have their quests, brings the open ones up to date
  * (completed, or missed once their period is over) and returns what the quest card shows.
@@ -71,51 +127,9 @@ export async function syncQuests(
 
   const synced: Quest[] = [];
   for (const quest of all) {
-    if (quest.status !== "active") {
-      synced.push(quest);
-      continue;
-    }
-    const period = quest.period as QuestPeriod;
-    const progress = Math.min(
-      quest.target,
-      questProgress(
-        {
-          kind: quest.kind as QuestKind,
-          period,
-          periodStart: quest.periodStart,
-          gameId: quest.gameId,
-        },
-        games,
-        eventInputs,
-        sessionInputs,
-        zone
-      )
+    synced.push(
+      await settleQuest(quest, { userId, zone, now, today, games, eventInputs, sessionInputs })
     );
-    const ended = today >= periodFromStart(period, quest.periodStart).endDay;
-    const status = progress >= quest.target ? "completed" : ended ? "missed" : "active";
-    if (progress === quest.progress && status === quest.status) {
-      synced.push(quest);
-      continue;
-    }
-    const completedAt = status === "completed" ? now : null;
-    const changed = await storage.updateQuest(quest.id, { progress, status, completedAt });
-    if (changed && status === "completed") {
-      const notification = await storage.addNotification({
-        userId,
-        type: "success",
-        title: "Quest completed",
-        message: `You completed a ${quest.period === "week" ? "weekly" : "monthly"} backlog quest.`,
-        link: "/stats",
-      });
-      notifyUser("notification", notification, userId);
-    }
-    if (changed) {
-      synced.push({ ...quest, progress, status, completedAt });
-    } else {
-      // Another sync already settled this quest; show what is stored.
-      const stored = (await storage.getUserQuests(userId)).find((q) => q.id === quest.id);
-      synced.push(stored ?? quest);
-    }
   }
 
   const currentStarts = new Set(periods.map((p) => `${p.period}:${p.start}`));

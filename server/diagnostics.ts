@@ -263,6 +263,23 @@ function clip(text: string): string {
   return text.length > MAX_ERROR_TEXT ? `${text.slice(0, MAX_ERROR_TEXT)}…` : text;
 }
 
+function parseLogLine(line: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function errorFieldMessage(errorField: unknown): string {
+  if (typeof errorField === "string") return errorField;
+  if (errorField && typeof errorField === "object" && "message" in errorField) {
+    return String((errorField as { message: unknown }).message);
+  }
+  return "";
+}
+
 /**
  * Groups warn/error/fatal NDJSON lines by module and message so a long log
  * collapses into "21x HTTP 401 ..." rather than 21 near-identical lines.
@@ -270,25 +287,12 @@ function clip(text: string): string {
 export function summarizeErrors(lines: string[]): ErrorGroup[] {
   const groups = new Map<string, ErrorGroup>();
   for (const line of lines) {
-    let entry: Record<string, unknown>;
-    try {
-      const parsed: unknown = JSON.parse(line);
-      if (!parsed || typeof parsed !== "object") continue;
-      entry = parsed as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    if (typeof entry.level !== "number" || entry.level < 40) continue;
+    const entry = parseLogLine(line);
+    if (!entry || typeof entry.level !== "number" || entry.level < 40) continue;
 
     const module = typeof entry.module === "string" ? entry.module : "unknown";
-    const errorField = entry.error;
-    const errorMessage =
-      typeof errorField === "string"
-        ? errorField
-        : errorField && typeof errorField === "object" && "message" in errorField
-          ? String((errorField as { message: unknown }).message)
-          : "";
     const msg = typeof entry.msg === "string" ? entry.msg : "";
+    const errorMessage = errorFieldMessage(entry.error);
     const message = clip(scrubFreeText([msg, errorMessage].filter(Boolean).join(": ")));
     const time = typeof entry.time === "string" ? entry.time : null;
 

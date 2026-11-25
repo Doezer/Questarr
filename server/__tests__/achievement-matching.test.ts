@@ -14,6 +14,11 @@ describe("titleKeys", () => {
     expect(titleKeys("Game (Remake)")).not.toEqual(titleKeys("Game"));
   });
 
+  it("treats a list of language codes as a release marker", () => {
+    expect(titleKeys("Game (Europe) (En,Da)")).toEqual(titleKeys("Game"));
+    expect(titleKeys("Game (No,Fi,Pl)")).toEqual(["game"]);
+  });
+
   it("splits alternative names and strips trademark signs", () => {
     expect(titleKeys("Doom™ | Doom 2016")).toEqual(["doom", "doom 2016"]);
   });

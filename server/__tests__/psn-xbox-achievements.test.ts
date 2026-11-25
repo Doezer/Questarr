@@ -475,6 +475,33 @@ describe.each(activeTestDialects())("PlayStation and Xbox sync (%s)", (dialect) 
       expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
     });
 
+    it("ignores an old response that arrives after the key changed", async () => {
+      await xbox.xboxAccount.sync(userId, { now: T0 });
+      let release: (value: unknown) => void = () => {};
+      const gate = new Promise((resolve) => (release = resolve));
+      fixtures.safeFetch.mockImplementation(async (url: string) => {
+        if (String(url).endsWith("/account")) {
+          return json({
+            profileUsers: [{ id: "1", settings: [{ id: "Gamertag", value: "MasterChief" }] }],
+          });
+        }
+        await gate;
+        return json({ titles: [xboxTitle("1", "Halo Infinite", ["XboxSeries"], 99, 119)] });
+      });
+      fixtures.notify.mockClear();
+      const running = xbox.xboxAccount.sync(userId, { now: hours(13) });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await xbox.xboxAccount.saveAccount(userId, {
+        secret: "zzzz1234-ef56-7890-abcd-ef1234567890",
+      });
+      release(undefined);
+      await running;
+      const [row] = await ctx.storage.getUserAchievementProgress(userId);
+      expect(row).toMatchObject({ unlocked: 20 });
+      expect((await xbox.xboxAccount.getStatus(userId)).lastSyncAt).toBeNull();
+      expect(fixtures.notify).not.toHaveBeenCalled();
+    });
+
     it("fetches nothing when the sync was turned off before the run took its baseline", async () => {
       await xbox.xboxAccount.setEnabled(userId, false);
       fixtures.safeFetch.mockClear();

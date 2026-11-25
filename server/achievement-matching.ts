@@ -32,6 +32,9 @@ const RELEASE_TAGS = new Set([
   "pt",
   "sv",
 ]);
+/** A list of language codes, "(En,Da)": a release marker whatever the languages are. */
+const isLanguageList = (tags: string[]) =>
+  tags.length >= 2 && tags.every((t) => /^[a-z]{2}$/.test(t.trim().toLowerCase()));
 const isReleaseTag = (tag: string) => {
   const t = tag.trim().toLowerCase();
   return RELEASE_TAGS.has(t) || /^(?:disc|cd) ?\d+$/.test(t);
@@ -47,7 +50,9 @@ export function titleKeys(title: string): string[] {
         .replaceAll(/[̀-ͯ]/g, "") // Pokémon and Pokemon are the same title
         .replaceAll(/[™®©]/g, " ")
         .replaceAll(/\(([^()]*)\)/g, (_m, inner: string) =>
-          inner.split(",").every(isReleaseTag) ? " " : ` ${inner} `
+          inner.split(",").every(isReleaseTag) || isLanguageList(inner.split(","))
+            ? " "
+            : ` ${inner} `
         )
         .toLowerCase()
         // Letters and digits of every script: 大神 is a title, not punctuation.

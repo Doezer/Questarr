@@ -1663,7 +1663,18 @@ export default function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button onClick={() => navigate(routePaths.setupWizard)}>Run the setup wizard</Button>
+              <Button
+                onClick={() => navigate(routePaths.setupWizard)}
+                disabled={guardUnload}
+                aria-describedby={guardUnload ? "setup-wizard-unsaved" : undefined}
+              >
+                Run the setup wizard
+              </Button>
+              {guardUnload && (
+                <p id="setup-wizard-unsaved" className="mt-2 text-xs text-muted-foreground">
+                  Save or discard your changes first.
+                </p>
+              )}
             </CardContent>
           </Card>
         </SettingsPanel>

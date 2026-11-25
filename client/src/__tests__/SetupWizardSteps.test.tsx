@@ -29,6 +29,7 @@ function baseRoutes(): Record<string, unknown> {
     "/api/retroachievements": { available: false },
     "/api/settings/nexusmods": { configured: false },
     "/api/settings/apprise": { configured: false },
+    "/api/auth/me": { steamId64: null },
     "/api/settings": {
       importPlatformIds: [],
       autoSearchEnabled: true,
@@ -190,6 +191,7 @@ describe("setup wizard steps", () => {
     wizardState = "never";
     routes["/api/config"] = { igdb: { configured: true } };
     routes["/api/settings/steam"] = { apiKeyConfigured: true };
+    routes["/api/auth/me"] = { steamId64: "76561198000000000" };
     routes["/api/settings/nexusmods"] = { configured: true };
     wrap(<SetupWizardPage />);
     await screen.findByText("About your setup");
@@ -202,6 +204,20 @@ describe("setup wizard steps", () => {
     await waitFor(() =>
       expect(screen.getByTestId("wizard-progress-label")).not.toHaveTextContent(/of 4$/)
     );
+  });
+});
+
+describe("setup wizard load failure", () => {
+  it("offers a retry and a way out when the state cannot be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 500 }))
+    );
+    wrap(<SetupWizardPage />);
+    await screen.findByText(/could not be loaded/i);
+    fireEvent.click(screen.getByRole("button", { name: /leave the wizard/i }));
+    expect(navigate).toHaveBeenCalledWith("/");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 });
 

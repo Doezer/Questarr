@@ -28,17 +28,19 @@ export interface WizardStatus {
   indexerCount: number;
   downloaderCount: number;
   isLoading: boolean;
+  /** True once the status was read again after this page opened (not a cached answer). */
+  isFresh: boolean;
   refresh: () => void;
 }
 
 /** What is already set up, read from the same endpoints the Settings pages use. */
 export function useWizardStatus(): WizardStatus {
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isFetchedAfterMount, refetch } = useQuery({
     queryKey: ["/api/system/setup-wizard", "status"],
     // The wizard is where configuration changes, so never serve a stale answer.
     staleTime: 0,
     queryFn: async () => {
-      const [config, indexers, downloaders, steam, retro, nexus, apprise, settings] =
+      const [config, indexers, downloaders, steam, retro, nexus, apprise, settings, me] =
         await Promise.all([
           getJson<{ igdb?: { configured?: boolean } }>("/api/config"),
           getJson<unknown[]>("/api/indexers"),
@@ -47,9 +49,8 @@ export function useWizardStatus(): WizardStatus {
           getJson<{ available?: boolean }>("/api/retroachievements"),
           getJson<{ configured?: boolean }>("/api/settings/nexusmods"),
           getJson<{ configured?: boolean }>("/api/settings/apprise"),
-          getJson<{ importPlatformIds?: number[] | null; steamId64?: string | null }>(
-            "/api/settings"
-          ),
+          getJson<{ importPlatformIds?: number[] | null }>("/api/settings"),
+          getJson<{ steamId64?: string | null }>("/api/auth/me"),
         ]);
       const indexerCount = Array.isArray(indexers) ? indexers.length : 0;
       const downloaderCount = Array.isArray(downloaders) ? downloaders.length : 0;
@@ -58,7 +59,8 @@ export function useWizardStatus(): WizardStatus {
         platforms: Boolean(settings?.importPlatformIds?.length),
         indexers: indexerCount > 0,
         downloaders: downloaderCount > 0,
-        steam: Boolean(steam?.apiKeyConfigured),
+        // Both the key and the account's Steam ID are needed for the Steam features.
+        steam: Boolean(steam?.apiKeyConfigured && me?.steamId64),
         retroachievements: Boolean(retro?.available),
         nexusmods: Boolean(nexus?.configured),
         notifications: Boolean(apprise?.configured),
@@ -72,6 +74,7 @@ export function useWizardStatus(): WizardStatus {
     indexerCount: data?.indexerCount ?? 0,
     downloaderCount: data?.downloaderCount ?? 0,
     isLoading,
+    isFresh: isFetchedAfterMount,
     refresh,
   };
 }

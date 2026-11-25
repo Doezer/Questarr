@@ -7,6 +7,7 @@ const navigate = vi.fn();
 vi.mock("wouter", () => ({ useLocation: () => ["/setup-wizard", navigate] }));
 
 let wizardState = "pending";
+const calls: { method: string; path: string; body?: unknown }[] = [];
 const routes: Record<string, unknown> = {
   "/api/config": { igdb: { configured: true } },
   "/api/indexers": [],
@@ -15,16 +16,23 @@ const routes: Record<string, unknown> = {
   "/api/retroachievements": { available: false },
   "/api/settings/nexusmods": { configured: false },
   "/api/settings/apprise": { configured: false },
+  "/api/auth/me": { steamId64: null },
   "/api/settings": { importPlatformIds: [], questsEnabled: true, telemetryEnabled: false },
 };
 
 beforeEach(() => {
   navigate.mockReset();
+  calls.length = 0;
   wizardState = "pending";
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
       const path = String(url).replace(/^.*(?=\/api)/, "");
+      calls.push({
+        method: init?.method ?? "GET",
+        path,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
       const body =
         path === "/api/system/setup-wizard"
           ? { state: init?.method === "PUT" ? "done" : wizardState }
@@ -64,5 +72,10 @@ describe("SetupWizardPage", () => {
     await screen.findByText("About your setup");
     fireEvent.click(screen.getByRole("button", { name: /skip wizard/i }));
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/"));
+    expect(calls).toContainEqual({
+      method: "PUT",
+      path: "/api/system/setup-wizard",
+      body: { state: "done" },
+    });
   });
 });

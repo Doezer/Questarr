@@ -43,7 +43,7 @@ export default function SetupWizardPage() {
   const [snapshot, setSnapshot] = useState<WizardConfigured | null>(null);
   const initialised = useRef(false);
 
-  const loaded = !status.isLoading && wizardState.data !== undefined;
+  const loaded = !status.isLoading && status.isFresh && wizardState.data !== undefined;
   useEffect(() => {
     if (initialised.current || !loaded) return;
     initialised.current = true;
@@ -82,6 +82,20 @@ export default function SetupWizardPage() {
   useEffect(() => {
     if (onSummary) refreshStatus();
   }, [onSummary, refreshStatus]);
+
+  if (wizardState.isError) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-3 p-6" role="alert">
+        <p className="text-sm">The setup wizard could not be loaded.</p>
+        <div className="flex gap-2">
+          <Button onClick={() => void wizardState.refetch()}>Retry</Button>
+          <Button variant="ghost" onClick={() => navigate("/")}>
+            Leave the wizard
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   if (!loaded || !step) {
     return (

@@ -1300,7 +1300,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Save IGDB creds if provided (format already validated above).
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
       // A brand-new install goes through the setup wizard next (older installs are only offered it).
-      await storage.setSystemConfig(SETUP_WIZARD_KEY, "pending");
+      // Not fatal: the account already exists, so a failure here must not hide that from the caller.
+      try {
+        await storage.setSystemConfig(SETUP_WIZARD_KEY, "pending");
+      } catch (error) {
+        routesLogger.warn({ error }, "could not mark the setup wizard as pending");
+      }
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
       // Cookie-based auth is the primary mechanism for browser clients (see

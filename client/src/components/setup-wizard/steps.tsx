@@ -35,6 +35,14 @@ export interface StepProps {
   status: WizardStatus;
 }
 
+/** Queries other pages read the saved settings from, so they do not serve a stale answer. */
+function useInvalidate() {
+  const queryClient = useQueryClient();
+  return (...keys: string[]) => {
+    for (const key of keys) void queryClient.invalidateQueries({ queryKey: [key] });
+  };
+}
+
 function useSaveError() {
   const { toast } = useToast();
   return (error: Error) =>
@@ -73,12 +81,14 @@ function SecretKeyField({
 }>) {
   const { toast } = useToast();
   const onError = useSaveError();
+  const invalidate = useInvalidate();
   const [apiKey, setApiKey] = useState("");
   const save = useMutation({
     mutationFn: async () => (await apiRequest("POST", endpoint, { apiKey: apiKey.trim() })).json(),
     onSuccess: () => {
       toast({ title: toastTitle });
       setApiKey("");
+      invalidate(endpoint, "/api/steam/playtime", "/api/steam/achievements");
       status.refresh();
     },
     onError,
@@ -199,7 +209,7 @@ export function QuestionsStep({
 export function IgdbStep({ status }: Readonly<StepProps>) {
   const { toast } = useToast();
   const onError = useSaveError();
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate();
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const configured = Boolean(status.configured.igdb);
@@ -209,7 +219,7 @@ export function IgdbStep({ status }: Readonly<StepProps>) {
     onSuccess: () => {
       toast({ title: "IGDB credentials saved" });
       setClientSecret("");
-      void queryClient.invalidateQueries({ queryKey: ["/api/config"] });
+      invalidate("/api/config", "/api/settings/igdb");
       status.refresh();
     },
     onError,
@@ -398,14 +408,15 @@ export function AutomationStep() {
 export function SteamStep({ status }: Readonly<StepProps>) {
   const { toast } = useToast();
   const onError = useSaveError();
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate();
   const [steamId, setSteamId] = useState("");
   const saveId = useMutation({
     mutationFn: async () =>
       (await apiRequest("PATCH", "/api/user/steam-id", { steamId: steamId.trim() })).json(),
     onSuccess: () => {
       toast({ title: "Steam ID saved" });
-      void queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      invalidate("/api/auth/me", "/api/steam/achievements", "/api/achievements/progress");
+      status.refresh();
     },
     onError,
   });

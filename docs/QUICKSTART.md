@@ -16,7 +16,7 @@ For Windows, download `QuestarrSetup-<version>-windows-x64.exe` from the
 release with the Windows installer attached. The installer
 sets up a Windows service and starts Questarr automatically.
 
-Open `http://localhost:5000` and follow the initial setup wizard. Keep the Docker
+Open `http://localhost:5000` and create your account; the setup wizard then asks which platforms you manage and whether Questarr should search and download, and shows only the settings that apply (you can run it again from **Settings → General → Setup wizard**). Keep the Docker
 `data` volume across upgrades. SQLite is the default; see [Database](DATABASE.md)
 for optional PostgreSQL and data migration.
 

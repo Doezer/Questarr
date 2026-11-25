@@ -3,6 +3,7 @@ import { SETTINGS_PAGES, settingsPagePath } from "@/lib/settings-pages";
 export const routePaths = {
   login: "/login",
   setup: "/setup",
+  setupWizard: "/setup-wizard",
   play: "/play",
   library: "/",
   discover: "/discover",
@@ -48,6 +49,7 @@ export function gameDetailsPath(gameId: string): string {
 export const appRoutePaths = [
   routePaths.login,
   routePaths.setup,
+  routePaths.setupWizard,
   routePaths.library,
   routePaths.discover,
   routePaths.search,

@@ -47,7 +47,7 @@ test.describe("Initial Setup", () => {
 
       // Wait for redirect, but if it lags, at least we know backend succeeded
       try {
-        await expect(page).toHaveURL("/", { timeout: 15000 });
+        await expect(page).toHaveURL(/\/(setup-wizard)?$/, { timeout: 15000 });
       } catch (e) {
         logger.info("Setup API 200 OK, but redirect timeout: %s", e);
         const errorText = await page

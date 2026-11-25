@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Setup wizard**: a step-by-step wizard (`/setup-wizard`) asks which platforms you manage games for, whether Questarr should search and download, and whether you want notifications, then shows only the settings that apply: IGDB, platforms, indexers, download clients, automatic search, import, Steam, RetroAchievements, NexusMods, Apprise, quests and error reports. A new install opens it right after the account is created. Installs that predate it see a dismissible prompt once, and the wizard then skips what is already configured (a switch turns that off). It can be run again from **Settings → General → Setup wizard**. State is kept by `GET`/`PUT /api/system/setup-wizard` (Questarr-mgmt#124).
 - **RetroAchievements sync**: add your RetroAchievements username and Web API key in **Settings** to track the achievement progress of your retro games next to Steam. The key is stored encrypted and checked against your account when saved. The sync matches games by title and console, runs every 12 hours or with **Sync now**, and the first run only records your current progress. Both providers now share the same sync engine (Questarr-mgmt#78, #1431).
 - **Weekly and monthly backlog quests**: each week and month Questarr picks a few quests from your owned and playing games (Weekend Sprint, Backlog Cleanup, Backlog Slayer, Retro Explorer, Monthly Finisher). Progress follows status changes and play sessions, finished and missed quests are kept as history, medals are earned along the way, and the month's backlog progress is shown on **Stats** and **Playing**. Turn them off in **Settings → Backlog quests**. See [Backlog roulette](BACKLOG_ROULETTE.md#backlog-quests) (#1416).
 - **ZimaOS store**: Questarr can be installed on ZimaOS from its own third-party store, and the home-server guide and the release checklist now cover it. The CasaOS AppFile is kept as the legacy option. See [Home server apps](HOME_SERVER_APPS.md#zimaos) (#1408).
@@ -98,7 +99,7 @@ Inventory from `scripts/cve-report.mjs` / `scripts/cwe-report.mjs` against OSV.d
   - **CVE-2026-125334** (MODERATE, CWE-476) — TLS client crash on a handshake record received without a session
   - **CVE-2026-125332** (MODERATE, CWE-20 and CWE-248) — TLS client crash on an unsupported ServerHello compression method
   - **CVE-2026-125335** (LOW, CWE-347) — Ed25519 signature verification accepts small-order public keys
-- **fast-xml-parser** 5.11.2 → 5.12.0 — fixes **CVE-2026-126066** (LOW, CWE-407): quadratic CPU consumption scanning unterminated stop-node tags
+- **fast-xml-parser** 5.11.2 → 5.12.1 — fixes **CVE-2026-126066** (LOW, CWE-407): quadratic CPU consumption scanning unterminated stop-node tags
 - **minimatch** 10.2.5 → 11.0.9 — fixes **CVE-2026-118764** / GHSA-g3hv-75wg-m249 (MODERATE, CWE-405): denial of service via globparts amplification; pinned with an `overrides` entry because the only production consumer is `archiver` → `readdir-glob` (not listed by `scripts/cve-report.mjs`, added by hand from OSV.dev)
 
 #### First-party fixes

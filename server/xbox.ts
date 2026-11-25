@@ -73,15 +73,17 @@ async function getJson<T>(apiKey: string, path: string): Promise<T> {
 }
 
 /**
- * Check an OpenXBL key and return the gamertag it belongs to. A key that works but does not say
- * its gamertag is accepted under a generic name.
+ * Check an OpenXBL key and return the account it belongs to: the gamertag, or the account id when
+ * the answer has no gamertag. A key whose account cannot be told apart from another is refused,
+ * because a switch of account would go unnoticed and keep the old progress.
  */
 export async function verifyXboxKey(apiKey: string): Promise<string> {
   const account = await getJson<AccountResponse>(apiKey, "/account");
-  const gamertag = account.profileUsers?.[0]?.settings?.find(
-    (s) => s.id?.toLowerCase() === "gamertag"
-  )?.value;
-  return gamertag && gamertag.trim() ? gamertag.trim() : "Xbox account";
+  const user = account.profileUsers?.[0];
+  const gamertag = user?.settings?.find((s) => s.id?.toLowerCase() === "gamertag")?.value?.trim();
+  if (gamertag) return gamertag;
+  if (user?.id) return `Xbox ${user.id}`;
+  throw new XboxRequestError("OpenXBL did not say which account the key belongs to.");
 }
 
 /** Every title the account has played, with its achievement counts (titles without any are left out). */
@@ -91,7 +93,13 @@ export async function fetchXboxTitles(apiKey: string): Promise<XboxTitle[]> {
   for (let page = 0; page < MAX_PAGES; page++) {
     const query = token ? `?continuationToken=${encodeURIComponent(token)}` : "";
     const data = await getJson<AchievementsResponse>(apiKey, `/achievements${query}`);
-    for (const t of data.titles ?? []) {
+    const rawTitles = data.titles ?? [];
+    // Titles that come without achievement counts mean the answer is not shaped as expected: report
+    // it instead of reading it as "no progress", which would erase the stored progress.
+    if (rawTitles.length > 0 && !rawTitles.some((t) => t.name && t.achievement !== undefined)) {
+      throw new XboxRequestError("OpenXBL sent an unreadable answer.");
+    }
+    for (const t of rawTitles) {
       const total = t.achievement?.totalAchievements ?? 0;
       if (t.titleId === undefined || !t.name || total <= 0) continue;
       const played = t.titleHistory?.lastTimePlayed

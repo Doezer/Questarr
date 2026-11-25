@@ -166,6 +166,11 @@ export async function fetchPsnTrophyTitles(npsso: string): Promise<PsnTrophyTitl
       `/users/me/trophyTitles?limit=${PAGE_SIZE}&offset=${offset}`
     );
     const results = data.trophyTitles ?? [];
+    // Sets that come without trophy counts mean the answer is not shaped as expected: report it
+    // instead of reading it as "no progress", which would erase the stored progress.
+    if (results.length > 0 && !results.some((t) => t.trophyTitleName && t.definedTrophies)) {
+      throw new PsnRequestError("PlayStation sent an unreadable answer.");
+    }
     for (const t of results) {
       const total = sumTrophies(t.definedTrophies);
       if (!t.npCommunicationId || !t.trophyTitleName || total === 0) continue;

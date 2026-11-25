@@ -283,6 +283,14 @@ describe.each(activeTestDialects())("PlayStation and Xbox sync (%s)", (dialect) 
       expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(0);
     });
 
+    it("keeps the stored progress when the answer has an unexpected shape", async () => {
+      await psn.psnAccount.sync(userId, { now: T0 });
+      expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+      answerPsn([{ npCommunicationId: "NPWR1", trophyTitleName: "Astro Bot" } as never]);
+      await psn.psnAccount.sync(userId, { now: hours(13) });
+      expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+    });
+
     it("reports a refused token as a sync error without the token", async () => {
       answerPsn([], { code: null });
       expect(await psn.psnAccount.sync(userId, { now: T0 })).toEqual({
@@ -378,6 +386,33 @@ describe.each(activeTestDialects())("PlayStation and Xbox sync (%s)", (dialect) 
         .send({ apiKey: XBL_KEY });
       expect(refused.status).toBe(400);
       expect(refused.body.error).toMatch(/OpenXBL/);
+    });
+
+    it("falls back to the account id when there is no gamertag, and refuses a nameless key", async () => {
+      await xbox.xboxAccount.clearAccount(userId);
+      fixtures.safeFetch.mockImplementation(async () =>
+        json({ profileUsers: [{ id: "2535400000000001", settings: [] }] })
+      );
+      await xbox.xboxAccount.saveAccount(userId, { secret: XBL_KEY });
+      expect((await xbox.xboxAccount.getStatus(userId)).username).toBe("Xbox 2535400000000001");
+
+      await xbox.xboxAccount.clearAccount(userId);
+      fixtures.safeFetch.mockImplementation(async () => json({ profileUsers: [] }));
+      await expect(xbox.xboxAccount.saveAccount(userId, { secret: XBL_KEY })).rejects.toThrow(
+        /which account/
+      );
+      expect((await xbox.xboxAccount.getStatus(userId)).available).toBe(false);
+    });
+
+    it("keeps the stored progress when the answer has an unexpected shape", async () => {
+      await xbox.xboxAccount.sync(userId, { now: T0 });
+      expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+      fixtures.safeFetch.mockImplementation(async () =>
+        json({ titles: [{ titleId: "1", name: "Halo Infinite", progress: 20 }] })
+      );
+      await xbox.xboxAccount.sync(userId, { now: hours(13) });
+      expect(await ctx.storage.getUserAchievementProgress(userId)).toHaveLength(1);
+      expect((await xbox.xboxAccount.getStatus(userId)).lastError).toMatch(/Xbox/);
     });
 
     it("reports a rate limit as an upstream failure", async () => {

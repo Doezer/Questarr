@@ -18,8 +18,18 @@ test.describe("System pages (1.7.0)", () => {
   });
 
   test("Backups creates a backup, lists it, offers download and deletes it", async ({ page }) => {
+    const loaded = page.waitForResponse(
+      (r) => r.url().includes("/api/system/backups") && r.request().method() === "GET"
+    );
     await page.goto("/system/backups");
-    await expect(page.getByRole("heading", { name: "Backups" })).toBeVisible();
+    await loaded;
+    await expect(
+      page.getByRole("main").getByRole("heading", { name: "Backups", exact: true })
+    ).toBeVisible();
+    // The list or its empty state is up, so the snapshot below really is what is on the server.
+    await expect(
+      page.getByRole("list", { name: "Saved backups" }).or(page.getByText("No backup yet"))
+    ).toBeVisible();
     const existing = await page
       .locator('[data-testid^="backup-"]')
       .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));

@@ -61,7 +61,7 @@ export function reportSignature(groups: ErrorGroup[], tail: string[] = []): stri
   const keys = groups
     .slice(0, MAX_SUMMARY_GROUPS)
     .map((group) => `${group.module}|${group.message}`)
-    .sort();
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return hashText(keys.join("\n"));
 }
 

@@ -179,6 +179,22 @@ describe("scrubPii usernames", () => {
     expect(scrubPii("login username=[alice] next=1")).toBe("login username=[user] next=1");
   });
 
+  it("masks apostrophes inside an unquoted username", () => {
+    expect(scrubPii("login username=O'Connor next=1")).toBe("login username=[user] next=1");
+    expect(scrubPii("login username=d'Artagnan'")).toBe("login username=[user]");
+  });
+
+  it("stops at an encoded line break in a JSON line but not in plain text", () => {
+    const json = JSON.stringify({ msg: "username=alice\nstatus=failed" });
+    const result = scrubPii(json);
+    expect(JSON.parse(result).msg).toBe("username=[user]\nstatus=failed");
+
+    expect(scrubPii(String.raw`user username=ACME\nancy next=1`)).toBe(
+      "user username=[user] next=1"
+    );
+    expect(scrubPii(String.raw`user username=ACME\tom next=1`)).toBe("user username=[user] next=1");
+  });
+
   it("masks a domain-qualified username entirely", () => {
     expect(scrubPii(String.raw`user username=ACME\alice next=1`)).toBe(
       "user username=[user] next=1"

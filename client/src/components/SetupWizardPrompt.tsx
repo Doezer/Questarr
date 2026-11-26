@@ -4,6 +4,8 @@ import { Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/queryClient";
 import { routePaths } from "@/lib/routes";
+import { STEP_RENDERERS } from "@/components/setup-wizard/steps";
+import { INITIAL_WIZARD_REVISION, wizardStepsSince } from "@shared/setup-wizard";
 import {
   SETUP_WIZARD_STATE_KEY,
   useSetupWizardState,
@@ -24,7 +26,14 @@ export default function SetupWizardPrompt() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: SETUP_WIZARD_STATE_KEY }),
   });
 
-  if (!data || data.state === "done" || location === routePaths.setupWizard) return null;
+  if (!data || location === routePaths.setupWizard) return null;
+
+  // Someone who finished the wizard is only reminded when later releases added steps it can show.
+  const newSteps =
+    data.state === "done"
+      ? wizardStepsSince(data.seenRevision ?? INITIAL_WIZARD_REVISION, (id) => id in STEP_RENDERERS)
+      : [];
+  if (data.state === "done" && newSteps.length === 0) return null;
 
   return (
     <div
@@ -34,9 +43,13 @@ export default function SetupWizardPrompt() {
     >
       <Wand2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
       <p className="min-w-0 flex-1">
-        {data.state === "pending"
-          ? "Finish setting up Questarr with a few questions."
-          : "Questarr has new settings. Answer a few questions and only see the ones that matter to you."}
+        {data.state === "done"
+          ? `New in Questarr: ${newSteps.map((s) => s.title).join(", ")}. Open the wizard to set ${
+              newSteps.length === 1 ? "it" : "them"
+            } up.`
+          : data.state === "pending"
+            ? "Finish setting up Questarr with a few questions."
+            : "Questarr has new settings. Answer a few questions and only see the ones that matter to you."}
       </p>
       <Button size="sm" onClick={() => navigate(routePaths.setupWizard)}>
         Open wizard

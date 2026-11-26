@@ -46,3 +46,45 @@ that match the page search and filters. The pool is fixed to **Currently
 playing**, and there is no **Mark as Playing** action because those games
 already have that status. The toolbar wraps at narrower widths to keep the
 picker reachable in both Library and Playing.
+
+## Weight the draw
+
+Open the extra options in the dialog to steer the draw instead of leaving it to
+pure chance:
+
+- **Favour**: **Pure chance** (default), **Oldest first**, **Quick wins** or
+  **Highest rated**. The favoured games are drawn more often; the others can
+  still come up.
+- **Mood**: **Any mood**, **Relaxing**, **Short and sweet** or **Co-op**, based on
+  the genres, themes and modes stored on each game.
+- **Genre** and **Platform** narrow the pool further.
+- **Only installed games** keeps only games already installed.
+
+**Not now** snoozes the shown game so it stays out of the next draws for a
+while; the snooze is kept in this browser. **Bring them back** clears all
+snoozes. A skipped game is not offered again until the pool runs dry.
+
+## Backlog quests
+
+If you would rather be given a goal than draw one, Questarr offers a few quests
+each period from your owned and playing games. They show on **Stats** (with the
+history) and on **Playing**.
+
+| Quest                | Period | Goal                                                            |
+| -------------------- | ------ | --------------------------------------------------------------- |
+| **Weekend Sprint**   | Week   | Finish a game of under 6 hours from your backlog.               |
+| **Backlog Cleanup**  | Week   | Finish any game from your backlog.                              |
+| **Backlog Slayer**   | Month  | Play or finish 3 games added more than a year before the month. |
+| **Retro Explorer**   | Month  | Play or finish a game released before 2005.                     |
+| **Monthly Finisher** | Month  | Finish 2 games from your backlog.                               |
+
+Each period gets up to two quests, picked in a stable order so reloading the
+page does not change them. Progress follows your status changes and play
+sessions; only finishing a game that was in your backlog counts. A quest ends as
+**Completed**, or **Missed** once its period is over, and stays in the history.
+Completing quests unlocks medals (Sprinter, Backlog Slayer, Retro Explorer,
+Regular for five quests). The card also shows how much of the month's backlog
+you have cleared.
+
+Turn the quests, medals and backlog progress off in **Settings → Backlog
+quests**.

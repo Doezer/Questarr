@@ -136,7 +136,7 @@ flowchart TB
 
 ### Direct Steam owned-library import
 
-The browser's Settings → Integrations view preselects untracked owned Steam games,
+The browser's Settings → Connections view preselects untracked owned Steam games,
 with search and 50-row preview pages. `steam-library-routes.ts` provides preview,
 synchronous compatibility import, bulk-job start, progress and retry endpoints
 behind the authentication/CSRF boundary. `steam-library-jobs.ts` persists one

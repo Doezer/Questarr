@@ -16,7 +16,7 @@ may still label the provider "QuestarrNG" in its own UI.
 
 ## Set up
 
-1. In Questarr, open **Settings → Integrations → API Keys** and create a key with the access
+1. In Questarr, open **Settings → Connections → API Keys** and create a key with the access
    **Game requests (SeerrNG)**. Pick an expiry (or **Never**) and copy the key; Questarr stores only a hash.
 2. In SeerrNG, add a software provider pointing to your Questarr address and paste the key.
 3. Turn on **auto-search** in Questarr (Settings → Search). A request is added to the library as

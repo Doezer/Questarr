@@ -13,7 +13,7 @@ folder** and runs the normal import pipeline on them. A premium Real-Debrid acco
    the code, and approve. Questarr stores the resulting tokens encrypted on the server; they never
    reach the browser.
 4. Optional: instead of Connect, paste a private API token from
-   <https://real-debrid.com/apitoken> into the password field.
+   [https://real-debrid.com/apitoken](https://real-debrid.com/apitoken) into the password field.
 
 ## How it behaves
 
@@ -26,6 +26,14 @@ folder** and runs the normal import pipeline on them. A premium Real-Debrid acco
   the staged copy is deleted. Otherwise the staged folder stays until you remove the download.
 - Expired access tokens are refreshed automatically. If Real-Debrid rejects the credentials, use
   **Reconnect**.
+
+## Direct-download links
+
+Real-Debrid can also fetch file-hoster links, not only torrents. On a game, open the **Download** menu and choose **Add download links**:
+
+- Paste the links, one per line or a whole post (forum text and BBCode are fine): Questarr keeps the http(s) links, drops the duplicates and the trailing punctuation.
+- Or attach a DLC, CCF or RSDF container file.
+- Up to 500 links per job. Real-Debrid fetches them, then Questarr copies the files to the staging folder and imports them like a torrent.
 
 ## Notes
 

@@ -19,7 +19,7 @@ rather than starting with an invalid configuration.
 | Variable                                | Purpose                                                            | Required?                                                                                                                                                                                                                     |
 | --------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `JWT_SECRET`                            | Signs/verifies session JWTs                                        | No — auto-generated and persisted to the DB if unset (§2)                                                                                                                                                                     |
-| `NEXUSMODS_API_KEY`                     | NexusMods mod lookups                                              | No — validated by `envSchema`; can be set later in Settings → Integrations (§3)                                                                                                                                               |
+| `NEXUSMODS_API_KEY`                     | NexusMods mod lookups                                              | No — validated by `envSchema`; can be set later in Settings → Connections (§3)                                                                                                                                                |
 | `STEAM_API_KEY`                         | Steam achievements in a game's Journal tab                         | No — can also be saved in Settings → Steam (§3); without a key the achievements section is simply hidden                                                                                                                      |
 | `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | Twitch/IGDB OAuth for game metadata & discovery                    | No env-wise, but one of env/DB must be set for discovery to work                                                                                                                                                              |
 | `PORT`                                  | HTTP port                                                          | No (default `5000`)                                                                                                                                                                                                           |
@@ -343,7 +343,7 @@ points operators at is on the safe side of the fix.
       indexer/downloader credentials stay decryptable across DB resets
       (`openssl rand -hex 32`).
 - [ ] Set IGDB and (optionally) NexusMods credentials via `.env` or
-      Settings → Integrations.
+      Settings → Connections.
 - [ ] Restrict who has login access to the app — Questarr has no per-user
       role scoping, so any account holder can use every configured
       indexer/downloader (though the API keys/passwords themselves are

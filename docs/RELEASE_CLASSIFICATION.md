@@ -21,7 +21,7 @@ A release that no layer can classify is `unknown`. It is never turned into `full
 
 ## Settings page
 
-Everything below can be changed in Settings > Discovery & Downloads > Release classification,
+Everything below can be changed in Settings > Release Scoring > Release classification,
 without restarting: the classification type, the local model confidence, holding unclassifiable
 releases, and the active-learning options (collection, cloud suggestions, the low-confidence
 threshold and the candidate limit). The card also shows whether a local model is installed (and
@@ -181,7 +181,7 @@ training example.
 
 ### Review
 
-Settings > Discovery & Downloads > Release classification review lists pending candidates, most
+Settings > Release Scoring > Release classification review lists pending candidates, most
 useful first: unresolved and disagreeing releases come before low-confidence ones, and a release
 whose likely class has few verified examples gets a bonus so the thin classes fill up. For each
 one you can verify a label (the local model's guess or the cloud suggestion is prefilled, not

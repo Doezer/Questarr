@@ -15,9 +15,21 @@ its staging code.
 2. **Downloaders → Add Downloader**, type **TorBox**.
 3. Paste the key in **API key**. It is stored encrypted on the server and never sent back to the
    browser.
-4. Set the **Staging Path**: a local folder (inside the container if you use Docker) with enough
-   room for the files. Each torrent is copied into `<staging>/<torrent id>/`.
+4. Choose how finished files are delivered with **Fetch files to this server** (see below).
+   If it is on, set the **Staging Path**: a local folder (inside the container if you use Docker)
+   with enough room for the files. Each torrent is copied into `<staging>/<torrent id>/`.
 5. Press **Test connection**, then save.
+
+## Link-only or local copy
+
+TorBox downloaders use **link-only** mode by default (**Fetch files to this server** off):
+finished downloads stay on TorBox, nothing is copied or imported, and no staging folder is needed.
+On the **Downloads** page a finished TorBox download shows **Copy link** and **Download**
+buttons. The link is requested when you press the button because TorBox links are short-lived:
+one file's direct link, or a zip when the torrent holds several files.
+
+Turn **Fetch files to this server** on to copy the files to the staging folder and import them like
+any other download, as described below. A downloader without an explicit choice is link-only.
 
 ## How it behaves
 

@@ -58,7 +58,7 @@ describe("send-logs utilities", () => {
     // labeled) by the API-key/token redaction pass rather than the
     // JWT-specific one -- either way the token value never survives.
     expect(scrubPii(input)).toBe(
-      "email=[email] ipv4=[ip] ipv6=[ip] uuid=[uuid] token=[redacted] unix=/home/[user]/questarr/logs/app.log win=C:\\Users\\[user]\\Questarr\\logs\\app.log"
+      "email=[email] ipv4=[ip:lan] ipv6=[ip:public] uuid=[uuid] token=[redacted] unix=/home/[user]/questarr/logs/app.log win=C:\\Users\\[user]\\Questarr\\logs\\app.log"
     );
   });
 
@@ -70,12 +70,12 @@ describe("send-logs utilities", () => {
 
   it("scrubs each line before joining them", () => {
     const privateIp = ["10", "0", "0", "1"].join(".");
-    expect(scrubLogLines(["user@example.com", privateIp])).toBe("[email]\n[ip]");
+    expect(scrubLogLines(["user@example.com", privateIp])).toBe("[email]\n[ip:lan]");
   });
 
   it("keeps clock timestamps while still scrubbing compressed IPv6 addresses", () => {
     expect(scrubPii("time=12:34:56 client=::1 local=fe80::")).toBe(
-      "time=12:34:56 client=[ip] local=[ip]"
+      "time=12:34:56 client=[ip:loopback] local=[ip:lan]"
     );
   });
 

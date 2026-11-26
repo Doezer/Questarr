@@ -133,3 +133,56 @@ describe("scrubPii", () => {
     expect(redactSecretText("token='ab}cd")).not.toMatch(/ab|cd/);
   });
 });
+
+describe("scrubPii usernames", () => {
+  it("masks the username of a failed login line and keeps the line valid JSON", () => {
+    const line =
+      '{"level":40,"time":1,"module":"routes","username":"jdupont","ip":"203.0.113.9","msg":"Failed login attempt"}';
+    const result = scrubPii(line);
+    expect(result).not.toContain("jdupont");
+    expect(JSON.parse(result)).toMatchObject({
+      username: "[user]",
+      ip: "[ip:public]",
+      msg: "Failed login attempt",
+    });
+  });
+
+  it("masks downloader usernames in objects, escaped JSON and plain text", () => {
+    expect(scrubPii('{"type":"qbittorrent","username":"admin","port":8080}')).toBe(
+      '{"type":"qbittorrent","username":"[user]","port":8080}'
+    );
+    const escaped = scrubPii(String.raw`body {\"username\":\"bob\",\"x\":1}`);
+    expect(escaped).not.toContain("bob");
+    expect(escaped).toContain(String.raw`\"x\":1`);
+    expect(scrubPii("login failed username=alice for host")).toBe(
+      "login failed username=[user] for host"
+    );
+  });
+
+  it("is idempotent", () => {
+    const once = scrubPii('{"username":"jdupont","ip":"10.0.0.2"}');
+    expect(scrubPii(once)).toBe(once);
+  });
+});
+
+describe("scrubPii IP classes", () => {
+  it.each([
+    ["127.0.0.1", "[ip:loopback]"],
+    ["10.1.2.3", "[ip:lan]"],
+    ["172.16.0.1", "[ip:lan]"],
+    ["172.32.0.1", "[ip:public]"],
+    ["192.168.1.20", "[ip:lan]"],
+    ["169.254.1.1", "[ip:lan]"],
+    ["8.8.8.8", "[ip:public]"],
+    ["::1", "[ip:loopback]"],
+    ["fe80::1", "[ip:lan]"],
+    ["fd12:3456:789a::1", "[ip:lan]"],
+    ["2001:db8::1", "[ip:public]"],
+  ])("classifies %s", (ip, expected) => {
+    expect(scrubPii(`connect ${ip} failed`)).toBe(`connect ${expected} failed`);
+  });
+
+  it("keeps localhost as is", () => {
+    expect(scrubPii("http://localhost:8080/api")).toBe("http://localhost:8080/api");
+  });
+});

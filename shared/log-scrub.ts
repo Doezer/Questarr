@@ -123,10 +123,10 @@ const WINDOWS_USERS_SEGMENT = String.raw`\Users`;
  */
 export function scrubPii(text: string): string {
   return redactSecretText(
-    scrubEmailAddresses(text)
+    scrubUsernames(scrubEmailAddresses(text))
       .replace(JWT_RE, "[jwt]") // before email — JWTs contain dots
-      .replace(IPV6_RE, (match) => (isIpv6(match) ? "[ip]" : match))
-      .replace(IPV4_RE, (match) => (isIpv4(match) ? "[ip]" : match))
+      .replace(IPV6_RE, (match) => (isIpv6(match) ? `[ip:${classifyIpv6(match)}]` : match))
+      .replace(IPV4_RE, (match) => (isIpv4(match) ? `[ip:${classifyIpv4(match)}]` : match))
       .replace(UUID_RE, "[uuid]")
       .replace(HOME_PATH_RE, (_match, _username: string) => {
         const prefix = _match.startsWith("/")
@@ -136,6 +136,33 @@ export function scrubPii(text: string): string {
         return `${prefix}${sep}[user]`;
       })
   );
+}
+
+/**
+ * Identity fields: the submitted login name (`Failed login attempt`), downloader / indexer
+ * account names. Not secrets for the server's own log, but personal data once a log leaves the
+ * instance. Handles JSON (`"username":"x"`), escaped JSON inside a message
+ * (`{\\"username\\":\\"x\\"}`) and plain `username=x` / `username: x` text.
+ */
+const USERNAME_KEY = String.raw`(?:user[_-]?name|login|account[_-]?name)`;
+const USERNAME_ESCAPED_RE = new RegExp(
+  String.raw`(\\["'])(${USERNAME_KEY})\1(\s*[:=]\s*)${escapedValue(4)}`,
+  "gi"
+);
+const USERNAME_FIELD_RE = new RegExp(
+  String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|[^"',\s&}]+)`,
+  "gi"
+);
+
+function scrubUsernames(text: string): string {
+  return text
+    .replace(
+      USERNAME_ESCAPED_RE,
+      (_m, quote: string, key: string, sep: string) => `${quote}${key}${quote}${sep}\\"[user]\\"`
+    )
+    .replace(USERNAME_FIELD_RE, (_m, quote: string, key: string, sep: string) =>
+      quote ? `${quote}${key}${quote}${sep}"[user]"` : `${key}=[user]`
+    );
 }
 
 function scrubEmailAddresses(text: string): string {
@@ -231,4 +258,30 @@ function isIpv6(value: string): boolean {
   if (compressedGroups.length === 1 && groups.length !== 8) return false;
 
   return groups.every((group) => group === "" || /^[0-9a-fA-F]{1,4}$/.test(group));
+}
+
+export type IpClass = "loopback" | "lan" | "public";
+
+/** Loopback, private (RFC 1918), link-local, CGNAT and unspecified ranges are not public. */
+function classifyIpv4(value: string): IpClass {
+  const [a = 0, b = 0] = value.split(".").map(Number);
+  if (a === 127) return "loopback";
+  if (
+    a === 0 ||
+    a === 10 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    (a === 100 && b >= 64 && b <= 127)
+  ) {
+    return "lan";
+  }
+  return "public";
+}
+
+function classifyIpv6(value: string): IpClass {
+  const lower = value.toLowerCase();
+  if (lower === "::1") return "loopback";
+  if (lower === "::" || /^f[cd]/.test(lower) || /^fe[89ab]/.test(lower)) return "lan";
+  return "public";
 }

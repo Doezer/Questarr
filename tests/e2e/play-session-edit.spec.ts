@@ -78,5 +78,8 @@ test.describe("Play session editing (1.7.0)", () => {
       startedAt: hoursAgo(1),
     });
     expect(missing.status()).toBe(404);
+
+    // Statistics ranks the most played games across the whole library, so leave no hours behind.
+    expect((await apiSend(page, "DELETE", `/api/games/${game.id}`)).ok()).toBe(true);
   });
 });

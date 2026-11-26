@@ -78,6 +78,16 @@ describe("report signature", () => {
   });
 });
 
+describe("report signature with many problems", () => {
+  it("does not change when only occurrence counts change", () => {
+    const many = (lastCount: number) =>
+      Array.from({ length: 12 }, (_, i) =>
+        group({ message: `problem ${i}`, count: i === 11 ? lastCount : 5 })
+      );
+    expect(reportSignature(many(1))).toBe(reportSignature(many(50)));
+  });
+});
+
 describe("report envelope", () => {
   it("puts a deduplicated summary and the scrubbed note at the top", () => {
     const envelope = buildReportEnvelope({
@@ -107,6 +117,16 @@ describe("report envelope", () => {
   it("clips and cleans the note", () => {
     expect(cleanNote("   ")).toBe("");
     expect(cleanNote("a".repeat(5000)).length).toBeLessThanOrEqual(1000);
+  });
+
+  it("removes quoted paths with spaces and UNC shares from the note", () => {
+    const quoted = cleanNote('Opened "/mnt/My Games/private" then crashed');
+    expect(quoted).not.toContain("Games");
+    expect(quoted).not.toContain("private");
+    const unc = cleanNote(String.raw`Pointed it at \\NASBOX\Media\Games today`);
+    expect(unc).not.toContain("NASBOX");
+    expect(unc).not.toContain("Media");
+    expect(cleanNote("Clicked search twice")).toBe("Clicked search twice");
   });
 });
 

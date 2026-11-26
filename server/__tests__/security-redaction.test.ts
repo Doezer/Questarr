@@ -131,6 +131,11 @@ describe("redactSecrets", () => {
       });
     });
 
+    it("redacts a secret-shaped name on an error-like object", () => {
+      const lookalike = { name: "Bearer sekrettoken123", message: "x", stack: "s" };
+      expect(JSON.stringify(redactSecrets({ err: lookalike }))).not.toContain("sekrettoken123");
+    });
+
     it("redacts secrets inside messages and causes and never emits the stack", () => {
       const error = new Error("login failed", { cause: new Error("token=abc123 rejected") });
       const result = JSON.stringify(redactSecrets(error));

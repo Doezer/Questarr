@@ -158,7 +158,7 @@ function isErrorLike(value: object): value is Error {
  */
 function serializeError(error: Error, depth: number): Record<string, unknown> {
   const serialized: Record<string, unknown> = {
-    name: error.name,
+    name: typeof error.name === "string" ? redactSecretText(error.name) : error.name,
     message: redactSecretText(error.message),
   };
   const fields = error as unknown as Record<string, unknown>;

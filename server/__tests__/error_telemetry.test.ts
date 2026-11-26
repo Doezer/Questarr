@@ -267,7 +267,7 @@ describe("error-telemetry", () => {
 
       await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
       vi.setSystemTime(new Date("2026-11-26T10:45:00Z"));
-      await reportServerError(new Error("different crash"), { source: "uncaughtException" });
+      await reportServerError(new Error("different crash"), { source: "expressErrorHandler" });
       expect(storageMock.addNotification).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();

@@ -324,7 +324,7 @@ export async function reportServerError(err: unknown, context: ErrorContext): Pr
       trigger: "auto",
       appVersion: APP_VERSION,
       platform: "server",
-      groups: summarizeErrors(diagnostics.lines),
+      groups: summarizeErrors(diagnostics.lines, Infinity),
       tail: diagnostics.lines,
       context: describeTrigger(context),
     });
@@ -345,11 +345,6 @@ export async function reportServerError(err: unknown, context: ErrorContext): Pr
       );
       return;
     }
-    recentSignatures = rememberReport(
-      { signature: dedupKey, sentAt: now },
-      recentSignatures,
-      SAME_PROBLEM_COOLDOWN_MS
-    );
     const body = diagnostics.block ? `${diagnostics.block}\n\n${bundle.logs}` : bundle.logs;
     const logs = `${envelope.header}\n\n${body}`;
     const { lineCount } = bundle;
@@ -376,16 +371,29 @@ export async function reportServerError(err: unknown, context: ErrorContext): Pr
       signature: envelope.signature,
     };
 
+    // Only a report that actually reached someone (uploaded, or a notification
+    // created) counts as "already reported"; a failed delivery stays retryable.
+    let delivered = autoSendResult?.ok === true;
     for (const ctx of contexts) {
       try {
         const notification = buildNotificationFor(ctx, autoSendResult, pending);
-        if (notification) await dispatchNotification(ctx, notification);
+        if (notification) {
+          await dispatchNotification(ctx, notification);
+          delivered = true;
+        }
       } catch (userError) {
         telemetryLogger.error(
           { error: userError, userId: ctx.user.id },
           "Failed to process error telemetry for user"
         );
       }
+    }
+    if (delivered) {
+      recentSignatures = rememberReport(
+        { signature: dedupKey, sentAt: Date.now() },
+        recentSignatures,
+        SAME_PROBLEM_COOLDOWN_MS
+      );
     }
   } catch (reportingError) {
     telemetryLogger.error({ error: reportingError }, "Failed to process automatic error report");

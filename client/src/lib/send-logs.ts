@@ -165,7 +165,7 @@ export function recordSentReport(signature: string, code: string, now: number): 
 
 /** The submission of the same problem in the last hour, if any. */
 export function findRecentDuplicate(logLines: string[], now: number): SentRecord | undefined {
-  const signature = reportSignature(summarizeErrors(logLines), logLines);
+  const signature = reportSignature(summarizeErrors(logLines, Infinity), logLines);
   return findDuplicateReport(signature, loadSentReports(), now);
 }
 
@@ -193,7 +193,7 @@ export function prepareReport(options: {
     trigger: "manual",
     appVersion: options.appVersion,
     platform: options.platform,
-    groups: summarizeErrors(options.logLines),
+    groups: summarizeErrors(options.logLines, Infinity),
     tail: options.logLines,
     note: options.note,
   });

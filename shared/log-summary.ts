@@ -24,6 +24,9 @@ export interface ErrorGroup {
 export function scrubFreeText(text: string): string {
   return (
     scrubPii(text)
+      // Whole quoted paths (spaces included) and UNC shares go before the host/path passes below.
+      .replace(/(["'])(?:\/|[A-Za-z]:\\|\\\\)[^"'\r\n]*\1/g, "[path]")
+      .replace(/\\\\[^\s"'\\]+(?:\\[^\s"'\\]+)*/g, "[path]")
       .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/"'<>]+/gi, "$1[host]")
       .replace(/\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|ECONNRESET)\s+\S+/g, "$1 [host]")
       .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b(?::\d+)?/gi, "[host]")
@@ -56,7 +59,7 @@ function describeLoggedError(field: unknown): string {
  * Groups warn/error/fatal NDJSON lines by module and message so a long log
  * collapses into "21x HTTP 401 ..." rather than 21 near-identical lines.
  */
-export function summarizeErrors(lines: string[]): ErrorGroup[] {
+export function summarizeErrors(lines: string[], limit: number = MAX_ERROR_GROUPS): ErrorGroup[] {
   const groups = new Map<string, ErrorGroup>();
   for (const line of lines) {
     let entry: Record<string, unknown>;
@@ -84,5 +87,5 @@ export function summarizeErrors(lines: string[]): ErrorGroup[] {
       groups.set(key, { count: 1, module, message, firstSeen: time, lastSeen: time });
     }
   }
-  return [...groups.values()].sort((a, b) => b.count - a.count).slice(0, MAX_ERROR_GROUPS);
+  return [...groups.values()].sort((a, b) => b.count - a.count).slice(0, limit);
 }

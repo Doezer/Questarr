@@ -58,8 +58,8 @@ export function reportSignature(groups: ErrorGroup[], tail: string[] = []): stri
     const stable = tail.slice(-20).map((line) => line.replace(/"time":"[^"]*"/, ""));
     return hashText(stable.join("\n"));
   }
+  // Every group counts: a display cap here would let a count change swap which problems are hashed.
   const keys = groups
-    .slice(0, MAX_SUMMARY_GROUPS)
     .map((group) => `${group.module}|${group.message}`)
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   return hashText(keys.join("\n"));

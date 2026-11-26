@@ -67,7 +67,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Rich Game Metadata**      | Game details enriched with IGDB, Steam, PCGamingWiki, ProtonDB and NexusMods. See time to beat, trending mods and ratings.                                                                                                                                                                                                                                                             |
 | **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                                                                                                                                                                                                                                       |
 | **Security Focused**        | Security first design, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](docs/SECURITY.md) for the full process.                                                                                                                                                                                                                  |
-| **Integrations**            | One-click install on UNRAID, ZimaOS, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, a Linux tarball with a systemd service, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                                                                     |
+| **Integrations**            | One-click install on UNRAID, ZimaOS, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, a Linux tarball with a systemd service, a macOS tarball with a launchd agent, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                                                                     |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                                                                      |
 
 ### Supported Indexers/Downloaders
@@ -184,6 +184,34 @@ under `/home` are read-only for the service; to allow them, run `sudo systemctl 
 `[Service]` followed by `ReadWritePaths=/path/to/library`, then `sudo systemctl restart questarr`.
 
 For archive extraction and notifications, install `7zip`, `unrar` and `apprise` on the host if you use those features.
+
+</details>
+
+### macOS (tarball, launchd)
+
+<details>
+<summary><b>Install on a Mac — no Docker, no Node.js to install</b></summary>
+
+Each release from the version that ships it on carries `questarr-<version>-macos-arm64.tar.gz` (Apple silicon)
+and `questarr-<version>-macos-x64.tar.gz` (Intel) with a `.sha256` file each on the
+[GitHub releases](https://github.com/Doezer/Questarr/releases) page. The archive bundles Node.js.
+
+```bash
+shasum -a 256 -c questarr-<version>-macos-arm64.tar.gz.sha256
+tar -xzf questarr-<version>-macos-arm64.tar.gz
+cd questarr && ./install.sh
+```
+
+The installer runs as your user (no `sudo`), puts the application and its data in
+`~/Library/Application Support/Questarr`, writes a `.env` once (port 5000, listening on this Mac only) and starts a
+launchd agent that runs Questarr at login. Open `http://localhost:5000`. To reach it from other devices, run the
+installer with `QUESTARR_HOST=0.0.0.0` on first install, or edit `HOST` in the `.env`. To update, extract the new
+archive and run `install.sh` again: your `.env` and `data/` are kept. Logs: `~/Library/Logs/Questarr/questarr.log`.
+Run `./uninstall.sh` to remove the agent and the application files (your data stays).
+
+The archives are not signed or notarized. If you download them in a browser, `install.sh` clears the macOS quarantine flag
+on the extracted files; if Gatekeeper still blocks `node`, run `xattr -dr com.apple.quarantine questarr`. macOS may ask
+once for permission to access folders such as Downloads or an external drive.
 
 </details>
 

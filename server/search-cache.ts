@@ -45,10 +45,10 @@ export function buildSearchCacheKey(input: SearchCacheKeyInput): string {
         i.timeoutSeconds ?? "",
       ].join("|")
     )
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
   return JSON.stringify([
     input.query.trim().toLowerCase(),
-    [...(input.category ?? [])].sort(),
+    [...(input.category ?? [])].sort((a, b) => a.localeCompare(b)),
     input.limit ?? 50,
     input.offset ?? 0,
     indexers,

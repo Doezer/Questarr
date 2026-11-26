@@ -129,7 +129,7 @@ describe("summarizeErrors", () => {
       firstSeen: "t1",
       lastSeen: "t2",
     });
-    expect(result[1]?.message).toBe("other: boom from [ip]");
+    expect(result[1]?.message).toBe("other: boom from [ip:lan]");
     expect(result).toHaveLength(2);
   });
 });
@@ -219,8 +219,10 @@ describe("buildDiagnosticsSnapshot", () => {
 
   it("removes the whole path after home-user and ip markers", () => {
     expect(scrubFreeText("open /home/alice/private/library failed")).toBe("open [path] failed");
-    expect(scrubFreeText("connect 10.0.0.5/private/dir")).toBe("connect [ip]");
-    expect(scrubFreeText("connect 10.0.0.5:9696/private/dir failed")).toBe("connect [ip] failed");
+    expect(scrubFreeText("connect 10.0.0.5/private/dir")).toBe("connect [ip:lan]");
+    expect(scrubFreeText("connect 10.0.0.5:9696/private/dir failed")).toBe(
+      "connect [ip:lan] failed"
+    );
     expect(scrubFreeText("open /mnt/private/library failed")).toBe("open [path] failed");
   });
 });

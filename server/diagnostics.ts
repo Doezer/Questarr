@@ -248,7 +248,7 @@ export function scrubFreeText(text: string): string {
       .replace(/\[host\](?::\d*)?\/[^\s"']*/g, "[host]")
       // `scrubPii` leaves `/home/[user]` and `[ip]` markers behind: take the rest of the path too.
       .replace(/\/home\/\[user\](?:\/[^\s"']*)?/g, "[path]")
-      .replace(/\[ip\](?::\d*)?\/[^\s"']*/g, "[ip]")
+      .replace(/(\[ip(?::[a-z]+)?\])(?::\d*)?\/[^\s"']*/g, "$1")
       .replace(/(?<![\w.:)\]])\/[\w.-]+(?:\/[\w.-]*)*/g, "[path]")
       .replace(/\b[A-Za-z]:\\[^\s"']+/g, "[path]")
   );

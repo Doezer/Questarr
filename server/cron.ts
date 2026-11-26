@@ -864,6 +864,30 @@ function registerCronTasks(): void {
       },
     },
     {
+      name: "psn-achievements",
+      title: "PlayStation trophies sync",
+      description:
+        "Refresh trophy progress of owned and playing PlayStation games for users who saved an NPSSO token and turned the sync on.",
+      intervalMs: STEAM_ACHIEVEMENTS_SYNC_INTERVAL_MS,
+      runOnStartup: false,
+      run: async () => {
+        const { psnAccount } = await import("./psn-sync.js");
+        await psnAccount.runScheduled();
+      },
+    },
+    {
+      name: "xbox-achievements",
+      title: "Xbox achievements sync",
+      description:
+        "Refresh achievement progress of owned and playing Xbox games for users who saved an OpenXBL key and turned the sync on.",
+      intervalMs: STEAM_ACHIEVEMENTS_SYNC_INTERVAL_MS,
+      runOnStartup: false,
+      run: async () => {
+        const { xboxAccount } = await import("./xbox-sync.js");
+        await xboxAccount.runScheduled();
+      },
+    },
+    {
       name: "romm-sync",
       title: "RomM sync",
       description: "Synchronise the library with the configured RomM server.",

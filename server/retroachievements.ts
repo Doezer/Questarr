@@ -1,5 +1,5 @@
 import { safeFetch } from "./ssrf.js";
-import { normalizeTitle } from "../shared/title-utils.js";
+import { matchByTitleAndPlatform, squash } from "./achievement-matching.js";
 
 /**
  * RetroAchievements Web API client and the matching of its games to the library.
@@ -154,8 +154,6 @@ export async function fetchRetroAchievementsProgress(
   return games;
 }
 
-const squash = (value: string) => value.toLowerCase().replaceAll(/[^a-z0-9]+/g, "");
-
 /**
  * RetroAchievements console name -> IGDB platform names. A console that is not listed is matched
  * on its own name.
@@ -208,21 +206,6 @@ export function consoleMatchesPlatforms(consoleName: string, platforms: string[]
   return platforms.some((p) => accepted.has(squash(p)));
 }
 
-/** Titles with region tags and alternative names reduced to comparable keys. */
-function titleKeys(title: string): string[] {
-  return title
-    .split(/\s+\|\s+/)
-    .map((part) =>
-      normalizeTitle(
-        part
-          .normalize("NFD")
-          .replaceAll(/[\u0300-\u036f]/g, "") // Pokémon and Pokemon are the same title
-          .replaceAll(/\([^)]*\)/g, " ")
-      )
-    )
-    .filter(Boolean);
-}
-
 /** Hacks, homebrew and subsets are not the game itself. */
 const isOfficialSet = (title: string) => !/(?:^~)|(?:\[Subset)/i.test(title);
 
@@ -235,16 +218,10 @@ export function matchRetroAchievementsGame(
   game: { title: string; platforms: string[] | null; targetPlatformName?: string | null },
   candidates: RetroAchievementsGame[]
 ): RetroAchievementsGame | null {
-  // The console of the library copy is the only one that counts. A game without a target
-  // platform (not yet chosen) is matched on its IGDB platform list.
-  const platforms = game.targetPlatformName ? [game.targetPlatformName] : (game.platforms ?? []);
-  if (platforms.length === 0) return null;
-  const wanted = new Set(titleKeys(game.title));
-  let best: RetroAchievementsGame | null = null;
-  for (const c of candidates) {
-    if (!isOfficialSet(c.title) || !consoleMatchesPlatforms(c.consoleName, platforms)) continue;
-    if (!titleKeys(c.title).some((key) => wanted.has(key))) continue;
-    if (!best || c.unlocked > best.unlocked) best = c;
-  }
-  return best;
+  return matchByTitleAndPlatform(
+    game,
+    candidates,
+    (c, platforms) => consoleMatchesPlatforms(c.consoleName, platforms),
+    (c) => isOfficialSet(c.title)
+  );
 }

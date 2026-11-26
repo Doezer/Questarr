@@ -348,6 +348,8 @@ import { steamLibraryRoutes } from "./steam-library-routes.js";
 import { steamPlaytimeRoutes } from "./steam-playtime-routes.js";
 import { steamAchievementsRoutes } from "./steam-achievements-routes.js";
 import { retroAchievementsRoutes } from "./retroachievements-routes.js";
+import { psnRoutes } from "./psn-routes.js";
+import { xboxRoutes } from "./xbox-routes.js";
 import { playniteSyncRoutes } from "./playnite-sync-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
@@ -389,6 +391,7 @@ import { rommRouter } from "./routes/romm.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { setupChecksRouter } from "./routes/setup-checks.js";
+import { setupWizardRouter, SETUP_WIZARD_KEY } from "./routes/setup-wizard.js";
 import { backupsRouter } from "./routes/backups.js";
 import { activityRouter } from "./routes/activity.js";
 import { realDebridRouter } from "./routes/realdebrid.js";
@@ -831,6 +834,8 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       offset,
       fallback: true,
       signal: searchAbort.signal,
+      // identical searches within a few minutes come from memory; ?refresh=true forces indexers
+      cache: req.query.refresh !== "true",
     });
 
     // Nobody waits for the answer and the results are incomplete: do not score them or
@@ -1148,6 +1153,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(steamPlaytimeRoutes);
   app.use(steamAchievementsRoutes);
   app.use(retroAchievementsRoutes);
+  app.use(psnRoutes);
+  app.use(xboxRoutes);
   app.use(playniteSyncRoutes);
   app.use(releaseScoringRoutes);
   app.use(classificationCandidatesRoutes);
@@ -1298,6 +1305,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Save IGDB creds if provided (format already validated above).
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
+      // A brand-new install goes through the setup wizard next (older installs are only offered it).
+      // Not fatal: the account already exists, so a failure here must not hide that from the caller.
+      try {
+        await storage.setSystemConfig(SETUP_WIZARD_KEY, "pending");
+      } catch (error) {
+        routesLogger.warn({ error }, "could not mark the setup wizard as pending");
+      }
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
       // Cookie-based auth is the primary mechanism for browser clients (see
@@ -1374,7 +1388,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     if (!user || !passwordMatches) {
-      routesLogger.warn({ username: trimmedUsername, ip: req.ip }, "Failed login attempt");
+      routesLogger.warn(
+        { username: trimmedUsername, ip: req.ip, requestId: res.locals.requestId },
+        "Failed login attempt"
+      );
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
@@ -1850,6 +1867,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system/backups", backupsRouter);
   app.use("/api/system/setup-checks", setupChecksRouter);
+  app.use("/api/system/setup-wizard", setupWizardRouter);
   app.use("/api/system", systemRouter);
   app.use("/api/activity", activityRouter);
   app.use("/api/downloaders/:id/realdebrid", realDebridRouter);

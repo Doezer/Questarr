@@ -28,6 +28,15 @@ import { safeFetch } from "./ssrf.js";
 import { telemetryLogger } from "./logger.js";
 import { buildDiagnosticsSnapshot, formatDiagnosticsBlock } from "./diagnostics.js";
 import { scrubPii, scrubLogLines } from "../shared/log-scrub.js";
+import { summarizeErrors } from "../shared/log-summary.js";
+import {
+  buildReportEnvelope,
+  findDuplicateReport,
+  hashText,
+  rememberReport,
+  type ReportEnvelope,
+  type SentRecord,
+} from "../shared/support-report.js";
 import { SUPPORT_WORKER_URL } from "../shared/support-config.js";
 import type { InsertNotification, NotificationPreferences, User } from "../shared/schema.js";
 
@@ -35,6 +44,8 @@ const ERROR_REPORT_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
 const LOG_CONTEXT_LINES = 150;
 const DIAGNOSTICS_LOG_LINES = 1000;
 const PENDING_REPORT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+/** The same problem (same signature) is not reported again within this window. */
+const SAME_PROBLEM_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const WORKER_TIMEOUT_MS = 10_000;
 
 const { version: APP_VERSION } = JSON.parse(
@@ -44,6 +55,8 @@ const { version: APP_VERSION } = JSON.parse(
 export interface ErrorContext {
   path?: string;
   method?: string;
+  /** Correlation id of the failing request (also present in its log lines). */
+  requestId?: string;
   source: "uncaughtException" | "unhandledRejection" | "expressErrorHandler";
 }
 
@@ -55,9 +68,13 @@ export interface PendingErrorReport {
   platform: string;
   timestamp: string;
   createdAt: number;
+  title: string;
+  labels: string[];
+  signature: string;
 }
 
 let lastReportedAt = 0;
+let recentSignatures: SentRecord[] = [];
 const pendingReports = new Map<string, PendingErrorReport>();
 
 function purgeExpiredReports(): void {
@@ -86,10 +103,13 @@ export function getPendingReport(reportId: string, userId: string): PendingError
 type WorkerSendResult =
   { ok: true; code: string; issueNumber: number } | { ok: false; message: string };
 
+type ReportMetadata = Pick<ReportEnvelope, "title" | "labels" | "signature">;
+
 async function sendToSupportWorker(
   logs: string,
   reportType: "telemetry-auto" | "telemetry-prompted",
-  banner: string
+  banner: string,
+  metadata: ReportMetadata
 ): Promise<WorkerSendResult> {
   if (SUPPORT_WORKER_URL.includes("REPLACE_ME")) {
     return { ok: false, message: "Log upload is not configured for this build." };
@@ -105,6 +125,9 @@ async function sendToSupportWorker(
         platform: "server",
         timestamp: new Date().toISOString(),
         reportType,
+        title: metadata.title,
+        labels: metadata.labels,
+        signature: metadata.signature,
       }),
       timeoutMs: WORKER_TIMEOUT_MS,
     });
@@ -141,7 +164,7 @@ export async function sendPendingReport(
 
   const banner =
     '=== QUESTARR AUTOMATED TELEMETRY REPORT (user-confirmed) ===\nSent after the user clicked "Send" on an error-detected notification.';
-  const result = await sendToSupportWorker(report.logs, "telemetry-prompted", banner);
+  const result = await sendToSupportWorker(report.logs, "telemetry-prompted", banner, report);
   if (!result.ok) {
     pendingReports.set(reportId, report);
   }
@@ -164,23 +187,31 @@ async function buildScrubbedLogBundle(): Promise<{ logs: string; lineCount: numb
  * from a wider window than the attached log tail so a repeating failure shows
  * up as one counted line. Best effort: a failure here must never block the report.
  */
-async function buildDiagnosticsSection(): Promise<string> {
+async function buildDiagnosticsSection(): Promise<{ block: string; lines: string[] }> {
+  let lines: string[] = [];
   try {
     const logPath = path.resolve(process.cwd(), "server.log");
-    const lines = await readLastLogLines(logPath, DIAGNOSTICS_LOG_LINES).catch(() => []);
-    return formatDiagnosticsBlock(await buildDiagnosticsSnapshot({ logLines: lines }));
+    lines = await readLastLogLines(logPath, DIAGNOSTICS_LOG_LINES).catch(() => []);
+    return {
+      block: formatDiagnosticsBlock(await buildDiagnosticsSnapshot({ logLines: lines })),
+      lines,
+    };
   } catch (err) {
     telemetryLogger.warn({ error: err }, "Failed to build diagnostics for error telemetry");
-    return "";
+    return { block: "", lines };
   }
 }
 
-function buildAutoSendBanner(errorMessage: string, context: ErrorContext): string {
+function describeTrigger(context: ErrorContext): string {
   const location = context.path ? ` (${context.method} ${context.path})` : "";
-  const trigger = `${context.source}${location}`;
+  const request = context.requestId ? ` [request ${context.requestId}]` : "";
+  return `${context.source}${location}${request}`;
+}
+
+function buildAutoSendBanner(errorMessage: string, context: ErrorContext): string {
   return (
     "=== QUESTARR AUTOMATED TELEMETRY REPORT (auto-sent, no user confirmation) ===\n" +
-    `Trigger: ${trigger}\n` +
+    `Trigger: ${describeTrigger(context)}\n` +
     `Error: ${errorMessage}`
   );
 }
@@ -215,7 +246,7 @@ async function loadUserTelemetryContexts(users: User[]): Promise<UserTelemetryCo
 function buildNotificationFor(
   ctx: UserTelemetryContext,
   autoSendResult: WorkerSendResult | null,
-  pending: { logs: string; lineCount: number; timestamp: string } | null
+  pending: ({ logs: string; lineCount: number; timestamp: string } & ReportMetadata) | null
 ): InsertNotification | null {
   const { user, prefs, telemetryEnabled } = ctx;
 
@@ -247,6 +278,9 @@ function buildNotificationFor(
     platform: "server",
     timestamp: pending.timestamp,
     createdAt: Date.now(),
+    title: pending.title,
+    labels: pending.labels,
+    signature: pending.signature,
   });
 
   return {
@@ -286,7 +320,33 @@ export async function reportServerError(err: unknown, context: ErrorContext): Pr
     const errorMessage = scrubPii(err instanceof Error ? err.message : String(err));
     const bundle = await buildScrubbedLogBundle();
     const diagnostics = await buildDiagnosticsSection();
-    const logs = diagnostics ? `${diagnostics}\n\n${bundle.logs}` : bundle.logs;
+    const envelope = buildReportEnvelope({
+      trigger: "auto",
+      appVersion: APP_VERSION,
+      platform: "server",
+      groups: summarizeErrors(diagnostics.lines, Infinity),
+      tail: diagnostics.lines,
+      context: describeTrigger(context),
+    });
+    const now = Date.now();
+    // The same-problem key includes the triggering error itself: the log window
+    // alone can be dominated by older warnings (or be empty when server.log is
+    // unreadable), which would otherwise hide a genuinely different crash.
+    const dedupKey = hashText(
+      `${context.source}|${err instanceof Error ? err.name : ""}|${errorMessage}\n${envelope.signature}`
+    );
+    if (
+      diagnostics.lines.length > 0 &&
+      findDuplicateReport(dedupKey, recentSignatures, now, SAME_PROBLEM_COOLDOWN_MS)
+    ) {
+      telemetryLogger.info(
+        { signature: envelope.signature },
+        "Skipping error report: the same problem was already reported recently"
+      );
+      return;
+    }
+    const body = diagnostics.block ? `${diagnostics.block}\n\n${bundle.logs}` : bundle.logs;
+    const logs = `${envelope.header}\n\n${body}`;
     const { lineCount } = bundle;
     const timestamp = new Date().toISOString();
 
@@ -298,21 +358,42 @@ export async function reportServerError(err: unknown, context: ErrorContext): Pr
       ? await sendToSupportWorker(
           logs,
           "telemetry-auto",
-          buildAutoSendBanner(errorMessage, context)
+          buildAutoSendBanner(errorMessage, context),
+          envelope
         )
       : null;
-    const pending = { logs, lineCount, timestamp };
+    const pending = {
+      logs,
+      lineCount,
+      timestamp,
+      title: envelope.title,
+      labels: envelope.labels,
+      signature: envelope.signature,
+    };
 
+    // Only a report that actually reached someone (uploaded, or a notification
+    // created) counts as "already reported"; a failed delivery stays retryable.
+    let delivered = autoSendResult?.ok === true;
     for (const ctx of contexts) {
       try {
         const notification = buildNotificationFor(ctx, autoSendResult, pending);
-        if (notification) await dispatchNotification(ctx, notification);
+        if (notification) {
+          await dispatchNotification(ctx, notification);
+          delivered = true;
+        }
       } catch (userError) {
         telemetryLogger.error(
           { error: userError, userId: ctx.user.id },
           "Failed to process error telemetry for user"
         );
       }
+    }
+    if (delivered) {
+      recentSignatures = rememberReport(
+        { signature: dedupKey, sentAt: Date.now() },
+        recentSignatures,
+        SAME_PROBLEM_COOLDOWN_MS
+      );
     }
   } catch (reportingError) {
     telemetryLogger.error({ error: reportingError }, "Failed to process automatic error report");

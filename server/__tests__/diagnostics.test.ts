@@ -7,6 +7,8 @@ const { storageMock, loadProwlarrMock } = vi.hoisted(() => ({
     getAllDownloaders: vi.fn(),
     getAllUsers: vi.fn(),
     getUserSettings: vi.fn(),
+    getPathMappings: vi.fn(),
+    getSystemConfig: vi.fn(),
   },
   loadProwlarrMock: vi.fn(),
 }));
@@ -129,7 +131,7 @@ describe("summarizeErrors", () => {
       firstSeen: "t1",
       lastSeen: "t2",
     });
-    expect(result[1]?.message).toBe("other: boom from [ip]");
+    expect(result[1]?.message).toBe("other: boom from [ip:lan]");
     expect(result).toHaveLength(2);
   });
 });
@@ -161,6 +163,11 @@ describe("buildDiagnosticsSnapshot", () => {
         category: "/mnt/private/library",
       } as unknown as Downloader,
     ]);
+    storageMock.getPathMappings.mockResolvedValue([
+      { id: "1", remotePath: "D:\\Games", localPath: "/data/games", remoteHost: "pc" },
+      { id: "2", remotePath: "/downloads/secretdir", localPath: "/data/dl", remoteHost: null },
+    ]);
+    storageMock.getSystemConfig.mockResolvedValue(undefined);
     loadProwlarrMock.mockResolvedValue({
       url: "http://192.168.1.20:9696",
       apiKey: SECRET_KEY,
@@ -206,6 +213,35 @@ describe("buildDiagnosticsSnapshot", () => {
     }
   });
 
+  it("reports integrations and path mapping shape without any path", async () => {
+    const snapshot = await buildDiagnosticsSnapshot();
+    const text = formatDiagnosticsBlock(snapshot);
+
+    expect(snapshot.pathMappings).toEqual({ count: 2, windowsStyleRemote: 1, withRemoteHost: 1 });
+    expect(snapshot.integrations.igdbConfigured).toBe(false);
+    for (const path of ["D:\\\\Games", "secretdir", "/data/games"]) {
+      expect(text).not.toContain(path);
+    }
+
+    storageMock.getSystemConfig.mockImplementation(async (key: string) =>
+      key.startsWith("igdb.") ? "value" : undefined
+    );
+    expect((await buildDiagnosticsSnapshot()).integrations.igdbConfigured).toBe(true);
+  });
+
+  it("digests serialized errors with their name and code", () => {
+    const line = JSON.stringify({
+      level: 50,
+      module: "downloaders",
+      msg: "Download check failed",
+      time: "2026-11-26T10:00:00.000Z",
+      error: { name: "Error", code: "ECONNREFUSED", message: "connect refused" },
+    });
+    expect(summarizeErrors([line])[0]?.message).toBe(
+      "Download check failed: Error ECONNREFUSED: connect refused"
+    );
+  });
+
   it("keeps going when a section fails", async () => {
     storageMock.getAllIndexers.mockRejectedValue(new Error("db down"));
     loadProwlarrMock.mockRejectedValue(new Error("no config"));
@@ -219,8 +255,10 @@ describe("buildDiagnosticsSnapshot", () => {
 
   it("removes the whole path after home-user and ip markers", () => {
     expect(scrubFreeText("open /home/alice/private/library failed")).toBe("open [path] failed");
-    expect(scrubFreeText("connect 10.0.0.5/private/dir")).toBe("connect [ip]");
-    expect(scrubFreeText("connect 10.0.0.5:9696/private/dir failed")).toBe("connect [ip] failed");
+    expect(scrubFreeText("connect 10.0.0.5/private/dir")).toBe("connect [ip:lan]");
+    expect(scrubFreeText("connect 10.0.0.5:9696/private/dir failed")).toBe(
+      "connect [ip:lan] failed"
+    );
     expect(scrubFreeText("open /mnt/private/library failed")).toBe("open [path] failed");
   });
 });

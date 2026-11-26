@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ErrorGroup } from "../log-summary";
+import { summarizeErrors, type ErrorGroup } from "../log-summary";
 import {
   buildReportEnvelope,
   buildReportLabels,
@@ -79,12 +79,26 @@ describe("report signature", () => {
 });
 
 describe("report signature with many problems", () => {
-  it("does not change when only occurrence counts change", () => {
-    const many = (lastCount: number) =>
-      Array.from({ length: 12 }, (_, i) =>
-        group({ message: `problem ${i}`, count: i === 11 ? lastCount : 5 })
-      );
-    expect(reportSignature(many(1))).toBe(reportSignature(many(50)));
+  const entry = (i: number, times: number) =>
+    Array.from({ length: times }, () =>
+      JSON.stringify({ level: 50, module: "m", msg: `problem ${String(i).padStart(2, "0")}` })
+    );
+  const lines = (counts: number[]) => counts.flatMap((times, i) => entry(i, times));
+  const base = Array.from({ length: 18 }, () => 3);
+
+  it("does not change when counts move a problem across the display boundary", () => {
+    const bumped = [...base];
+    bumped[17] = 50; // would enter the top 10 / 15 by count
+    expect(reportSignature(summarizeErrors(lines(bumped), Infinity))).toBe(
+      reportSignature(summarizeErrors(lines(base), Infinity))
+    );
+  });
+
+  it("changes when a problem beyond the display boundary changes", () => {
+    const withoutLast = base.slice(0, 17);
+    expect(reportSignature(summarizeErrors(lines(withoutLast), Infinity))).not.toBe(
+      reportSignature(summarizeErrors(lines(base), Infinity))
+    );
   });
 });
 

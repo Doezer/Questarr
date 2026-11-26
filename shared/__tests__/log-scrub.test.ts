@@ -177,6 +177,13 @@ describe("scrubPii usernames", () => {
     );
   });
 
+  it("keeps JSON valid when a message ends with an encoded backslash", () => {
+    const line = JSON.stringify({ msg: "login username=alice\\" });
+    const result = scrubPii(line);
+    expect(result).not.toContain("alice");
+    expect(JSON.parse(result).msg).toBe("login username=[user]");
+  });
+
   it("is idempotent", () => {
     const once = scrubPii('{"username":"jdupont","ip":"10.0.0.2"}');
     expect(scrubPii(once)).toBe(once);

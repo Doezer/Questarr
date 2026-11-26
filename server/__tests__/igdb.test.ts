@@ -356,6 +356,24 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
     expect(bodies.some((b) => b.includes('name ~ *"Pokemon"*'))).toBe(true);
   });
 
+  it("still reaches the word fallback for accented multi-word queries", async () => {
+    process.env.IGDB_CLIENT_ID = "test-client-id";
+    process.env.IGDB_CLIENT_SECRET = "test-client-secret";
+    const auth = {
+      ok: true,
+      json: async () => ({ access_token: "t", expires_in: 3600, token_type: "bearer" }),
+    };
+    fetchMock.mockResolvedValueOnce(auth).mockResolvedValue({ ok: true, json: async () => [] });
+    const { igdbClient } = await import("../igdb.js");
+    await igdbClient.searchGames("pokémon édition rouge", 20);
+    // 4 phrase approaches + 1 word search (attempt cap is 5)
+    expect(countIgdbSearchCalls(fetchMock.mock.calls)).toBe(5);
+    const bodies = fetchMock.mock.calls
+      .filter((c) => typeof c[0] === "string" && c[0].includes("api.igdb.com/v4/games"))
+      .map((c) => String((c[1] as { body?: string }).body));
+    expect(bodies[4]).toContain('name ~ *"pokemon"*');
+  });
+
   it("should return null for getGameById when not found", async () => {
     // Mock environment
     process.env.IGDB_CLIENT_ID = "test-client-id";

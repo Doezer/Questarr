@@ -697,7 +697,12 @@ class IGDBClient {
     const foldedQuery = foldDiacritics(sanitizedQuery) || sanitizedQuery;
     const hasAccents = foldedQuery !== sanitizedQuery;
     const exactNameCondition = `name ~= "${foldedQuery}"`;
-    const partialNameCondition = `name ~ *"${foldedQuery}"*`;
+    // When the user typed accents, also match the accented spelling verbatim, since IGDB
+    // titles such as "Pokémon" only match `~` with the accent present. Folded into the
+    // existing partial approach so the attempt budget (and word fallback) is unchanged.
+    const partialNameCondition = hasAccents
+      ? `(name ~ *"${foldedQuery}"* | name ~ *"${sanitizedQuery}"*)`
+      : `name ~ *"${foldedQuery}"*`;
 
     // Try multiple search approaches to maximize results
     const searchApproaches = [
@@ -713,14 +718,6 @@ class IGDBClient {
       // Approach 4: Partial name matching without category
       `fields ${IGDB_GAME_FIELDS}; ${withFilters([partialNameCondition])}sort rating desc; limit ${requestLimit};`,
     ];
-
-    // When the user typed accents, also match the accented spelling verbatim, since
-    // IGDB titles such as "Pokémon" only match `~` with the accent present.
-    if (hasAccents) {
-      searchApproaches.push(
-        `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedQuery}"*`])}sort rating desc; limit ${requestLimit};`
-      );
-    }
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
       const approach = searchApproaches[i];

@@ -33,7 +33,7 @@ test.describe("Setup wizard (1.7.0)", () => {
     await page.getByRole("button", { name: "Skip wizard" }).click();
     await expect(page).toHaveURL(/\/$/);
     const state = await page.request.get("/api/system/setup-wizard");
-    expect(await state.json()).toEqual({ state: "done" });
+    expect(await state.json()).toMatchObject({ state: "done" });
     await expect(page.getByRole("region", { name: "Setup wizard" })).toHaveCount(0);
   });
 

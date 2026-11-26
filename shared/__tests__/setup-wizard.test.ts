@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_WIZARD_ANSWERS,
+  INITIAL_WIZARD_REVISION,
+  WIZARD_REVISION,
+  WIZARD_STEPS,
   inferWizardAnswers,
+  wizardStepsSince,
   visibleWizardSteps,
   type WizardAnswers,
 } from "../setup-wizard";
@@ -67,5 +71,24 @@ describe("inferWizardAnswers", () => {
       download: true,
       notifications: false,
     });
+  });
+});
+
+describe("wizard revisions", () => {
+  it("is the newest step revision, so an up to date install has nothing new", () => {
+    expect(WIZARD_REVISION).toBe(Math.max(...WIZARD_STEPS.map((s) => s.since)));
+    expect(wizardStepsSince(WIZARD_REVISION)).toEqual([]);
+  });
+
+  it("lists the steps added after the revision the user saw", () => {
+    const added = wizardStepsSince(INITIAL_WIZARD_REVISION).map((s) => s.id);
+    expect(added).toEqual(expect.arrayContaining(["xbox", "psn"]));
+    expect(added).not.toContain("igdb");
+  });
+
+  it("can be limited to the steps that can be shown", () => {
+    expect(
+      wizardStepsSince(INITIAL_WIZARD_REVISION, (id) => id === "xbox").map((s) => s.id)
+    ).toEqual(["xbox"]);
   });
 });

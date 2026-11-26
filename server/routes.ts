@@ -3793,6 +3793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let trackedSourceId: string | null = null;
       let trackedSourcePath: string | null = null;
       let trackedSourceCategory: GameFileCategory | null = null;
+      let trackedSourceCategoryOverridden = false;
       let trackedSourceContentId: number | null = null;
       let trackedSourceContentCaptured = false;
       let createdGameFileId: string | null = null;
@@ -3913,6 +3914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           trackedSourceId = existingSource.id;
           trackedSourcePath = existingSource.filePath;
           trackedSourceCategory = existingSource.category;
+          trackedSourceCategoryOverridden = existingSource.categoryOverridden;
           trackedSourceContentId = existingSource.igdbContentId;
           trackedSourceContentCaptured = true;
         }
@@ -3973,7 +3975,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             );
           if (trackedSourceCategory) {
             await storage
-              .updateGameFileCategory(trackedSourceId, trackedSourceCategory)
+              .updateGameFileCategory(
+                trackedSourceId,
+                trackedSourceCategory,
+                trackedSourceCategoryOverridden
+              )
               .catch((restoreError) =>
                 routesLogger.error(
                   { error: restoreError, gameFileId: trackedSourceId },

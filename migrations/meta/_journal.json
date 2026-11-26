@@ -512,6 +512,13 @@
       "when": 1795500438408,
       "tag": "0071_addon_subfolders",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1795689800295,
+      "tag": "0072_igdb_content_current",
+      "breakpoints": true
     }
   ]
 }

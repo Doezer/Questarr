@@ -678,7 +678,11 @@ export interface IStorage {
   /** Applies game and game-file library paths atomically with optimistic old-path checks. */
   updateLibraryPathsBatch(changes: LibraryPathChange[]): Promise<void>;
   /** Sets a user-chosen category and marks it so later scans keep it. */
-  updateGameFileCategory(id: string, category: GameFileCategory): Promise<GameFile | undefined>;
+  updateGameFileCategory(
+    id: string,
+    category: GameFileCategory,
+    categoryOverridden?: boolean
+  ): Promise<GameFile | undefined>;
   /** Associates a file with one specific IGDB content item, or clears that association. */
   updateGameFileContentId(id: string, igdbContentId: number | null): Promise<GameFile | undefined>;
   removeGameFile(id: string): Promise<boolean>;
@@ -2841,11 +2845,12 @@ export class MemStorage implements IStorage {
 
   async updateGameFileCategory(
     id: string,
-    category: GameFileCategory
+    category: GameFileCategory,
+    categoryOverridden = true
   ): Promise<GameFile | undefined> {
     const existing = this.gameFiles.get(id);
     if (!existing) return undefined;
-    const updated: GameFile = { ...existing, category, categoryOverridden: true };
+    const updated: GameFile = { ...existing, category, categoryOverridden };
     this.gameFiles.set(id, updated);
     return updated;
   }
@@ -5620,11 +5625,12 @@ export class DatabaseStorage implements IStorage {
 
   async updateGameFileCategory(
     id: string,
-    category: GameFileCategory
+    category: GameFileCategory,
+    categoryOverridden = true
   ): Promise<GameFile | undefined> {
     const [updated] = await db
       .update(gameFiles)
-      .set({ category, categoryOverridden: true })
+      .set({ category, categoryOverridden })
       .where(eq(gameFiles.id, id))
       .returning();
     return updated;

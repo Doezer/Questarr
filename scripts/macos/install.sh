@@ -43,10 +43,11 @@ LOCK="${APP_DIR}.lock"
 mkdir -p "$(dirname "${APP_DIR}")"
 if ! mkdir "${LOCK}" 2>/dev/null; then
   OWNER="$(cat "${LOCK}/pid" 2>/dev/null || true)"
-  if [ -n "${OWNER}" ] && kill -0 "${OWNER}" 2>/dev/null; then
-    die "Another install.sh run is in progress (pid ${OWNER}). Wait for it to finish."
+  if [ -z "${OWNER}" ] || kill -0 "${OWNER}" 2>/dev/null; then
+    die "Another install.sh run is in progress${OWNER:+ (pid ${OWNER})}. If not, remove ${LOCK}."
   fi
-  rm -rf "${LOCK}"
+  STALE="${LOCK}.stale.$$"
+  mv "${LOCK}" "${STALE}" 2>/dev/null && rm -rf "${STALE}"
   mkdir "${LOCK}" 2>/dev/null || die "Another install.sh run is in progress."
 fi
 echo "$$" >"${LOCK}/pid"

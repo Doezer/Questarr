@@ -834,6 +834,8 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       offset,
       fallback: true,
       signal: searchAbort.signal,
+      // identical searches within a few minutes come from memory; ?refresh=true forces indexers
+      cache: req.query.refresh !== "true",
     });
 
     // Nobody waits for the answer and the results are incomplete: do not score them or

@@ -4,7 +4,6 @@ import { Wand2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/queryClient";
 import { routePaths } from "@/lib/routes";
-import { STEP_RENDERERS } from "@/components/setup-wizard/steps";
 import { INITIAL_WIZARD_REVISION, wizardStepsSince } from "@shared/setup-wizard";
 import {
   SETUP_WIZARD_STATE_KEY,
@@ -28,11 +27,10 @@ export default function SetupWizardPrompt() {
 
   if (!data || location === routePaths.setupWizard) return null;
 
-  // Someone who finished the wizard is only reminded when later releases added steps it can show.
+  // Someone who finished the wizard is only reminded when later releases added steps. This module
+  // is in the main bundle, so it must not import the step screens (a test checks each has one).
   const newSteps =
-    data.state === "done"
-      ? wizardStepsSince(data.seenRevision ?? INITIAL_WIZARD_REVISION, (id) => id in STEP_RENDERERS)
-      : [];
+    data.state === "done" ? wizardStepsSince(data.seenRevision ?? INITIAL_WIZARD_REVISION) : [];
   if (data.state === "done" && newSteps.length === 0) return null;
 
   return (

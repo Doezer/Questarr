@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getQueryFn } from "@/lib/queryClient";
 import SetupWizardPage from "@/pages/setup-wizard";
 import SetupWizardPrompt from "@/components/SetupWizardPrompt";
+import { STEP_RENDERERS } from "@/components/setup-wizard/steps";
+import { WIZARD_STEPS } from "@shared/setup-wizard";
 
 const navigate = vi.fn();
 let location = "/setup-wizard";
@@ -243,6 +245,16 @@ describe("setup wizard load failure", () => {
     fireEvent.click(screen.getByRole("button", { name: /leave the wizard/i }));
     expect(navigate).toHaveBeenCalledWith("/");
     expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+});
+
+describe("STEP_RENDERERS", () => {
+  it("has a screen for every step except the question and summary pages", () => {
+    // The prompt announces new steps without importing the screens, so none may be missing.
+    const missing = WIZARD_STEPS.filter(
+      (s) => s.id !== "questions" && s.id !== "summary" && !(s.id in STEP_RENDERERS)
+    ).map((s) => s.id);
+    expect(missing).toEqual([]);
   });
 });
 

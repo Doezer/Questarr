@@ -151,4 +151,4 @@ In priority order:
 
 ---
 
-_Score last updated: 2026-11-26 (state of `main` at #1437, before the 1.7.0 release). Each dimension is the share of its checked items × its weight, except Automation (all items done) and Community (kept at 6)._
+_Score last updated: 2026-11-26 (`main` at #1437 plus the search cache of PR #1439, before the 1.7.0 release). Each dimension is the share of its checked items × its weight, except Automation (all items done) and Community (kept at 6)._

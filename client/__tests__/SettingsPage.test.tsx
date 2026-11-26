@@ -1,9 +1,9 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsPage from "../src/pages/settings";
 import { createTestQueryClient } from "./test-utils";
 
@@ -88,11 +88,18 @@ const defaultUserSettings = {
   hideOwnedInHasResults: true,
 };
 
+/** Settings sections are pages: moving between them is a navigation, as the sidebar does. */
+function openSection(slug: string) {
+  act(() => {
+    window.history.pushState(null, "", `/settings/${slug}`);
+  });
+}
+
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Picking a tab writes ?tab= to the URL, which would otherwise leak into the next test
-    window.history.replaceState(null, "", "/");
+    // Sections are routes, so the URL would otherwise leak into the next test
+    window.history.replaceState(null, "", "/settings/general");
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes("/api/config")) {
@@ -129,7 +136,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    openSection("search-downloads");
 
     expect(await screen.findByLabelText("Enable Auto-Search")).toBeChecked();
     expect(screen.getByLabelText("Search Interval (hours)")).toBeInTheDocument();
@@ -159,14 +166,51 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    openSection("search-downloads");
 
     await screen.findByLabelText("Enable Auto-Search");
     expect(screen.queryByLabelText("Search Interval (hours)")).not.toBeInTheDocument();
   });
 
-  it("opens the tab named by ?tab= in the URL", async () => {
-    window.history.replaceState(null, "", "/?tab=discovery");
+  it("opens the first section from /settings on a wide screen", async () => {
+    window.history.replaceState(null, "", "/settings");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { level: 1, name: "General" })).toBeVisible();
+    expect(window.location.pathname).toBe("/settings/general");
+  });
+
+  it("lists the sections at /settings on a phone", async () => {
+    const matchMedia = vi.mocked(window.matchMedia);
+    const original = matchMedia.getMockImplementation();
+    matchMedia.mockImplementation(
+      (query: string) => ({ ...original?.(query), matches: true }) as MediaQueryList
+    );
+    window.history.replaceState(null, "", "/settings");
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <SettingsPage />
+        </QueryClientProvider>
+      );
+
+      const list = await screen.findByRole("navigation", { name: "Settings sections" });
+      expect(within(list).getByRole("link", { name: /Release Scoring/ })).toHaveAttribute(
+        "href",
+        "/settings/release-scoring"
+      );
+      expect(window.location.pathname).toBe("/settings");
+    } finally {
+      if (original) matchMedia.mockImplementation(original);
+    }
+  });
+
+  it("opens the section named by the URL", async () => {
+    window.history.replaceState(null, "", "/settings/search-downloads");
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -203,6 +247,151 @@ describe("SettingsPage", () => {
     });
   });
 
+  describe("unsaved changes", () => {
+    afterEach(async () => {
+      // One test leaves PATCH pending forever; give later tests the default mock back.
+      const { apiRequest } = await import("@/lib/queryClient");
+      vi.mocked(apiRequest).mockImplementation((async () => ({
+        headers: { get: () => null },
+        json: async () => ({}),
+      })) as never);
+    });
+
+    const renderPage = () =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <SettingsPage />
+        </QueryClientProvider>
+      );
+
+    it("shows no unsaved-changes bar until a card is edited", async () => {
+      renderPage();
+      await screen.findByLabelText("Hide shelved games by default");
+      expect(screen.queryByTestId("unsaved-changes-bar")).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText("Hide shelved games by default"));
+
+      const bar = await screen.findByTestId("unsaved-changes-bar");
+      expect(bar).toHaveTextContent("Unsaved changes in Library Filtering");
+      expect(screen.getAllByText("Unsaved changes").length).toBeGreaterThan(0);
+    });
+
+    it("Discard puts the edited fields back to the saved values", async () => {
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      fireEvent.click(toggle);
+      expect(toggle).not.toBeChecked();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+
+      await waitFor(() => expect(toggle).toBeChecked());
+      expect(screen.queryByTestId("unsaved-changes-bar")).not.toBeInTheDocument();
+    });
+
+    it("Save all sends the edits of every changed card in one request", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      renderPage();
+      fireEvent.click(await screen.findByLabelText("Hide shelved games by default"));
+      fireEvent.click(screen.getByLabelText("Hide erotic content"));
+
+      fireEvent.click(await screen.findByRole("button", { name: "Save all" }));
+
+      await waitFor(() => {
+        expect(apiRequest).toHaveBeenCalledWith(
+          "PATCH",
+          "/api/settings",
+          expect.objectContaining({ hideShelvedByDefault: false, hideAdultContent: false })
+        );
+      });
+    });
+
+    it("only the card being saved shows Saving...", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      const respond = { headers: { get: () => null }, json: async () => ({}) };
+      // Page-load GETs resolve at once; the save request stays pending.
+      vi.mocked(apiRequest).mockImplementation(((method: string) =>
+        method === "PATCH" ? new Promise(() => {}) : Promise.resolve(respond)) as never);
+      renderPage();
+      fireEvent.click(await screen.findByLabelText("Hide shelved games by default"));
+      fireEvent.click(screen.getByRole("button", { name: /save library filtering/i }));
+
+      await screen.findByRole("button", { name: /saving/i });
+      expect(screen.getAllByRole("button", { name: /saving/i })).toHaveLength(1);
+      expect(screen.getByRole("button", { name: /save content filtering/i })).toBeInTheDocument();
+    });
+
+    it("warns before the tab is closed only while edits are pending", async () => {
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      const closeTab = () => {
+        const event = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      expect(closeTab()).toBe(false);
+
+      fireEvent.click(toggle);
+      await screen.findByTestId("unsaved-changes-bar");
+      expect(closeTab()).toBe(true);
+    });
+
+    it("Discard restores the saved value even when the refetch after a save fails", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      const saved = { ...defaultUserSettings, hideShelvedByDefault: false };
+      const respond = { headers: { get: () => null }, json: async () => ({}) };
+      vi.mocked(apiRequest).mockImplementation(((method: string) =>
+        Promise.resolve(
+          method === "PATCH" ? { headers: { get: () => null }, json: async () => saved } : respond
+        )) as never);
+      let settingsLoaded = false;
+      const baseFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/api/settings") && !url.includes("/api/settings/")) {
+          if (settingsLoaded) throw new Error("network down");
+          settingsLoaded = true;
+        }
+        return baseFetch(input, init);
+      }) as typeof fetch;
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole("button", { name: /save library filtering/i }));
+      // The PATCH succeeded; the refetch keeps failing (and retrying) in the background.
+      await waitFor(() => expect(settingsLoaded).toBe(true));
+      await waitFor(() =>
+        expect(screen.queryByTestId("unsaved-changes-bar")).not.toBeInTheDocument()
+      );
+
+      fireEvent.click(toggle); // edit the saved field again...
+      // Discard stays locked while the (failing) refetch is retried, then unlocks.
+      const discard = await screen.findByRole("button", { name: "Discard" });
+      await waitFor(() => expect(discard).toBeEnabled(), { timeout: 20000 });
+      fireEvent.click(discard);
+
+      // ...and Discard goes back to the saved value (false), not the stale cached true.
+      await waitFor(() => expect(toggle).not.toBeChecked());
+    }, 30000);
+
+    it("keeps warning while a save is in flight even if the field is toggled back", async () => {
+      const { apiRequest } = await import("@/lib/queryClient");
+      const respond = { headers: { get: () => null }, json: async () => ({}) };
+      vi.mocked(apiRequest).mockImplementation(((method: string) =>
+        method === "PATCH" ? new Promise(() => {}) : Promise.resolve(respond)) as never);
+      renderPage();
+      const toggle = await screen.findByLabelText("Hide shelved games by default");
+      fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole("button", { name: /save library filtering/i }));
+      await screen.findByRole("button", { name: /saving/i });
+
+      fireEvent.click(toggle); // back to the cached value: nothing dirty, but the PATCH holds false
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+    });
+  });
+
   it("saves auto-search settings via the PATCH mutation", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     render(
@@ -212,7 +401,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    openSection("search-downloads");
 
     await screen.findByLabelText("Enable Auto-Search");
     fireEvent.click(screen.getByRole("button", { name: /save auto-search/i }));
@@ -234,14 +423,14 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    openSection("search-downloads");
 
     const intervalInput = await screen.findByLabelText("Search Interval (hours)");
     fireEvent.change(intervalInput, { target: { value: "24" } });
     expect(intervalInput).toHaveValue(24);
   });
 
-  it("switches to the Discovery & Downloads tab and renders the mocked rule components", async () => {
+  it("switches to the Search & Downloads tab and renders the mocked rule components", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -249,13 +438,78 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    openSection("search-downloads");
 
     expect(await screen.findByTestId("auto-download-rules")).toBeInTheDocument();
-    expect(screen.getByTestId("release-scoring")).toBeInTheDocument();
   });
 
-  it("renders the platform picker in the Appearance tab", async () => {
+  it("lists release scoring on its own tab and keeps old classification links working", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    openSection("release-scoring");
+
+    expect(await screen.findByTestId("release-scoring")).toBeInTheDocument();
+  });
+
+  it("opens Release Scoring for an older link to the classification review card", async () => {
+    window.history.replaceState(null, "", "/settings?tab=discovery#classification-review");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByTestId("release-scoring")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/release-scoring");
+    expect(window.location.hash).toBe("#classification-review");
+  });
+
+  it("opens the section an older ?tab= link names", async () => {
+    window.history.replaceState(null, "", "/settings?tab=integrations");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Connections" })).toBeVisible();
+    expect(window.location.pathname).toBe("/settings/connections");
+  });
+
+  it("follows a review link that only adds the hash to the section already open", async () => {
+    window.history.replaceState(null, "", "/settings/search-downloads");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+    await screen.findByTestId("auto-download-rules");
+
+    act(() => {
+      window.history.replaceState(null, "", "/settings/search-downloads#classification-review");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+
+    expect(await screen.findByTestId("release-scoring")).toBeInTheDocument();
+  });
+
+  it("ignores an inherited property name in the URL hash", async () => {
+    window.history.replaceState(null, "", "/settings/connections#__proto__");
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Connections" })).toBeVisible();
+  });
+
+  it("renders the platform picker in the General tab", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -264,7 +518,6 @@ describe("SettingsPage", () => {
 
     await screen.findByText("Settings");
     expect(screen.queryByRole("tab", { name: "Platforms" })).not.toBeInTheDocument();
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Appearance" }));
 
     expect(
       await screen.findByText("Choose the platforms you use.", { exact: false })
@@ -280,7 +533,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    openSection("connections");
 
     const steamInput = await screen.findByLabelText("Steam ID (64-bit)");
     fireEvent.change(steamInput, { target: { value: "76561198000000000" } });
@@ -301,7 +554,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Notifications" }));
+    openSection("notifications");
 
     expect(await screen.findByLabelText(/API URL/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Config Key/)).toBeInTheDocument();
@@ -325,7 +578,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Notifications" }));
+    openSection("notifications");
 
     const saveButton = await screen.findByRole("button", { name: "Save" });
     expect(saveButton).toBeDisabled();
@@ -361,7 +614,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Notifications" }));
+    openSection("notifications");
 
     const toggle = await screen.findByLabelText("In-App: Game Released");
     expect(toggle).toBeChecked();
@@ -382,7 +635,7 @@ describe("SettingsPage", () => {
     );
   });
 
-  it("switches to the Discovery & Downloads tab, lists a blacklist entry, and removes it", async () => {
+  it("switches to the Search & Downloads tab, lists a blacklist entry, and removes it", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -415,7 +668,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+    openSection("search-downloads");
 
     expect(await screen.findByText("Space Quest")).toBeInTheDocument();
     const releaseTitle = screen.getByText("Space.Quest-GROUP");
@@ -435,7 +688,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    openSection("connections");
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     fireEvent.change(rateLimitInput, { target: { value: "0" } });
@@ -450,7 +703,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    openSection("connections");
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     fireEvent.change(rateLimitInput, { target: { value: "5" } });
@@ -465,7 +718,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    openSection("connections");
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     fireEvent.change(rateLimitInput, { target: { value: "abc" } });
@@ -500,7 +753,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
+    openSection("connections");
 
     const rateLimitInput = await screen.findByLabelText("IGDB API Rate Limit (requests/second)");
     expect(rateLimitInput).toHaveValue(4);
@@ -523,7 +776,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "System" }));
+    openSection("system");
 
     const debugSwitch = await screen.findByLabelText("Log full downloader responses");
     await waitFor(() => expect(debugSwitch).not.toBeDisabled());
@@ -555,7 +808,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "System" }));
+    openSection("system");
 
     const debugSwitch = await screen.findByLabelText("Log full downloader responses");
     await waitFor(() => expect(debugSwitch).toBeDisabled());

@@ -15,10 +15,12 @@ import {
   buildDownloaderBaseUrl,
   fetchWithMagnetDetection,
   findTorrentByTagNull,
+  getErrorMessage,
   isHttpsUrl,
   logDownloaderDebugResponse,
   maxTrackerSwarmCounts,
   normalizePeerCount,
+  runDownloaderAction,
 } from "./utils.js";
 
 interface TransmissionTorrent {
@@ -75,6 +77,36 @@ interface TransmissionTorrent {
   [key: string]: unknown;
 }
 
+/** Torrent reference returned by `torrent-add` (added or duplicate). */
+interface TransmissionAddedTorrent {
+  id?: number;
+  hashString?: string;
+  name?: string;
+}
+
+/** Arguments accepted by `torrent-add` that this client sets. */
+interface TransmissionAddArguments {
+  filename?: string;
+  metainfo?: string;
+  "download-dir"?: string;
+  labels?: string[];
+  "priority-high"?: boolean;
+  "priority-low"?: boolean;
+}
+
+/** Envelope of a Transmission RPC response, limited to the fields this client reads. */
+interface TransmissionRpcResponse {
+  result?: string;
+  arguments: {
+    "torrent-added"?: TransmissionAddedTorrent;
+    "torrent-duplicate"?: TransmissionAddedTorrent;
+    torrents?: TransmissionTorrent[];
+    "download-dir"?: string;
+    "size-bytes"?: number;
+    [key: string]: unknown;
+  };
+}
+
 export class TransmissionClient implements DownloaderClient {
   private downloader: Downloader;
   private sessionId: string | null = null;
@@ -103,7 +135,7 @@ export class TransmissionClient implements DownloaderClient {
             : "Connected successfully to Transmission",
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       downloadersLogger.error(
         {
           error: errorMessage,
@@ -150,8 +182,7 @@ export class TransmissionClient implements DownloaderClient {
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const args: any = {};
+      const args: TransmissionAddArguments = {};
 
       // Check if it's a magnet link or a URL that needs downloading
       const isMagnet = request.url.startsWith("magnet:");
@@ -262,9 +293,7 @@ export class TransmissionClient implements DownloaderClient {
               ids: [torrent.id],
               fields: ["hashString"],
             });
-            if (details.arguments.torrents && details.arguments.torrents.length > 0) {
-              id = details.arguments.torrents[0].hashString;
-            }
+            id = details.arguments.torrents?.[0]?.hashString;
           } catch (error) {
             downloadersLogger.warn(
               { error, torrentId: torrent.id },
@@ -273,18 +302,20 @@ export class TransmissionClient implements DownloaderClient {
           }
         }
 
+        const resolvedId = id || torrent.id?.toString();
         return {
           success: true,
-          id: id || torrent.id?.toString(),
+          ...(resolvedId ? { id: resolvedId } : {}),
           message: "Download added successfully",
         };
       } else if (response.arguments["torrent-duplicate"]) {
         const torrent = response.arguments["torrent-duplicate"];
         // Return success: true for duplicates to prevent fallback mechanism from trying other downloaders
         // as the user likely intends for this specific downloader to handle it (or it's already there)
+        const duplicateId = torrent.hashString || torrent.id?.toString();
         return {
           success: true,
-          id: torrent.hashString || torrent.id?.toString(),
+          ...(duplicateId ? { id: duplicateId } : {}),
           message: "Download already exists (Transmission)",
         };
       } else {
@@ -300,7 +331,7 @@ export class TransmissionClient implements DownloaderClient {
         };
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       return { success: false, message: `Failed to add download: ${errorMessage}` };
     }
   }
@@ -330,8 +361,8 @@ export class TransmissionClient implements DownloaderClient {
         ],
       });
 
-      if (response.arguments.torrents && response.arguments.torrents.length > 0) {
-        const torrent = response.arguments.torrents[0];
+      const torrent = response.arguments.torrents?.[0];
+      if (torrent) {
         return this.mapTransmissionStatus(torrent);
       }
 
@@ -375,8 +406,8 @@ export class TransmissionClient implements DownloaderClient {
         ],
       });
 
-      if (response.arguments.torrents && response.arguments.torrents.length > 0) {
-        const torrent = response.arguments.torrents[0];
+      const torrent = response.arguments.torrents?.[0];
+      if (torrent) {
         return this.mapTransmissionDetails(torrent);
       }
 
@@ -419,39 +450,27 @@ export class TransmissionClient implements DownloaderClient {
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("pause", async () => {
       await this.makeRequest("torrent-stop", { ids: this.toTransmissionIds(id) });
-      return { success: true, message: "Download paused successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause download: ${errorMessage}` };
-    }
+    });
   }
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("resume", async () => {
       await this.makeRequest("torrent-start", { ids: this.toTransmissionIds(id) });
-      return { success: true, message: "Download resumed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume download: ${errorMessage}` };
-    }
+    });
   }
 
   async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("remove", async () => {
       await this.makeRequest("torrent-remove", {
         ids: this.toTransmissionIds(id),
         "delete-local-data": deleteFiles,
       });
-      return { success: true, message: "Download removed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove download: ${errorMessage}` };
-    }
+    });
   }
 
   async getFreeSpace(): Promise<number> {
@@ -656,9 +675,10 @@ export class TransmissionClient implements DownloaderClient {
    * @throws If the transport policy forbids the configured credentials, or the
    * underlying RPC call fails.
    */
-  // Transmission API response structure
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async makeRequest(method: string, arguments_: any): Promise<any> {
+  private async makeRequest(
+    method: string,
+    arguments_: Record<string, unknown> | TransmissionAddArguments
+  ): Promise<TransmissionRpcResponse> {
     const baseUrl = this.getBaseUrl();
 
     // If the base URL doesn't already contain /transmission/rpc, append it
@@ -706,52 +726,7 @@ export class TransmissionClient implements DownloaderClient {
       if (sessionId) {
         this.sessionId = sessionId;
         headers["X-Transmission-Session-Id"] = sessionId;
-
-        downloadersLogger.debug({ method, url }, "Retrying Transmission request with session ID");
-
-        // Retry with session ID
-        const retryResponse = await safeFetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(30000),
-          requireHttps: isHttpsUrl(url),
-        });
-        await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
-
-        if (!retryResponse.ok) {
-          const errorText = await retryResponse.text().catch(() => "No error details available");
-          if (retryResponse.status === 401) {
-            downloadersLogger.error(
-              {
-                status: retryResponse.status,
-                url,
-                username: this.downloader.username,
-                method,
-                errorText,
-              },
-              "Transmission authentication failed - check username and password"
-            );
-            throw new Error(
-              `Authentication failed: Invalid username or password for Transmission - ${errorText}`
-            );
-          }
-          downloadersLogger.error(
-            {
-              status: retryResponse.status,
-              statusText: retryResponse.statusText,
-              url,
-              method,
-              errorText,
-            },
-            "Transmission request failed after session ID retry"
-          );
-          throw new Error(
-            `HTTP ${retryResponse.status}: ${retryResponse.statusText} - ${errorText}`
-          );
-        }
-
-        return retryResponse.json();
+        return this.retryWithSessionId(url, method, headers, body);
       }
     }
 
@@ -788,5 +763,57 @@ export class TransmissionClient implements DownloaderClient {
     }
 
     return response.json();
+  }
+
+  /** Repeats a request that Transmission rejected for lacking a session ID. */
+  private async retryWithSessionId(
+    url: string,
+    method: string,
+    headers: Record<string, string>,
+    body: unknown
+  ): Promise<TransmissionRpcResponse> {
+    downloadersLogger.debug({ method, url }, "Retrying Transmission request with session ID");
+
+    // Retry with session ID
+    const retryResponse = await safeFetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
+      requireHttps: isHttpsUrl(url),
+    });
+    await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
+
+    if (!retryResponse.ok) {
+      const errorText = await retryResponse.text().catch(() => "No error details available");
+      if (retryResponse.status === 401) {
+        downloadersLogger.error(
+          {
+            status: retryResponse.status,
+            url,
+            username: this.downloader.username,
+            method,
+            errorText,
+          },
+          "Transmission authentication failed - check username and password"
+        );
+        throw new Error(
+          `Authentication failed: Invalid username or password for Transmission - ${errorText}`
+        );
+      }
+      downloadersLogger.error(
+        {
+          status: retryResponse.status,
+          statusText: retryResponse.statusText,
+          url,
+          method,
+          errorText,
+        },
+        "Transmission request failed after session ID retry"
+      );
+      throw new Error(`HTTP ${retryResponse.status}: ${retryResponse.statusText} - ${errorText}`);
+    }
+
+    return retryResponse.json();
   }
 }

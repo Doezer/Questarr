@@ -4,6 +4,8 @@ import { authenticateToken } from "./auth.js";
 import { sensitiveEndpointLimiter } from "./middleware.js";
 import {
   getSteamPlaytimeStatus,
+  importSteamPlaytime,
+  previewSteamPlaytimeImport,
   setSteamPlaytimeEnabled,
   syncSteamPlaytime,
   SteamPlaytimeBusyError,
@@ -69,6 +71,54 @@ steamPlaytimeRoutes.post(
         error: upstream ? error.message : "Could not sync your Steam play time.",
         status: await getSteamPlaytimeStatus(userId).catch(() => null),
       });
+    }
+  }
+);
+
+function importError(res: import("express").Response, error: unknown) {
+  if (error instanceof SteamPlaytimeUnavailableError) {
+    return res
+      .status(400)
+      .json({ error: "Add a Steam Web API key in Settings and save your Steam ID first." });
+  }
+  if (error instanceof SteamPlaytimeBusyError) {
+    return res.status(409).json({ error: "A Steam play-time sync or import is already running." });
+  }
+  const upstream = error instanceof SteamPlaytimeUpstreamError;
+  return res.status(upstream ? 502 : 500).json({
+    error: upstream ? error.message : "Could not import your Steam play time.",
+  });
+}
+
+steamPlaytimeRoutes.get(
+  "/api/steam/playtime/import/preview",
+  authenticateToken,
+  sensitiveEndpointLimiter,
+  async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      return res.json(await previewSteamPlaytimeImport((req.user as User).id));
+    } catch (error) {
+      return importError(res, error);
+    }
+  }
+);
+
+const importBodySchema = z
+  .object({ gameIds: z.array(z.string().min(1).max(100)).max(5000).optional() })
+  .strict();
+
+steamPlaytimeRoutes.post(
+  "/api/steam/playtime/import",
+  authenticateToken,
+  sensitiveEndpointLimiter,
+  async (req, res) => {
+    const parsed = importBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ error: "Expected { gameIds?: string[] }." });
+    try {
+      return res.json(await importSteamPlaytime((req.user as User).id, parsed.data.gameIds));
+    } catch (error) {
+      return importError(res, error);
     }
   }
 );

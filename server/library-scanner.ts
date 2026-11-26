@@ -31,7 +31,14 @@ import {
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { igdbLogger, routesLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
-import type { InsertGame, InsertGameFile, GameFile, GameFileCategory } from "../shared/schema.js";
+import { recordVersionFromInstallFolder } from "./game-version.js";
+import type {
+  Game,
+  InsertGame,
+  InsertGameFile,
+  GameFile,
+  GameFileCategory,
+} from "../shared/schema.js";
 import { isUserCuratedGameStatus } from "../shared/schema.js";
 
 // ---------- Types ----------
@@ -520,6 +527,7 @@ export async function replaceGameFilesFromPath(
   // Categories the user set by hand are kept, matched by path relative to the old location.
   const overrides = new Map<string, GameFile["category"]>();
   const nameOverrides = new Map<string, GameFile["category"] | undefined>();
+  const stale: string[] = [];
   for (const file of await storage.getGameFiles(gameId)) {
     const filePath = path.resolve(file.filePath);
     if (filePath === previous || isStrictlyInside(previous, filePath)) {
@@ -529,14 +537,17 @@ export async function replaceGameFilesFromPath(
         // A name shared by several overridden files is ambiguous: drop it.
         nameOverrides.set(name, nameOverrides.has(name) ? undefined : file.category);
       }
-      await storage.removeGameFile(file.id);
+      stale.push(file.id);
     }
   }
   const stat = await fs.promises.stat(absolutePath);
   const files = stat.isFile()
     ? [{ absolutePath, size: stat.size }]
     : await listFiles(absolutePath, Number.POSITIVE_INFINITY);
+  // The new records go in before the old ones are removed: if recording fails, the old records
+  // (and the categories set by hand on them) are still there.
   const added = await assignFilesToGame(gameId, files);
+  for (const id of stale) await storage.removeGameFile(id);
   if (overrides.size > 0) {
     const destination = path.resolve(absolutePath);
     const inside = (await storage.getGameFiles(gameId)).filter((file) => {
@@ -591,6 +602,28 @@ export async function searchUnmatchedFolder(
   return entry.candidates;
 }
 
+/** Finds or creates the game picked for a folder, marking it owned and linking the folder. */
+async function upsertMatchedGame(
+  igdb: IGDBGame,
+  igdbId: number,
+  userId: string,
+  absolutePath: string
+): Promise<Game> {
+  let game = await storage.getGameByIgdbId(igdbId);
+  if (!game) {
+    game = await storage.addGame(igdbToInsertGame(igdb, userId));
+    await storage.updateGame(game.id, { libraryPath: absolutePath });
+    return game;
+  }
+  if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
+    await storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
+  }
+  if (!game.libraryPath) {
+    await storage.updateGame(game.id, { libraryPath: absolutePath });
+  }
+  return game;
+}
+
 export async function matchUnmatchedFolder(
   rootFolderId: string,
   folderName: string,
@@ -624,21 +657,13 @@ export async function matchUnmatchedFolder(
   const igdb = await igdbClient.getGameById(igdbId);
   if (!igdb) throw new Error("Selected IGDB game not found in top candidates");
 
-  let game = await storage.getGameByIgdbId(igdbId);
-  if (!game) {
-    game = await storage.addGame(igdbToInsertGame(igdb, userId));
-    await storage.updateGame(game.id, { libraryPath: absolutePath });
-  } else {
-    if (game.status !== "owned" && !isUserCuratedGameStatus(game.status)) {
-      await storage.updateGameStatus(game.id, { status: "owned" }, { preserveCurated: true });
-    }
-    if (!game.libraryPath) {
-      await storage.updateGame(game.id, { libraryPath: absolutePath });
-    }
-  }
+  const game = await upsertMatchedGame(igdb, igdbId, userId, absolutePath);
 
   const files = isFile ? [{ absolutePath, size: standaloneSize }] : await listFiles(absolutePath);
   const filesAdded = await assignFilesToGame(game.id, files);
+  // The version of the folder the game keeps, not of one it was just matched with.
+  if (!isFile)
+    await recordVersionFromInstallFolder(storage, game.id, game.libraryPath ?? absolutePath);
 
   clearUnmatched(rootFolderId, folderName);
   return { gameId: game.id, filesAdded };
@@ -716,6 +741,25 @@ export async function rescanRootFolderById(rootFolderId: string, userId: string)
   await scanRootFolderById(rootFolderId, userId);
 }
 
+/**
+ * Re-reads the install files of the games living under a root folder, so a game that was
+ * patched in place gets its new version. Best-effort: one folder failing never stops the scan.
+ */
+async function refreshInstalledVersions(rootPath: string, userId: string): Promise<void> {
+  try {
+    const root = path.resolve(rootPath);
+    const games = await storage.getUserGames(userId, true);
+    for (const game of games) {
+      if (!game.libraryPath || game.installedVersionSource === "manual") continue;
+      const folder = path.resolve(game.libraryPath);
+      if (folder !== root && !folder.startsWith(root + path.sep)) continue;
+      await recordVersionFromInstallFolder(storage, game.id, folder);
+    }
+  } catch (err) {
+    routesLogger.warn({ err, rootPath }, "scan: could not refresh installed versions");
+  }
+}
+
 type RootFolderRow = NonNullable<Awaited<ReturnType<typeof storage.getRootFolder>>>;
 
 /** Auto-link a strongly matched candidate to a game and record its files. */
@@ -745,6 +789,7 @@ async function recordMatchedCandidate(
     }
   }
   await assignFilesToGame(game.id, files);
+  await recordVersionFromInstallFolder(storage, game.id, game.libraryPath ?? cand.absolutePath);
   return game.id;
 }
 
@@ -819,6 +864,17 @@ function registerSwitchFamilies(
   }
 }
 
+/** Adds a candidate's files to a game already known, counting it as matched. */
+async function assignToExistingGame(
+  gameId: string,
+  files: Parameters<typeof assignFilesToGame>[1],
+  progress: ScanProgress
+): Promise<void> {
+  const added = await assignFilesToGame(gameId, files);
+  if (added > 0) gamesChangedByScan.add(progress);
+  progress.matched += 1;
+}
+
 /** Classify and (auto-)resolve a single scan candidate, updating `progress` in place. */
 async function processCandidate(
   rootFolder: RootFolderRow,
@@ -842,10 +898,8 @@ async function processCandidate(
   // Already linked to a game by an earlier scan or a manual match: keep it out
   // of the review list and skip the IGDB lookup, but still pick up new files.
   if (knownGameId) {
-    const added = await assignFilesToGame(knownGameId, files);
-    if (added > 0) gamesChangedByScan.add(progress);
+    await assignToExistingGame(knownGameId, files, progress);
     registerSwitchFamilies(files, knownGameId, switchFamilies);
-    progress.matched += 1;
     return;
   }
 
@@ -854,9 +908,7 @@ async function processCandidate(
   const switchInfo = parseSwitchTitleId(cand.folderName);
   const familyGameId = switchInfo ? switchFamilies.get(switchInfo.family) : undefined;
   if (familyGameId) {
-    const added = await assignFilesToGame(familyGameId, files);
-    if (added > 0) gamesChangedByScan.add(progress);
-    progress.matched += 1;
+    await assignToExistingGame(familyGameId, files, progress);
     return;
   }
 
@@ -930,6 +982,8 @@ async function runScan(
       progress.processedCandidates += 1;
       emitProgress(progress);
     }
+
+    await refreshInstalledVersions(rootFolder.path, userId);
 
     // Record the scan time first: the next folder of a batch is already
     // "queued", so nothing waits on I/O between this completion and its start.

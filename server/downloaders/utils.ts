@@ -2,9 +2,34 @@ import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import { isDownloaderDebugLoggingEnabled } from "./debug-logging.js";
 import type { Downloader, DownloadFile } from "@shared/schema.js";
+import type { DownloaderActionResult } from "./types.js";
 
 export const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+
+/** Normalizes an unknown thrown value into the message shown to the user. */
+export function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error";
+}
+
+/**
+ * Runs a downloader control action and normalizes its outcome into the
+ * `{ success, message }` shape every client returns. Each client's pause,
+ * resume, and remove methods share the exact same try/catch + message
+ * formatting, so it lives here once instead of being copied (and drifting)
+ * across the torrent clients.
+ */
+export async function runDownloaderAction(
+  action: "pause" | "resume" | "remove",
+  run: () => Promise<unknown>
+): Promise<DownloaderActionResult> {
+  try {
+    await run();
+    return { success: true, message: `Download ${action}d successfully` };
+  } catch (error) {
+    return { success: false, message: `Failed to ${action} download: ${getErrorMessage(error)}` };
+  }
+}
 
 /** Returns whether a URL's scheme is literally `https:`. Any parse failure is treated as not HTTPS. */
 export function isHttpsUrl(url: string): boolean {

@@ -67,7 +67,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Rich Game Metadata**      | Game details enriched with IGDB, Steam, PCGamingWiki, ProtonDB and NexusMods. See time to beat, trending mods and ratings.                                                                                                                                                                                                                                                             |
 | **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                                                                                                                                                                                                                                       |
 | **Security Focused**        | Security first design, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](docs/SECURITY.md) for the full process.                                                                                                                                                                                                                  |
-| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                                                                             |
+| **Integrations**            | One-click install on UNRAID, ZimaOS, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, a Windows installer, a Linux tarball with a systemd service, and a Helm chart for Kubernetes, plus a [Playnite extension](extensions/playnite-questarr/README.md) to sync your library and request games from the couch. 🚧                                                                                                     |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                                                                                                                                                                                                                                      |
 
 ### Supported Indexers/Downloaders
@@ -75,11 +75,11 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 - Sync indexers from [Prowlarr](docs/INDEXERS.md).
 - G4u.to: the site offers an API to VIP members, which can be used in Questarr.
 
-| Indexers                   | Downloaders                                                                             |
-| -------------------------- | --------------------------------------------------------------------------------------- |
-| Torznab protocol (Torrent) | - qBittorent<br>- Transmission<br>- rTorrent<br>- Deluge<br>- Synology Download Station |
-| Newznab protocol (Usenet)  | - Sabnzbd<br>- Nzbget                                                                   |
-| G4U.to                     | Same as Newznab                                                                         |
+| Indexers                   | Downloaders                                                                                                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Torznab protocol (Torrent) | - qBittorent<br>- Transmission<br>- rTorrent<br>- Deluge<br>- Synology Download Station<br>- Real-Debrid ([docs](docs/REAL-DEBRID.md))<br>- TorBox ([docs](docs/TORBOX.md)) |
+| Newznab protocol (Usenet)  | - Sabnzbd<br>- Nzbget                                                                                                                                                       |
+| G4U.to                     | Same as Newznab                                                                                                                                                             |
 
 ## Installation
 
@@ -153,6 +153,40 @@ or later release with the installer attached, and run it. The installer bundles 
 
 </details>
 
+### Linux (tarball, systemd)
+
+<details>
+<summary><b>Install on any systemd-based Linux — no Docker, no Node.js to install</b></summary>
+
+Each release from the version that ships it on carries `questarr-<version>-linux-x64.tar.gz`
+and `questarr-<version>-linux-arm64.tar.gz` (with a `.sha256` file each) on the
+[GitHub releases](https://github.com/Doezer/Questarr/releases) page. The archive bundles Node.js, so
+only systemd and a recent distribution (glibc 2.35 or newer, for example Ubuntu 22.04 or Debian 12) are needed.
+
+```bash
+sha256sum -c questarr-<version>-linux-x64.tar.gz.sha256
+tar -xzf questarr-<version>-linux-x64.tar.gz
+cd questarr && sudo ./install.sh
+```
+
+The installer creates a `questarr` system user, puts the application in `/opt/questarr`, writes
+`/opt/questarr/.env` once (port 5000, SQLite in `/opt/questarr/data`) and enables the `questarr`
+service. Open `http://<host>:5000`. To update, extract the new archive and run `install.sh`
+again: your `.env` and `data/` are kept. Logs: `journalctl -u questarr -f`. Set `QUESTARR_PORT` or
+`QUESTARR_HOST` when running `install.sh` to change the defaults on first install.
+
+The service runs as `questarr` with a hardened unit: the application files are owned by root and only
+`/opt/questarr/data` is the only application path the service writes to by default. `ProtectSystem=full`
+does not restrict other paths under `/opt`; writes there depend on Unix permissions. Your library and
+download folders (for example under
+`/mnt` or `/srv`) must be writable by the `questarr` user through normal filesystem permissions. Folders
+under `/home` are read-only for the service; to allow them, run `sudo systemctl edit questarr`, add
+`[Service]` followed by `ReadWritePaths=/path/to/library`, then `sudo systemctl restart questarr`.
+
+For archive extraction and notifications, install `7zip`, `unrar` and `apprise` on the host if you use those features.
+
+</details>
+
 ### Proxmox VE (LXC)
 
 <details>
@@ -195,10 +229,30 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 
 </details>
 
-### CasaOS
+### ZimaOS
+
+<details>
+<summary><b>Install from the Questarr store</b></summary>
+
+1. Open the **App Store** in ZimaOS and add a third-party store source (import a store link).
+2. Paste this URL:
+   `https://cdn.jsdelivr.net/gh/Doezer/questarr-zimaos-store@gh-pages/store.json`
+3. Open the new store, pick **Questarr** and click **Install**. The web interface is on port `5000`.
+4. Review the mounts — by default `/DATA/AppData/questarr` holds Questarr's data and
+   `/DATA/Downloads` is mounted at `/data` so Questarr can import finished downloads. If you keep
+   that second mount, add a matching entry under **Settings → Path Mappings**.
+
+The store is maintained in [Doezer/questarr-zimaos-store](https://github.com/Doezer/questarr-zimaos-store).
+On CasaOS (the predecessor of ZimaOS), use the legacy AppFile below instead.
+
+</details>
+
+### CasaOS (legacy)
 
 <details>
 <summary><b>Install via Custom Install (AppFile)</b></summary>
+
+ZimaOS is the successor of CasaOS, and the ZimaOS store above is the maintained option. Use this AppFile only on a CasaOS install.
 
 1. Open the **App Store** and click **Custom Install**.
 2. Click the **import** icon (top right) and paste this URL:
@@ -242,14 +296,15 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 <details>
 <summary><b>Install with the bundled Helm chart</b></summary>
 
-A Helm chart lives in [`charts/questarr`](charts/questarr). It is not published to a Helm
-repository yet, so install it from a clone:
+A Helm chart lives in [`charts/questarr`](charts/questarr) and is published as an OCI chart on
+GitHub Container Registry:
 
 ```bash
-git clone https://github.com/Doezer/Questarr.git
-cd Questarr
-helm install questarr charts/questarr --namespace questarr --create-namespace
+helm install questarr oci://ghcr.io/doezer/charts/questarr --namespace questarr --create-namespace
 ```
+
+You can also install it from a clone with
+`helm install questarr charts/questarr --namespace questarr --create-namespace`.
 
 Then port-forward (or enable the Ingress) and open the UI:
 

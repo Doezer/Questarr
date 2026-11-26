@@ -30,6 +30,7 @@ const baseConfig: ImportConfig = {
   transferMode: "hardlink",
   autoDeleteAfterImport: false,
   sortExtras: false,
+  upgradeReplaceMode: "off",
   importPlatformIds: [],
   renamePattern: "{Title} ({Year})",
 } as unknown as ImportConfig;
@@ -124,6 +125,35 @@ describe("ImportSettings", () => {
         "PATCH",
         "/api/imports/config",
         expect.objectContaining({ sortExtras: true })
+      );
+    });
+  });
+
+  it("keeps the previous version by default and explains the chosen mode", async () => {
+    renderComponent();
+    expect(await screen.findByLabelText("Previous version after an upgrade")).toHaveTextContent(
+      "Keep it"
+    );
+    expect(screen.getByText(/waits for your review/)).toBeInTheDocument();
+  });
+
+  it("warns that deleting the previous version cannot be undone and saves the mode", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    mockFetch({ config: { ...baseConfig, upgradeReplaceMode: "delete" } });
+    renderComponent();
+    expect(await screen.findByLabelText("Previous version after an upgrade")).toHaveTextContent(
+      "Delete it"
+    );
+    expect(screen.getByText(/This cannot be undone/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("switch", { name: /sort add-on files into subfolders/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(apiRequest).toHaveBeenCalledWith(
+        "PATCH",
+        "/api/imports/config",
+        expect.objectContaining({ upgradeReplaceMode: "delete" })
       );
     });
   });

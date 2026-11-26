@@ -7,6 +7,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import AppSidebar from "@/components/AppSidebar";
 import Header from "@/components/Header";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import SetupWizardPrompt from "@/components/SetupWizardPrompt";
 import { getPageTitle } from "@/components/navigation-items";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import { useGameUpdatedSocket } from "@/hooks/use-game-updated-socket";
@@ -17,7 +18,7 @@ import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import "@/lib/in-app-history";
 import { routerBase } from "@/lib/app-path";
-import { authRoute, gameDetailsRoutePattern, routePaths } from "@/lib/routes";
+import { authRoute, gameDetailsRoutePattern, routePaths, settingsRoutePattern } from "@/lib/routes";
 import { applyThemeClass, migrateLegacyTheme } from "@/lib/theme-mode";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
@@ -40,6 +41,7 @@ const XrelReleasesPage = lazy(() => import("@/pages/xrel-releases"));
 const RssPage = lazy(() => import("@/pages/rss"));
 const LoginPage = lazy(() => import("@/pages/auth/login"));
 const SetupPage = lazy(() => import("@/pages/auth/setup"));
+const SetupWizardPage = lazy(() => import("@/pages/setup-wizard"));
 const StatsPage = lazy(() => import("@/pages/stats"));
 const LogsPage = lazy(() => import("@/pages/logs"));
 const ImportHistoryPage = lazy(() => import("@/pages/import-history"));
@@ -47,6 +49,7 @@ const ActivityHistoryPage = lazy(() => import("@/pages/activity-history"));
 const ActivityBlocklistPage = lazy(() => import("@/pages/activity-blocklist"));
 const SystemTasksPage = lazy(() => import("@/pages/system-tasks"));
 const SystemBackupsPage = lazy(() => import("@/pages/system-backups"));
+const SystemDiagnosticsPage = lazy(() => import("@/pages/system-diagnostics"));
 const PlayPage = lazy(() => import("@/pages/play"));
 const GameDetailsPage = lazy(() => import("@/pages/game-details"));
 
@@ -130,6 +133,7 @@ function Router() {
       <Switch>
         <Route path={routePaths.login} component={LoginPage} />
         <Route path={routePaths.setup} component={SetupPage} />
+        <Route path={routePaths.setupWizard} component={SetupWizardPage} />
         <Route path={routePaths.play} component={PlayPage} />
         <Route path={routePaths.library} component={Library} />
         <Route path={gameDetailsRoutePattern} component={GameDetailsPage} />
@@ -138,7 +142,7 @@ function Router() {
         <Route path={routePaths.downloads} component={DownloadsPage} />
         <Route path={routePaths.indexers} component={IndexersPage} />
         <Route path={routePaths.downloaders} component={DownloadersPage} />
-        <Route path={routePaths.settings} component={SettingsPage} />
+        <Route path={settingsRoutePattern} component={SettingsPage} />
         <Route path={routePaths.calendar} component={CalendarPage} />
         <Route path={routePaths.wishlist} component={WishlistPage} />
         <Route path={routePaths.playing} component={PlayingPage} />
@@ -153,6 +157,7 @@ function Router() {
         <Route path={routePaths.activityBlocklist} component={ActivityBlocklistPage} />
         <Route path={routePaths.systemTasks} component={SystemTasksPage} />
         <Route path={routePaths.systemBackups} component={SystemBackupsPage} />
+        <Route path={routePaths.systemDiagnostics} component={SystemDiagnosticsPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -217,6 +222,7 @@ function AppShell() {
                 <AppSidebar activeItem={location} onNavigate={navigate} />
                 <div className="flex flex-col flex-1 min-w-0">
                   <Header title={getPageTitle(location)} />
+                  <SetupWizardPrompt />
                   <main className="flex-1 overflow-hidden pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
                     <AppContent />
                   </main>

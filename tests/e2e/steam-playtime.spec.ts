@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openSettingsSection } from "./helpers";
 
 interface Status {
   available: boolean;
@@ -40,7 +41,7 @@ test("turns the Steam play-time sync on and runs it from the settings", async ({
   });
 
   await page.goto("/settings?tab=integrations");
-  await page.getByRole("tab", { name: "Integrations", exact: true }).click();
+  await openSettingsSection(page, "Connections");
   const panel = page.getByRole("region", { name: "Steam play time" });
   const toggle = panel.getByRole("switch", { name: "Sync Steam play time" });
   await expect(toggle).toBeEnabled();

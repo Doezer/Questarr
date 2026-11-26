@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { patchUserSettings } from "./helpers";
+import { patchUserSettings, openSettingsSection } from "./helpers";
 
 test.describe("v1.5 release feature journeys", () => {
   test.describe.configure({ mode: "serial" });
@@ -54,7 +54,7 @@ test.describe("v1.5 release feature journeys", () => {
     try {
       await page.goto("/settings");
       // Content filters are on Appearance; platform preference is on Discovery & Downloads.
-      await page.getByRole("tab", { name: "Appearance" }).click();
+      await openSettingsSection(page, "General");
 
       const adultFilter = page.getByLabel("Hide erotic content");
       if (await adultFilter.isChecked()) await adultFilter.click();
@@ -71,7 +71,7 @@ test.describe("v1.5 release feature journeys", () => {
         hideAgeRestrictedContent: false,
       });
 
-      await page.getByRole("tab", { name: "Discovery & Downloads" }).click();
+      await openSettingsSection(page, "Search & Downloads");
       await page.getByLabel("Preferred Platform").click();
       await page.getByRole("option", { name: "PS5", exact: true }).click();
       await page.getByRole("button", { name: "Save Auto-Search" }).click();

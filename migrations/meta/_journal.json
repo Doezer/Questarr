@@ -435,6 +435,83 @@
       "when": 1794661464405,
       "tag": "0060_status_sync_source",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1794661465405,
+      "tag": "0061_installed_version_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1794661466405,
+      "tag": "0062_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "6",
+      "when": 1794683941983,
+      "tag": "0063_finish_by",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "6",
+      "when": 1794783941983,
+      "tag": "0064_upgrade_replace_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "6",
+      "when": 1794883941983,
+      "tag": "0065_folder_for_single_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "6",
+      "when": 1795061144127,
+      "tag": "0066_game_status_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1795270289748,
+      "tag": "0067_ddl_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1795286675562,
+      "tag": "0068_ddl_feeds",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "6",
+      "when": 1795358879844,
+      "tag": "0069_game_achievement_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1795379469211,
+      "tag": "0070_quests",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1795500438408,
+      "tag": "0071_addon_subfolders",
+      "breakpoints": true
     }
   ]
 }

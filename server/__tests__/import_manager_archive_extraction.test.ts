@@ -47,6 +47,7 @@ function makeStorage() {
     getDownloader: vi.fn().mockResolvedValue(undefined),
     updateGameDownloadStatus: vi.fn().mockResolvedValue(undefined),
     updateGameStatus: vi.fn().mockResolvedValue(undefined),
+    getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     updateGame: vi.fn().mockResolvedValue(undefined),
     addNotification: vi.fn().mockResolvedValue(undefined),
   };
@@ -177,7 +178,7 @@ describe("ImportManager archive extraction (library-side)", () => {
       destDir,
       undefined
     );
-    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported", null);
   });
 
   it("move mode: keeps other source files out of destDir until after extraction, so extract()'s own cleanup can't delete them", async () => {
@@ -325,7 +326,7 @@ describe("ImportManager archive extraction (library-side)", () => {
       undefined
     );
     expect(await fs.pathExists(path.join(destDir, "game.exe"))).toBe(true);
-    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported", null);
   });
 
   it("hardlink mode: extracts straight from the source archive to the destination and hardlinks the remaining loose file", async () => {

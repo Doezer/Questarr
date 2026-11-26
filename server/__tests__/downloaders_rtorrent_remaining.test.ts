@@ -37,6 +37,7 @@ global.fetch = fetchMock as unknown as typeof fetch;
 
 const { isSafeUrl } = await import("../ssrf.js");
 const { RTorrentClient } = await import("../downloaders/rtorrent.js");
+const { parseXmlRpcResponse, parseXmlRpcValue } = await import("../downloaders/xmlrpc.js");
 
 const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
   const now = new Date("2024-01-01T00:00:00.000Z");
@@ -517,8 +518,6 @@ describe("rtorrent remaining regression coverage", () => {
         username: string,
         password: string
       ): string;
-      parseXMLRPCResponse(xml: string): unknown;
-      parseXMLValueObj(value: unknown): unknown;
     };
 
     const randomBytesSpy = vi
@@ -545,12 +544,12 @@ describe("rtorrent remaining regression coverage", () => {
       )
     ).not.toContain("qop=");
 
-    expect(client.parseXMLRPCResponse(xmlRpcString("hello"))).toBe("hello");
+    expect(parseXmlRpcResponse(xmlRpcString("hello"))).toBe("hello");
     expect(
-      client.parseXMLRPCResponse(`<?xml version="1.0"?><methodResponse></methodResponse>`)
+      parseXmlRpcResponse(`<?xml version="1.0"?><methodResponse></methodResponse>`)
     ).toBeNull();
     expect(() =>
-      client.parseXMLRPCResponse(`<?xml version="1.0"?>
+      parseXmlRpcResponse(`<?xml version="1.0"?>
 <methodResponse>
   <fault>
     <value>
@@ -565,27 +564,27 @@ describe("rtorrent remaining regression coverage", () => {
 </methodResponse>`)
     ).toThrow("XML-RPC Fault: Nope");
 
-    expect(client.parseXMLValueObj("plain")).toBe("plain");
-    expect(client.parseXMLValueObj([{ boolean: { _text: "1" } }])).toBe(true);
-    expect(client.parseXMLValueObj({ string: { _text: "s" } })).toBe("s");
-    expect(client.parseXMLValueObj({ int: { _text: "2" } })).toBe(2);
-    expect(client.parseXMLValueObj({ i4: { _text: "3" } })).toBe(3);
-    expect(client.parseXMLValueObj({ i8: { _text: "4" } })).toBe(4);
-    expect(client.parseXMLValueObj({ double: { _text: "1.5" } })).toBe(1.5);
-    expect(client.parseXMLValueObj({ boolean: { _text: "0" } })).toBe(false);
-    expect(client.parseXMLValueObj({ base64: { _text: "YWJj" } })).toBe("YWJj");
-    expect(client.parseXMLValueObj({ array: { data: [] } })).toEqual([]);
-    expect(client.parseXMLValueObj({ array: { data: [{}] } })).toEqual([]);
+    expect(parseXmlRpcValue("plain")).toBe("plain");
+    expect(parseXmlRpcValue([{ boolean: { _text: "1" } }])).toBe(true);
+    expect(parseXmlRpcValue({ string: { _text: "s" } })).toBe("s");
+    expect(parseXmlRpcValue({ int: { _text: "2" } })).toBe(2);
+    expect(parseXmlRpcValue({ i4: { _text: "3" } })).toBe(3);
+    expect(parseXmlRpcValue({ i8: { _text: "4" } })).toBe(4);
+    expect(parseXmlRpcValue({ double: { _text: "1.5" } })).toBe(1.5);
+    expect(parseXmlRpcValue({ boolean: { _text: "0" } })).toBe(false);
+    expect(parseXmlRpcValue({ base64: { _text: "YWJj" } })).toBe("YWJj");
+    expect(parseXmlRpcValue({ array: { data: [] } })).toEqual([]);
+    expect(parseXmlRpcValue({ array: { data: [{}] } })).toEqual([]);
     expect(
-      client.parseXMLValueObj({
+      parseXmlRpcValue({
         array: {
           data: [{ value: [{ string: { _text: "one" } }, { int: { _text: "2" } }] }],
         },
       })
     ).toEqual(["one", 2]);
-    expect(client.parseXMLValueObj({ struct: {} })).toEqual({});
+    expect(parseXmlRpcValue({ struct: {} })).toEqual({});
     expect(
-      client.parseXMLValueObj({
+      parseXmlRpcValue({
         struct: {
           member: [
             { name: { _text: "a" }, value: { string: { _text: "b" } } },
@@ -594,9 +593,9 @@ describe("rtorrent remaining regression coverage", () => {
         },
       })
     ).toEqual({ a: "b", n: 5 });
-    expect(client.parseXMLValueObj([5])).toBe(5);
-    expect(client.parseXMLValueObj({ array: {} })).toEqual([]);
-    expect(client.parseXMLValueObj({ unsupported: true })).toBeNull();
+    expect(parseXmlRpcValue([5])).toBe(5);
+    expect(parseXmlRpcValue({ array: {} })).toEqual([]);
+    expect(parseXmlRpcValue({ unsupported: true })).toBeNull();
 
     randomBytesSpy.mockRestore();
   });
@@ -669,7 +668,7 @@ describe("rtorrent remaining regression coverage", () => {
     });
     expect((fetchMock.mock.calls[0][1] as RequestInit).body).toContain("<base64>YWJj</base64>");
     expect((fetchMock.mock.calls[0][1] as RequestInit).body).toContain(
-      "<string>[object Object]</string>"
+      "<struct><member><name>foo</name><value><string>bar</string></value></member></struct>"
     );
 
     const protocolClient = new RTorrentClient(

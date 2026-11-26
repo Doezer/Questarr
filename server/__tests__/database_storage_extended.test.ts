@@ -187,9 +187,17 @@ describe("DatabaseStorage Extended Coverage", () => {
       const versionUpdated = await storage.updateGameInstalledVersion(game.id, userId, "v1.2.3");
       expect(versionUpdated?.installedVersion).toBe("v1.2.3");
       expect(await storage.updateGameInstalledVersion(game.id, "other-user", "v9")).toBeUndefined();
+      expect(versionUpdated?.installedVersionSource).toBe("manual");
+      // A version typed by the user is never replaced by a detected one.
+      expect(await storage.replaceGameInstalledVersion(game.id, "v1.2.3", "v1.3")).toBe(false);
+      await storage.updateGameInstalledVersion(game.id, userId, null);
       expect(await storage.replaceGameInstalledVersion(game.id, "v1.0", "v1.3")).toBe(false);
-      expect(await storage.replaceGameInstalledVersion(game.id, "v1.2.3", "v1.3")).toBe(true);
-      expect((await storage.getGame(game.id))?.installedVersion).toBe("v1.3");
+      expect(await storage.replaceGameInstalledVersion(game.id, null, "v1.3", "install")).toBe(
+        true
+      );
+      const detected = await storage.getGame(game.id);
+      expect(detected?.installedVersion).toBe("v1.3");
+      expect(detected?.installedVersionSource).toBe("install");
 
       await storage.updateGameSearchResultsAvailable(game.id, true);
       const refetched = await storage.getGame(game.id);
@@ -259,6 +267,95 @@ describe("DatabaseStorage Extended Coverage", () => {
       expect(await storage.deleteGamePlaySession(manual.id, game.id, "someone-else")).toBe(false);
       expect(await storage.deleteGamePlaySession(manual.id, game.id, userId)).toBe(true);
       expect(await storage.getGamePlaySessions(game.id, userId)).toHaveLength(0);
+    });
+
+    it("updates and replaces only finished manual or timer play sessions", async () => {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Edited",
+        status: "playing",
+        userId,
+        hidden: false,
+      });
+      const at = (h: number) => new Date(`2026-11-05T${String(h).padStart(2, "0")}:00:00Z`);
+      const add = (source: string, from: number, to: number | null) =>
+        storage.addGamePlaySession({
+          gameId: game.id,
+          userId,
+          startedAt: at(from),
+          endedAt: to === null ? null : at(to),
+          source,
+        });
+      const manual = await add("manual", 10, 11);
+      const timer = await add("timer", 11, 12);
+      const steam = await add("steam", 13, 14);
+      const running = await add("timer", 15, null);
+
+      const exp = (x: { id: string; startedAt: Date; endedAt: Date | null }) => ({
+        id: x.id,
+        startedAt: x.startedAt,
+        endedAt: x.endedAt!,
+      });
+      const moved = await storage.updateGamePlaySession(
+        manual.id,
+        game.id,
+        userId,
+        { startedAt: at(9), endedAt: at(11) },
+        exp(manual)
+      );
+      expect(moved?.startedAt.getTime()).toBe(at(9).getTime());
+      for (const blocked of [steam, running]) {
+        expect(
+          await storage.updateGamePlaySession(
+            blocked.id,
+            game.id,
+            userId,
+            { startedAt: at(1), endedAt: at(2) },
+            { startedAt: blocked.startedAt, endedAt: blocked.endedAt ?? at(2) }
+          )
+        ).toBeUndefined();
+      }
+      expect(
+        await storage.updateGamePlaySession(
+          manual.id,
+          game.id,
+          "someone-else",
+          { startedAt: at(1), endedAt: at(2) },
+          exp(moved!)
+        )
+      ).toBeUndefined();
+
+      // One imported session in the list: nothing changes.
+      expect(
+        await storage.replaceGamePlaySessions(
+          userId,
+          game.id,
+          [exp(moved!), exp(steam)],
+          [{ startedAt: at(9), endedAt: at(14), source: "manual" }]
+        )
+      ).toBeUndefined();
+      // A session read before it was moved is stale: nothing changes either.
+      expect(
+        await storage.replaceGamePlaySessions(
+          userId,
+          game.id,
+          [exp(manual), exp(timer)],
+          [{ startedAt: at(10), endedAt: at(12), source: "manual" }]
+        )
+      ).toBeUndefined();
+      expect(await storage.getGamePlaySessions(game.id, userId)).toHaveLength(4);
+
+      const merged = await storage.replaceGamePlaySessions(
+        userId,
+        game.id,
+        [exp(moved!), exp(timer)],
+        [{ startedAt: at(9), endedAt: at(12), source: "manual" }]
+      );
+      expect(merged).toHaveLength(1);
+      const left = await storage.getGamePlaySessions(game.id, userId);
+      expect(left.map((x) => x.id)).toContain(merged![0]!.id);
+      expect(left.map((x) => x.id)).not.toContain(manual.id);
+      expect(left).toHaveLength(3);
     });
 
     it("journal entries, milestones, and screenshots are scoped to their game and owner", async () => {

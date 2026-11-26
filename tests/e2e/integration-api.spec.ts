@@ -1,5 +1,5 @@
 import { test, expect, request as playwrightRequest } from "@playwright/test";
-import { seedGame, uniqueId } from "./helpers";
+import { seedGame, uniqueId, openSettingsSection } from "./helpers";
 
 test.describe("Integration API keys (Playnite)", () => {
   // Inherits authenticated state from 'setup' project
@@ -15,7 +15,7 @@ test.describe("Integration API keys (Playnite)", () => {
     await seedGame(page, { title: gameTitle, igdbId: id });
 
     await page.goto("/settings");
-    await page.getByRole("tab", { name: "Integrations" }).click();
+    await openSettingsSection(page, "Connections");
     await page.getByLabel("Name", { exact: true }).fill(keyName);
     await page.getByRole("button", { name: "Create key" }).click();
 

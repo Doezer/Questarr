@@ -30,6 +30,7 @@ export default function RssSettings() {
   const [isOpen, setIsOpen] = useState(false);
   const [newFeedUrl, setNewFeedUrl] = useState("");
   const [newFeedName, setNewFeedName] = useState("");
+  const [newFeedLinks, setNewFeedLinks] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -49,6 +50,7 @@ export default function RssSettings() {
       queryClient.invalidateQueries({ queryKey: ["/api/rss/feeds"] });
       setNewFeedName("");
       setNewFeedUrl("");
+      setNewFeedLinks(false);
       toast({ description: "Feed added" });
     },
     onError: () => {
@@ -57,8 +59,15 @@ export default function RssSettings() {
   });
 
   const toggleFeedMutation = useMutation({
-    mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      await apiRequest("PUT", `/api/rss/feeds/${id}`, { enabled });
+    mutationFn: async ({
+      id,
+      ...changes
+    }: {
+      id: string;
+      enabled?: boolean;
+      extractLinks?: boolean;
+    }) => {
+      await apiRequest("PUT", `/api/rss/feeds/${id}`, changes);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/rss/feeds"] });
@@ -82,6 +91,7 @@ export default function RssSettings() {
       url: newFeedUrl,
       type: "custom",
       enabled: true,
+      extractLinks: newFeedLinks,
     });
   };
 
@@ -126,6 +136,16 @@ export default function RssSettings() {
                 Add
               </Button>
             </div>
+            <div className="col-span-12 flex items-center gap-2">
+              <Switch
+                id="new-feed-links"
+                checked={newFeedLinks}
+                onCheckedChange={setNewFeedLinks}
+              />
+              <Label htmlFor="new-feed-links" className="text-sm font-normal">
+                Items carry file-hoster download links (send them to Real-Debrid)
+              </Label>
+            </div>
           </div>
 
           <TooltipProvider>
@@ -135,6 +155,7 @@ export default function RssSettings() {
                   <TableHead>Status</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Type</TableHead>
+                  <TableHead>Links</TableHead>
                   <TableHead>Enabled</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -176,10 +197,20 @@ export default function RssSettings() {
                     </TableCell>
                     <TableCell>
                       <Switch
+                        checked={feed.extractLinks}
+                        onCheckedChange={(c) =>
+                          toggleFeedMutation.mutate({ id: feed.id, extractLinks: c })
+                        }
+                        aria-label={`Extract download links from ${feed.name}`}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Switch
                         checked={feed.enabled}
                         onCheckedChange={(c) =>
                           toggleFeedMutation.mutate({ id: feed.id, enabled: c })
                         }
+                        aria-label={`Enable feed ${feed.name}`}
                       />
                     </TableCell>
                     <TableCell className="text-right">
@@ -198,7 +229,7 @@ export default function RssSettings() {
                 ))}
                 {feeds?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
                       No RSS feeds configured. Add one above!
                     </TableCell>
                   </TableRow>

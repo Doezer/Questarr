@@ -7,7 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestQueryClient } from "./test-utils";
 import ReleaseScoringSettings from "@/components/ReleaseScoringSettings";
-import ReleaseScoreBadge, { XrelStatusBadge } from "@/components/ReleaseScoreBadge";
+import ReleaseScoreBadge, {
+  titleMatchLabel,
+  XrelStatusBadge,
+} from "@/components/ReleaseScoreBadge";
 import { DEFAULT_RELEASE_PROFILE } from "@shared/release-scoring";
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
@@ -81,6 +84,22 @@ describe("ReleaseScoringSettings", () => {
         })
       )
     );
+  });
+
+  it("drops cached search results once the profile is saved, so scores are recomputed", async () => {
+    const { client } = renderSettings();
+    client.setQueryData(["/api/search?query=zelda&gameId=g1"], { items: [] });
+    client.setQueryData(["/api/search", "zelda"], { items: [] });
+    client.setQueryData(["/api/games"], []);
+
+    fireEvent.change(screen.getByLabelText("Repack points"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save profile and rules/i }));
+
+    await waitFor(() =>
+      expect(client.getQueryState(["/api/search?query=zelda&gameId=g1"])?.isInvalidated).toBe(true)
+    );
+    expect(client.getQueryState(["/api/search", "zelda"])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(["/api/games"])?.isInvalidated).toBe(false);
   });
 
   it("lets a rule weight be cleared and typed as a negative number", async () => {
@@ -209,6 +228,24 @@ describe("ReleaseScoreBadge", () => {
     fireEvent.click(screen.getByRole("button", { name: /Score 20, rejected/ }));
     expect(await screen.findByText("The release is a sequel (2)")).toBeInTheDocument();
     expect(screen.getByText("+8")).toBeInTheDocument();
+  });
+});
+
+describe("titleMatchLabel", () => {
+  it("words a continued title by the release category", () => {
+    expect(titleMatchLabel("spinoff", "main")).toBe("Spin-off title");
+    expect(titleMatchLabel("spinoff", "dlc")).toBe(
+      "Title continues past the game name (DLC or update?)"
+    );
+    expect(titleMatchLabel("spinoff", "update")).toBe(
+      "Title continues past the game name (DLC or update?)"
+    );
+  });
+
+  it("leaves the other title matches as they are", () => {
+    expect(titleMatchLabel("exact", "dlc")).toBe("Exact title");
+    expect(titleMatchLabel("mismatch", "main")).toBe("Different game");
+    expect(titleMatchLabel("sequel", "update")).toBe("Sequel");
   });
 });
 

@@ -93,7 +93,15 @@ export default function ReleaseScoringSettings() {
 
   const onError = (error: Error) =>
     toast({ title: "Save failed", description: error.message, variant: "destructive" });
-  const refresh = () => queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+  // Search results carry the score computed with the profile at search time, and queries are
+  // never stale on their own, so a changed profile or format must drop them too.
+  const refresh = () => {
+    void queryClient.invalidateQueries({
+      predicate: ({ queryKey }) =>
+        typeof queryKey[0] === "string" && queryKey[0].startsWith("/api/search"),
+    });
+    return queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+  };
 
   const saveProfile = useMutation({
     mutationFn: async () => {
@@ -209,7 +217,7 @@ export default function ReleaseScoringSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle as="h2" className="flex items-center gap-2 text-lg">
           <Scale className="h-5 w-5" />
           Release Scoring
         </CardTitle>

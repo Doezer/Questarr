@@ -15,9 +15,11 @@ import {
   extractHashFromUrl,
   fetchWithMagnetDetection,
   fixNzbUrlEncoding,
+  getErrorMessage,
   isHttpsUrl,
   logDownloaderDebugResponse,
   normalizePeerCount,
+  runDownloaderAction,
 } from "./utils.js";
 
 interface QBittorrentTorrent {
@@ -91,7 +93,7 @@ export class QBittorrentClient implements DownloaderClient {
       const version = await this.getAppVersion();
       return { success: true, message: `Connected successfully to qBittorrent ${version}` };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       return { success: false, message: `Failed to connect to qBittorrent: ${errorMessage}` };
     }
   }
@@ -516,7 +518,7 @@ export class QBittorrentClient implements DownloaderClient {
         }
       } catch (error) {
         if (isMagnet) {
-          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          const errorMessage = getErrorMessage(error);
           return {
             success: false,
             message: `Failed to add magnet link: ${errorMessage}`,
@@ -637,7 +639,7 @@ export class QBittorrentClient implements DownloaderClient {
           "Successfully downloaded torrent file"
         );
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        const errorMessage = getErrorMessage(error);
         const errorCause =
           error instanceof Error && "cause" in error
             ? (error.cause as { code?: string; message?: string; errno?: number } | undefined)
@@ -882,7 +884,7 @@ export class QBittorrentClient implements DownloaderClient {
         };
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = getErrorMessage(error);
       downloadersLogger.error({ error: errorMessage }, "Error adding download to qBittorrent");
       return { success: false, message: `Failed to add download: ${errorMessage}` };
     }
@@ -1082,7 +1084,7 @@ export class QBittorrentClient implements DownloaderClient {
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("pause", async () => {
       await this.authenticate();
 
       const formData = new URLSearchParams();
@@ -1091,16 +1093,11 @@ export class QBittorrentClient implements DownloaderClient {
       await this.makeRequest("POST", "/api/v2/torrents/pause", formData.toString(), {
         "Content-Type": "application/x-www-form-urlencoded",
       });
-
-      return { success: true, message: "Download paused successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause download: ${errorMessage}` };
-    }
+    });
   }
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("resume", async () => {
       await this.authenticate();
 
       const formData = new URLSearchParams();
@@ -1109,19 +1106,14 @@ export class QBittorrentClient implements DownloaderClient {
       await this.makeRequest("POST", "/api/v2/torrents/resume", formData.toString(), {
         "Content-Type": "application/x-www-form-urlencoded",
       });
-
-      return { success: true, message: "Download resumed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume download: ${errorMessage}` };
-    }
+    });
   }
 
   async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
-    try {
+    return runDownloaderAction("remove", async () => {
       await this.authenticate();
 
       const formData = new URLSearchParams();
@@ -1131,12 +1123,7 @@ export class QBittorrentClient implements DownloaderClient {
       await this.makeRequest("POST", "/api/v2/torrents/delete", formData.toString(), {
         "Content-Type": "application/x-www-form-urlencoded",
       });
-
-      return { success: true, message: "Download removed successfully" };
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove download: ${errorMessage}` };
-    }
+    });
   }
 
   async getFreeSpace(): Promise<number> {

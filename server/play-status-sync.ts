@@ -1,3 +1,4 @@
+import { normalizeTitle } from "../shared/title-utils.js";
 import { isUserCuratedGameStatus, type GameStatus } from "../shared/schema.js";
 
 /**
@@ -55,3 +56,69 @@ export function decidePlayStatus(
   if (game.status === target) return { action: "unchanged" };
   return { action: "apply" };
 }
+
+/**
+ * True when an IGDB match is plausibly the game a store library listed: the normalized titles are
+ * equal, or one starts with the other on a word boundary ("Hades" / "Hades II" is NOT accepted
+ * because a sequel is a different game, so only the shorter side may be the full title when the
+ * rest is an edition suffix such as "Game of the Year Edition").
+ */
+const EDITION_WORDS: ReadonlySet<string> = new Set([
+  "edition",
+  "remastered",
+  "remaster",
+  "definitive",
+  "complete",
+  "goty",
+  "deluxe",
+  "enhanced",
+  "director",
+  "cut",
+  "gold",
+  "ultimate",
+  "special",
+  "anniversary",
+  "collection",
+  "hd",
+  "version",
+]);
+/** Words that may sit between edition markers ("Game of the Year", "Director's Cut"). */
+const EDITION_GLUE: ReadonlySet<string> = new Set(["game", "of", "the", "year", "s"]);
+
+export function libraryTitlesAgree(requested: string, matched: string): boolean {
+  return normalizedTitlesAgree(normalizeTitle(requested), normalizeTitle(matched));
+}
+
+/** Same check on titles already passed through `normalizeTitle`, for scans over a library. */
+export function normalizedTitlesAgree(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (!long.startsWith(`${short} `)) return false;
+  // Every extra word must be an edition marker (or glue between them), and at least one must be
+  // a marker: "Hades II Deluxe Edition" is a sequel and "Hades Of The" is nothing.
+  const extra = long.slice(short.length + 1).split(" ");
+  return (
+    extra.every((w) => EDITION_WORDS.has(w) || EDITION_GLUE.has(w)) &&
+    extra.some((w) => EDITION_WORDS.has(w))
+  );
+}
+
+/** Whole minutes of play time recorded for a game, from its finished sessions. */
+export function recordedMinutes(
+  sessions: Array<{ startedAt: Date; endedAt: Date | null }>
+): number {
+  let total = 0;
+  for (const s of sessions) {
+    if (!s.endedAt) continue;
+    total += Math.max(0, Math.round((s.endedAt.getTime() - s.startedAt.getTime()) / 60_000));
+  }
+  return total;
+}
+
+/**
+ * Smallest gap between Playnite's total and the recorded time that is imported. Each finished
+ * session is rounded to whole minutes on both sides, so a few sessions can drift by a few
+ * minutes; importing that would add a bogus session after every sync.
+ */
+export const MIN_PLAYTIME_IMPORT_MINUTES = 10;

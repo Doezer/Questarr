@@ -361,7 +361,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
               <p className="text-muted-foreground text-sm">
                 Please configure IGDB credentials in settings to search for and add games.
               </p>
-              <Link href="/settings">
+              <Link href="/settings/connections#igdb-config">
                 <Button className="w-full" onClick={() => setOpen(false)}>
                   Go to Settings
                 </Button>
@@ -515,7 +515,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
             <p className="text-muted-foreground max-w-sm">
               Please configure IGDB credentials in settings to search for and add games.
             </p>
-            <Link href="/settings">
+            <Link href="/settings/connections#igdb-config">
               <Button onClick={() => setOpen(false)}>Go to Settings</Button>
             </Link>
           </div>

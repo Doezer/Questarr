@@ -155,6 +155,13 @@ export interface ReleaseContext {
   xrelReleases?: readonly XrelPredbEntry[];
   /** True when the xREL lookup was wanted but failed or timed out (xrelReleases is undefined). */
   xrelUnavailable?: boolean;
+  /**
+   * Whether IGDB lists a remake as a game of its own for this title. False means "Remake" in
+   * a release name is only a label of this game (Ocarina of Time); true means it names another
+   * game (Final Fantasy VII Remake). Leave undefined when unknown: "Remake" then counts as a
+   * different game.
+   */
+  hasOwnRemake?: boolean;
 }
 
 /** The subset of an indexer result the evaluation reads (SearchItem satisfies it). */
@@ -317,6 +324,8 @@ const RELEASE_TOKENS = new Set([
   "macos",
   "osx",
   "switch",
+  "switch2",
+  "n64",
   "nsw",
   "nsp",
   "xci",
@@ -390,7 +399,16 @@ const RELEASE_TOKENS = new Set([
   "scene",
 ]);
 
-const METADATA_TOKENS = new Set([...EDITION_TOKENS, ...CONTENT_TOKENS, ...RELEASE_TOKENS]);
+// Standalone region markers ("Game EUR PS4-GROUP"), the plain-word counterpart of the bracketed
+// "(US)" tags. Only read after the game name, so a title that starts with one still matches.
+const REGION_TOKENS = new Set(["eur", "usa", "jpn", "pal", "ntsc"]);
+
+const METADATA_TOKENS = new Set([
+  ...EDITION_TOKENS,
+  ...CONTENT_TOKENS,
+  ...RELEASE_TOKENS,
+  ...REGION_TOKENS,
+]);
 
 const METADATA_TOKEN_PATTERNS = [
   /^v\d+$/, // v1, v2 (normalization splits v1.0 into "v1" "0")
@@ -476,15 +494,23 @@ const TITLE_MATCH_RANK: Record<TitleMatch, number> = {
   mismatch: 0,
 };
 
-/** "Game of the Year" is an edition; "game" and "year" alone can be part of another title. */
+/**
+ * "Game of the Year" is an edition; "game" and "year" alone can be part of another title.
+ * "Nintendo Switch 2" and "Nintendo 64" are single platform markers, so the trailing number
+ * is not read as a title word.
+ */
 function withGotyPhrase(normalized: string): string {
-  return normalized.replaceAll(/\bgame of the year\b/g, "goty");
+  return normalized
+    .replaceAll(/\bgame of the year\b/g, "goty")
+    .replaceAll(/\b(?:nintendo ?)?switch ?2\b/g, "switch2")
+    .replaceAll(/\bnintendo ?64\b/g, "n64");
 }
 
 function classifyAgainstTitle(
   releaseName: string,
   gameTitle: string,
-  group: string | undefined
+  group: string | undefined,
+  remakeIsMetadata = false
 ): TitleMatch {
   const titleName =
     group && releaseName.endsWith(`-${group}`)
@@ -519,6 +545,8 @@ function classifyAgainstTitle(
       if (word === groupWord) continue;
       // before the game name only words that never start a title are metadata
       if (index >= start ? isMetadataToken(word) : isPrefixMetadata(word)) continue;
+      // only after the game name, and only when IGDB knows no remake of it as another game
+      if (remakeIsMetadata && index >= end && word === "remake") continue;
       if (!isMetadataNumber(releaseWords, index)) extra.push(word);
     }
     return extra;
@@ -567,14 +595,16 @@ function releaseMetadata(releaseName: string): ReleaseMetadata {
 export function classifyTitleMatch(
   releaseName: string,
   gameTitle: string,
-  alternativeTitles: readonly string[] = []
+  alternativeTitles: readonly string[] = [],
+  hasOwnRemake?: boolean
 ): TitleMatch {
+  const remakeIsMetadata = hasOwnRemake === false;
   const name = withoutTrailingTags(releaseName);
   const group = releaseGroup(name);
   let best: TitleMatch = "mismatch";
   for (const title of [gameTitle, ...alternativeTitles]) {
     if (!title) continue;
-    let match = classifyAgainstTitle(name, title, group);
+    let match = classifyAgainstTitle(name, title, group, remakeIsMetadata);
     // A lone unverified dash suffix could be a new group or a subtitle. Neither
     // uppercase spelling nor title separators resolve that ambiguity.
     if (!group && (match === "spinoff" || match === "contains")) {
@@ -583,7 +613,7 @@ export function classifyTitleMatch(
       if (
         rawGroup &&
         dash !== -1 &&
-        classifyAgainstTitle(name.slice(0, dash), title, undefined) === "exact"
+        classifyAgainstTitle(name.slice(0, dash), title, undefined, remakeIsMetadata) === "exact"
       ) {
         match = "ambiguous";
       }
@@ -1223,7 +1253,12 @@ export function evaluateRelease(
   const facts: ReleaseFacts = {
     input,
     metadata: releaseMetadata(input.title),
-    titleMatch: classifyTitleMatch(input.title, ctx.gameTitle, ctx.alternativeTitles),
+    titleMatch: classifyTitleMatch(
+      input.title,
+      ctx.gameTitle,
+      ctx.alternativeTitles,
+      ctx.hasOwnRemake
+    ),
     indexerCategory: classifyIndexerCategories(input.category),
     xrel: lookupXrel(input.title, ctx.xrelReleases, ctx.xrelUnavailable),
   };

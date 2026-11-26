@@ -15,6 +15,7 @@ import {
   type TitleMatch,
 } from "../release-scoring.js";
 
+import { RIGHT_GAME_CASES, WRONG_GAME_CASES } from "./fixtures/game-match-cases.js";
 const torrent = (title: string, extra: Partial<ReleaseInput> = {}): ReleaseInput => ({
   title,
   downloadType: "torrent",
@@ -68,6 +69,14 @@ describe("classifyTitleMatch", () => {
     ["DOOM-ETERNAL", "DOOM", "ambiguous"],
     ["Final.Fantasy-Tactics", "Final Fantasy", "ambiguous"],
     ["Final Fantasy-TACTICS", "Final Fantasy", "ambiguous"],
+    // issue #1391: unknown PS4 groups stay ambiguous, a region word is not a subtitle
+    ["Bloodborne.PS4-DUPLEX", "Bloodborne", "ambiguous"],
+    ["Bloodborne.Game.of.the.Year.Edition.PS4-PRELUDE", "Bloodborne", "ambiguous"],
+    ["Bloodborne.PS4-LevelUp", "Bloodborne", "ambiguous"],
+    ["Bloodborne.PS4-RUNE", "Bloodborne", "exact"],
+    ["Bloodborne.EUR.PS4-RUNE", "Bloodborne", "exact"],
+    ["Bloodborne.EUR.PS4-TCD", "Bloodborne", "ambiguous"],
+    ["Bloodborne.USA.PS4-RUNE", "Bloodborne", "exact"],
     ["Hades [II]", "Hades", "sequel"],
     ["Hades [II] [rarbg]", "Hades", "sequel"],
     ["Dishonored [2]", "Dishonored", "sequel"],
@@ -807,5 +816,84 @@ describe("xREL PreDB", () => {
       profile({ builtInOverrides: { xrel_predb_match: { points: 300 } } })
     );
     expect(heavier.score).toBe(off.score + 300);
+  });
+});
+
+describe("classifyTitleMatch on the labeled release dataset (Questarr-mgmt #64)", () => {
+  it.each(WRONG_GAME_CASES)("%s is not a clear match for %s", (release, game) => {
+    expect(["exact", "contains", "ambiguous"]).not.toContain(classifyTitleMatch(release, game));
+  });
+
+  it.each(RIGHT_GAME_CASES)("%s is not a mismatch or a sequel for %s", (release, game) => {
+    expect(["mismatch", "sequel"]).not.toContain(classifyTitleMatch(release, game));
+  });
+});
+
+describe("platform and edition words in titles", () => {
+  const zelda = "The Legend of Zelda: Ocarina of Time";
+  it.each([
+    "The Legend of Zelda Ocarina of Time Switch",
+    "The Legend of Zelda Ocarina of Time Switch 2",
+    "The Legend of Zelda, Ocarina of Time Switch 2 [NSP]",
+    "The Legend of Zelda Ocarina of Time Nintendo Switch 2",
+    "The Legend of Zelda Ocarina of Time N64",
+    "The Legend of Zelda Ocarina of Time Nintendo 64",
+    "The Legend of Zelda Ocarina of Time Nintendo64",
+    "The Legend of Zelda Ocarina of Time NintendoSwitch2",
+  ])("treats %s as the game itself", (name) => {
+    expect(classifyTitleMatch(name, zelda)).toBe("exact");
+  });
+
+  it("keeps a remake apart from the original game", () => {
+    expect(classifyTitleMatch("Final Fantasy VII Remake", "Final Fantasy VII")).not.toBe("exact");
+  });
+
+  it("still sees a real extra word next to the platform", () => {
+    expect(
+      classifyTitleMatch("The Legend of Zelda Ocarina of Time Master Quest Switch 2", zelda)
+    ).toBe("spinoff");
+  });
+});
+
+describe("remake in release titles (#1365)", () => {
+  it("never makes a remake an exact match for the original game", () => {
+    expect(classifyTitleMatch("Final Fantasy VII Remake", "Final Fantasy VII")).not.toBe("exact");
+    expect(classifyTitleMatch("Resident Evil 4 Remake", "Resident Evil 4")).not.toBe("exact");
+    expect(classifyTitleMatch("Resident.Evil.4.Remake-CODEX", "Resident Evil 4")).not.toBe("exact");
+  });
+
+  it("matches a remake exactly when the game's own names say it is one", () => {
+    expect(classifyTitleMatch("Final Fantasy VII Remake-CODEX", "Final Fantasy VII Remake")).toBe(
+      "exact"
+    );
+    expect(
+      classifyTitleMatch("Dead.Space.Remake.Deluxe.Edition-GOG", "Dead Space", [
+        "Dead Space Remake",
+      ])
+    ).toBe("exact");
+  });
+
+  it("treats Remake as a label when IGDB knows no remake of the game", () => {
+    expect(
+      classifyTitleMatch(
+        "The Legend of Zelda Ocarina of Time Remake",
+        "The Legend of Zelda: Ocarina of Time",
+        [],
+        false
+      )
+    ).toBe("exact");
+    expect(classifyTitleMatch("Some.Game.Remake-CODEX", "Some Game", [], false)).toBe("exact");
+  });
+
+  it("keeps Remake a different game when IGDB lists one, or does not say", () => {
+    for (const hasOwnRemake of [true, undefined]) {
+      expect(
+        classifyTitleMatch("Final Fantasy VII Remake", "Final Fantasy VII", [], hasOwnRemake)
+      ).not.toBe("exact");
+    }
+  });
+
+  it("does not read a leading Remake as a label", () => {
+    expect(classifyTitleMatch("Remake Some Game", "Some Game", [], false)).not.toBe("exact");
   });
 });

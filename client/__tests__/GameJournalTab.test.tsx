@@ -40,21 +40,7 @@ interface Screenshot {
   url: string;
 }
 
-interface Achievement {
-  apiName: string;
-  displayName: string;
-  description: string | null;
-  icon: string;
-  iconGray: string;
-  hidden: boolean;
-  achieved: boolean;
-  unlockedAt: number | null;
-  globalPercent: number | null;
-}
-
 interface ServerState {
-  steamApiKeyConfigured: boolean;
-  achievements: Achievement[];
   entries: Entry[];
   milestones: Milestone[];
   screenshots: Screenshot[];
@@ -94,17 +80,11 @@ function installFetch() {
     if (typeof body === "string") body = JSON.parse(body);
     requests.push({ method, url, body });
 
-    if (url === "/api/settings/steam") {
-      return json({ apiKeyConfigured: state.steamApiKeyConfigured });
-    }
     if (url === `${BASE}/play-sessions`) return json(state.sessions);
     const sessionItem = url.match(/\/play-sessions\/(.+)$/);
     if (sessionItem && method === "DELETE") {
       state.sessions = state.sessions.filter((s) => s.id !== sessionItem[1]);
       return json({}, 200);
-    }
-    if (url === `${BASE}/achievements`) {
-      return json({ achievements: state.achievements });
     }
 
     if (url === `${BASE}/journal`) {
@@ -182,11 +162,11 @@ function installFetch() {
   }) as typeof fetch;
 }
 
-function renderTab(steamAppId: number | null = null) {
+function renderTab() {
   const queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
-      <GameJournalTab gameId={GAME_ID} steamAppId={steamAppId} />
+      <GameJournalTab gameId={GAME_ID} />
     </QueryClientProvider>
   );
 }
@@ -200,8 +180,6 @@ beforeEach(() => {
   requests = [];
   nextId = 1;
   state = {
-    steamApiKeyConfigured: false,
-    achievements: [],
     entries: [],
     milestones: [],
     screenshots: [],
@@ -249,71 +227,13 @@ describe("GameJournalTab", () => {
     expect(await screen.findByText("No screenshots yet.")).toBeInTheDocument();
   });
 
-  it("shows empty states and skips achievements when Steam is not configured", async () => {
-    renderTab(620);
+  it("shows the empty states", async () => {
+    renderTab();
 
     expect(await screen.findByText("No milestones yet.")).toBeInTheDocument();
     expect(screen.getByText("No journal entries yet.")).toBeInTheDocument();
     expect(await screen.findByText("No screenshots yet.")).toBeInTheDocument();
-
-    await waitFor(() => expect(requestsTo("GET", /\/api\/settings\/steam$/)).toHaveLength(1));
     expect(requestsTo("GET", /\/achievements$/)).toHaveLength(0);
-    expect(screen.queryByText("Achievements")).not.toBeInTheDocument();
-  });
-
-  it("does not ask for achievements for a game without a Steam app id", async () => {
-    state.steamApiKeyConfigured = true;
-    renderTab(null);
-
-    await screen.findByText("No milestones yet.");
-    await waitFor(() => expect(requestsTo("GET", /\/api\/settings\/steam$/)).toHaveLength(1));
-    expect(requestsTo("GET", /\/achievements$/)).toHaveLength(0);
-  });
-
-  it("lists Steam achievements with the unlocked count, rarity and locked icon", async () => {
-    state.steamApiKeyConfigured = true;
-    state.achievements = [
-      {
-        apiName: "WIN",
-        displayName: "Beat the game",
-        description: "Finish the story",
-        icon: "https://cdn.example/win.png",
-        iconGray: "https://cdn.example/win-gray.png",
-        hidden: false,
-        achieved: true,
-        unlockedAt: 1_700_000_000,
-        globalPercent: 42.345,
-      },
-      {
-        apiName: "SECRET",
-        displayName: "Hidden path",
-        description: null,
-        icon: "https://cdn.example/secret.png",
-        iconGray: "https://cdn.example/secret-gray.png",
-        hidden: true,
-        achieved: false,
-        unlockedAt: null,
-        globalPercent: null,
-      },
-    ];
-    const { container } = renderTab(620);
-
-    expect(await screen.findByText("Achievements")).toBeInTheDocument();
-    expect(screen.getByText("Beat the game")).toBeInTheDocument();
-    expect(screen.getByText("Finish the story")).toBeInTheDocument();
-    expect(screen.getByText("42.3% of players")).toBeInTheDocument();
-    expect(screen.getByText("Hidden path")).toBeInTheDocument();
-    expect(screen.getAllByText(/% of players/)).toHaveLength(1);
-
-    const heading = screen.getByText("Achievements").closest("h3");
-    expect(heading).toHaveTextContent("1/2");
-
-    const icons = Array.from(container.querySelectorAll("img")).map((img) =>
-      img.getAttribute("src")
-    );
-    expect(icons).toContain("https://cdn.example/win.png");
-    expect(icons).toContain("https://cdn.example/secret-gray.png");
-    expect(icons).not.toContain("https://cdn.example/secret.png");
   });
 
   it("adds a trimmed journal note, clears the draft, and deletes it again", async () => {

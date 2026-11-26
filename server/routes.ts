@@ -15,6 +15,7 @@ import {
   updateGameStatusSchema,
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
+  updateGameFinishBySchema,
   updateGameInstalledVersionSchema,
   updateGameTargetPlatformSchema,
   insertIndexerSchema,
@@ -40,12 +41,35 @@ import {
   resolveUpgradePolicy,
   OWNED_GAME_STATUSES,
 } from "../shared/schema.js";
-import { isUsenetDownloaderType } from "../shared/downloader-types.js";
+import { isLinkOnlyDownloader, isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient, type NewznabResult } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
+import { cancelStagingJobs, setStagingBlocked } from "./downloaders/debrid-staging.js";
+
+const stagingModeQueue = new Map<string, Promise<void>>();
+
+function applyStagingMode(saved: Downloader): Promise<void> {
+  const downloaderId = saved.id;
+  const run = (stagingModeQueue.get(downloaderId) ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(async () => {
+      // If the re-read fails, fall back to the mode this request just saved.
+      const current = await storage.getDownloader(downloaderId).catch(() => saved);
+      if (!current) return;
+      if (isLinkOnlyDownloader(current)) await cancelStagingJobs(downloaderId);
+      else setStagingBlocked(downloaderId, false);
+    });
+  stagingModeQueue.set(downloaderId, run);
+  void run
+    .finally(() => {
+      if (stagingModeQueue.get(downloaderId) === run) stagingModeQueue.delete(downloaderId);
+    })
+    .catch(() => undefined);
+  return run;
+}
 import {
   DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
   isDownloaderDebugLoggingEnabled,
@@ -54,6 +78,7 @@ import {
 import { z } from "zod";
 import { routesLogger } from "./logger.js";
 import { getPendingReport, sendPendingReport } from "./error-telemetry.js";
+import { buildDiagnosticsSnapshot, formatDiagnosticsBlock } from "./diagnostics.js";
 import { SCAN_MAX_FILES, SCAN_TIME_BUDGET_MS } from "./scan-limits.js";
 import {
   igdbRateLimiter,
@@ -129,6 +154,7 @@ import {
   readVirusTotalSettings,
   readClamAvSettings,
   checkVirusTotalHash,
+  testClamAvConnectivity,
 } from "./security-scan.js";
 
 // SHA-256 of the standard EICAR antivirus test file — a publicly known,
@@ -136,7 +162,6 @@ import {
 // guaranteed to return a verdict, giving a stable way to confirm an API key
 // authenticates without needing a real sample or hardcoding it in a URL path.
 const EICAR_TEST_FILE_SHA256 = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
-import net from "node:net";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -321,11 +346,16 @@ import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { steamLibraryRoutes } from "./steam-library-routes.js";
 import { steamPlaytimeRoutes } from "./steam-playtime-routes.js";
+import { steamAchievementsRoutes } from "./steam-achievements-routes.js";
+import { retroAchievementsRoutes } from "./retroachievements-routes.js";
+import { psnRoutes } from "./psn-routes.js";
+import { xboxRoutes } from "./xbox-routes.js";
+import { playniteSyncRoutes } from "./playnite-sync-routes.js";
 import { releaseScoringRoutes } from "./release-scoring-routes.js";
 import { classificationCandidatesRoutes } from "./classification-candidates-routes.js";
 import { classificationSettingsRoutes } from "./classification-settings-routes.js";
 import {
-  isAutoEligible,
+  isResultEligible,
   loadScoringConfig,
   trustFor,
   type ScoringConfig,
@@ -337,9 +367,17 @@ import {
   type XrelPredbTypes,
 } from "./xrel-predb.js";
 import { evaluateReleases } from "../shared/release-scoring.js";
+import { buildTasteProfile, rankRecommendations, topFeatures } from "../shared/recommendations.js";
+import {
+  MAX_RECOMMENDATIONS,
+  getCachedRecommendations,
+  recommendationLibrarySignature,
+} from "./recommendations-cache.js";
 import { collectionRoutes } from "./collection-routes.js";
 import { gameJournalRoutes, screenshotDirForGame } from "./game-journal-routes.js";
 import { playSessionRoutes } from "./play-session-routes.js";
+import { backlogRoutes } from "./backlog-routes.js";
+import { questRoutes } from "./quest-routes.js";
 import { default as tagRoutes } from "./tag-routes.js";
 import {
   getContentFilterFlags,
@@ -352,8 +390,12 @@ import { importRouter } from "./routes/import.js";
 import { rommRouter } from "./routes/romm.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
+import { setupChecksRouter } from "./routes/setup-checks.js";
+import { setupWizardRouter, SETUP_WIZARD_KEY } from "./routes/setup-wizard.js";
 import { backupsRouter } from "./routes/backups.js";
 import { activityRouter } from "./routes/activity.js";
+import { realDebridRouter } from "./routes/realdebrid.js";
+import { ddlRouter } from "./routes/ddl.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 import {
   listExternalGames,
@@ -380,6 +422,7 @@ import {
 } from "./library-rescan.js";
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
+import { webhooksRouter } from "./routes/webhooks.js";
 import { isAdminApiRoute } from "./admin-api-routes.js";
 
 // Cache-Control header values for IGDB discovery endpoints
@@ -474,52 +517,6 @@ async function applyClamAvSettingsUpdate(
   }
 
   return null;
-}
-
-// Pings a ClamAV daemon over its INSTREAM protocol and reports whether it
-// responded with PONG before the deadline. Extracted from the settings-test
-// route so that route stays a simple dispatcher over provider name.
-async function testClamAvConnectivity(
-  address: string,
-  port: number
-): Promise<{ success: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    let settled = false;
-    const finish = (outcome: { success: boolean; error?: string }) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(deadline);
-      socket.destroy();
-      resolve(outcome);
-    };
-    // An absolute deadline, not an idle timeout — matches security-scan.ts's
-    // scanFileWithClamAv, so a connection that stays open without ever
-    // closing can't hang this check forever.
-    const deadline = setTimeout(
-      () => finish({ success: false, error: "Connection to ClamAV timed out" }),
-      10_000
-    );
-    socket.once("error", (err) => finish({ success: false, error: err.message }));
-    let data = "";
-    socket.connect(port, address, () => {
-      socket.write("zPING\0");
-    });
-    socket.on("data", (chunk) => {
-      data += chunk.toString("utf8");
-      // Accept PONG as soon as it arrives, rather than waiting for the socket
-      // to close — clamd isn't guaranteed to close the connection after
-      // replying, which would otherwise stall this check until the deadline
-      // even though the ping already succeeded.
-      if (data.includes("PONG")) {
-        finish({ success: true });
-      }
-    });
-    socket.on("close", () => {
-      const reply = data.replaceAll("\0", "").trim();
-      finish({ success: false, error: reply || "No PONG reply from ClamAV" });
-    });
-  });
 }
 
 // Validates that a Discord webhook URL uses HTTPS and points at a genuine
@@ -745,14 +742,26 @@ async function scoreManualSearchResults(
       ? resolveGamePlatformPreference(ownGame, preferredPlatform)
       : preferredPlatform;
     const gameTitle = fallbackTitle ?? ownGame?.title ?? query;
+    // the remake lookup shares the xREL time budget and runs beside it; unknown keeps today's scoring
+    const remakeLookup = ownGame?.igdbId
+      ? Promise.race([
+          igdbClient.hasRemake(ownGame.igdbId),
+          new Promise<undefined>((resolve) =>
+            setTimeout(() => resolve(undefined), INTERACTIVE_LOOKUP_TIMEOUT_MS)
+          ),
+        ])
+      : Promise.resolve(undefined);
     // a slow xREL must not hold up the result list; the lookup finishes in the background
     let xrelUnavailable = false;
-    const xrelReleases = await getXrelPredb(gameTitle, xrelTypes, {
-      timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
-      onUnavailable: () => {
-        xrelUnavailable = true;
-      },
-    });
+    const [hasOwnRemake, xrelReleases] = await Promise.all([
+      remakeLookup,
+      getXrelPredb(gameTitle, xrelTypes, {
+        timeoutMs: INTERACTIVE_LOOKUP_TIMEOUT_MS,
+        onUnavailable: () => {
+          xrelUnavailable = true;
+        },
+      }),
+    ]);
     const scored = evaluateReleases(
       items,
       {
@@ -760,6 +769,7 @@ async function scoreManualSearchResults(
         platform,
         ...(xrelReleases ? { xrelReleases } : {}),
         ...(xrelUnavailable ? { xrelUnavailable } : {}),
+        ...(hasOwnRemake !== undefined ? { hasOwnRemake } : {}),
       },
       config.profile,
       config.formats
@@ -824,6 +834,8 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       offset,
       fallback: true,
       signal: searchAbort.signal,
+      // identical searches within a few minutes come from memory; ?refresh=true forces indexers
+      cache: req.query.refresh !== "true",
     });
 
     // Nobody waits for the answer and the results are incomplete: do not score them or
@@ -872,7 +884,8 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     // Update the "has results" flag only for canonical game-title searches so that
     // partial/custom user-typed queries in the download dialog don't flip the badge
     // based on a transient, narrow result set. Runs async to avoid blocking the response.
-    // Same rule as auto-search: an accepted release with a clear title match.
+    // Same rule as the auto-search badge: an accepted release whose title matches, even when
+    // its group suffix is not a known one.
     if (ownGame && normalizeTitle(query.trim()) === normalizeTitle(ownGame.title)) {
       // the game's own target platform wins over the account default, as in the scoring above
       const preferredPlatform = resolveGamePlatformPreference(
@@ -881,8 +894,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       );
       const usable = scoredItems.filter(
         ({ evaluation, blacklisted }) =>
-          !blacklisted &&
-          (evaluation && scoringConfig ? isAutoEligible(evaluation, scoringConfig) : true)
+          !blacklisted && (evaluation && scoringConfig ? isResultEligible(evaluation) : true)
       );
       const platformFiltered = preferredPlatform
         ? usable.filter((item) => {
@@ -1139,11 +1151,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use(steamRoutes);
   app.use(steamLibraryRoutes);
   app.use(steamPlaytimeRoutes);
+  app.use(steamAchievementsRoutes);
+  app.use(retroAchievementsRoutes);
+  app.use(psnRoutes);
+  app.use(xboxRoutes);
+  app.use(playniteSyncRoutes);
   app.use(releaseScoringRoutes);
   app.use(classificationCandidatesRoutes);
   app.use(classificationSettingsRoutes);
   app.use(gameJournalRoutes);
   app.use(playSessionRoutes);
+  app.use(backlogRoutes);
+  app.use(questRoutes);
   app.use(collectionRoutes);
   app.use(tagRoutes);
   // Use PCGamingWiki Routes
@@ -1176,6 +1195,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to read server log file");
       return res.status(500).json({ error: "Failed to read log file" });
+    }
+  });
+
+  // Secret-free configuration summary + error digest, attached to "Send Logs"
+  // submissions (see server/diagnostics.ts). Returns the rendered text block.
+  app.get("/api/diagnostics", authenticateToken, async (req, res) => {
+    try {
+      const logPath = path.resolve(process.cwd(), "server.log");
+      const logLines = await readLastLogLines(logPath, 1000).catch(() => [] as string[]);
+      const snapshot = await buildDiagnosticsSnapshot({ logLines, userId: req.user!.id });
+      return res.json({ report: formatDiagnosticsBlock(snapshot) });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to build diagnostics snapshot");
+      return res.status(500).json({ error: "Failed to build diagnostics" });
     }
   });
 
@@ -1272,6 +1305,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Save IGDB creds if provided (format already validated above).
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
+      // A brand-new install goes through the setup wizard next (older installs are only offered it).
+      // Not fatal: the account already exists, so a failure here must not hide that from the caller.
+      try {
+        await storage.setSystemConfig(SETUP_WIZARD_KEY, "pending");
+      } catch (error) {
+        routesLogger.warn({ error }, "could not mark the setup wizard as pending");
+      }
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
       // Cookie-based auth is the primary mechanism for browser clients (see
@@ -1348,7 +1388,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     if (!user || !passwordMatches) {
-      routesLogger.warn({ username: trimmedUsername, ip: req.ip }, "Failed login attempt");
+      routesLogger.warn(
+        { username: trimmedUsername, ip: req.ip, requestId: res.locals.requestId },
+        "Failed login attempt"
+      );
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
@@ -1823,12 +1866,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/settings/romm", rommRouter);
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system/backups", backupsRouter);
+  app.use("/api/system/setup-checks", setupChecksRouter);
+  app.use("/api/system/setup-wizard", setupWizardRouter);
   app.use("/api/system", systemRouter);
   app.use("/api/activity", activityRouter);
+  app.use("/api/downloaders/:id/realdebrid", realDebridRouter);
+  app.use("/api/games/:gameId/ddl", ddlRouter);
   // Authenticated by the /api gate above (JWT or integration API key); same
   // reasoning as the mounts above.
   app.use("/api/integration", integrationRateLimiter, integrationRouter);
   app.use("/api/api-keys", apiKeysRouter);
+  app.use("/api/webhooks", webhooksRouter);
 
   // Last-used Prowlarr sync settings, to prefill the sync dialog. The stored
   // API key never leaves the server: only the redaction placeholder does.
@@ -2158,6 +2206,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         invalid: "Invalid user rating data",
         log: "error updating game user rating",
         failure: "Failed to update user rating",
+      }
+    )
+  );
+
+  // Personal "finish by" target day (YYYY-MM-DD), or null to clear it.
+  app.patch(
+    "/api/games/:id/finish-by",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    patchOwnGameField(
+      updateGameFinishBySchema,
+      (id, userId, { finishBy }) => storage.updateGameFinishBy(id, userId, finishBy),
+      {
+        invalid: "Invalid finish-by date",
+        log: "error updating game finish-by date",
+        failure: "Failed to update the finish-by date",
       }
     )
   );
@@ -3472,6 +3537,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Library-driven recommendations ("Recommended for you"), each with the reasons behind it.
+  app.get("/api/games/recommendations", igdbRateLimiter, async (req, res) => {
+    try {
+      const rawLimit = req.query.limit;
+      const parsedLimit = typeof rawLimit === "string" ? Number.parseInt(rawLimit, 10) : Number.NaN;
+      const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 50);
+      const userId = req.user!.id;
+
+      const userGames = await storage.getUserGames(userId, true);
+      const profile = buildTasteProfile(
+        userGames
+          .filter((g) => !g.hidden)
+          .map((g) => ({
+            igdbId: g.igdbId,
+            title: g.title,
+            status: g.status,
+            userRating: g.userRating,
+            genres: g.genres,
+            themes: g.themes,
+            developers: g.developers,
+            gameModes: g.gameModes,
+          }))
+      );
+      // Nothing to learn from yet: the Discover page keeps its generic rows.
+      if (profile.empty) {
+        res.set("Cache-Control", CC_NO_STORE);
+        return res.json([]);
+      }
+
+      // Every game already in the library (owned, wishlisted or hidden) is never recommended.
+      const excludeIgdbIds = new Set<number>();
+      for (const g of userGames) if (g.igdbId != null) excludeIgdbIds.add(g.igdbId);
+
+      const signature = recommendationLibrarySignature(userGames);
+      const formatted = await getCachedRecommendations(userId, signature, async () => {
+        const candidates = await igdbClient.getRecommendationCandidates({
+          anchorIgdbIds: profile.anchors.map((a) => a.igdbId),
+          genres: topFeatures(profile, "genres", 3),
+          themes: topFeatures(profile, "themes", 3),
+          developers: topFeatures(profile, "developers", 3),
+          excludeIgdbIds: [...excludeIgdbIds],
+        });
+        const similarTo = new Map(candidates.map((c) => [c.game.id, c.similarTo]));
+        const ranked = rankRecommendations(
+          candidates.map(({ game }) => ({
+            igdbId: game.id,
+            title: game.name,
+            genres: game.genres?.map((x) => x.name),
+            themes: game.themes?.map((x) => x.name),
+            developers: game.involved_companies
+              ?.filter((c) => c.developer)
+              .map((c) => c.company.name),
+            gameModes: game.game_modes?.map((x) => x.name),
+            aggregatedRating: game.aggregated_rating,
+            similarToIgdbIds: similarTo.get(game.id),
+            game,
+          })),
+          profile,
+          { excludeIgdbIds, limit: MAX_RECOMMENDATIONS }
+        );
+        return ranked.map(({ candidate, recommendation }) => ({
+          ...igdbClient.formatGameData(candidate.game),
+          recommendation,
+        }));
+      });
+
+      const flags = await getContentFilterFlags(userId);
+      const visible = excludeFilteredContent(formatted, flags).slice(0, limit);
+      res.set("Cache-Control", CC_NO_STORE);
+      return res.json(visible);
+    } catch (error) {
+      routesLogger.error({ error }, "error getting library recommendations");
+      return res.status(500).json({ error: "Failed to get recommendations" });
+    }
+  });
+
   // Get popular games
   registerIgdbListRoute(app, "/api/igdb/popular", "popular games", (fetchLimit) =>
     igdbClient.getPopularGames(fetchLimit)
@@ -3784,7 +3925,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(storageCache.data);
       }
 
-      const enabledDownloaders = await storage.getEnabledDownloaders();
+      // Link-only downloaders keep nothing on this server, so there is no space to report.
+      const enabledDownloaders = (await storage.getEnabledDownloaders()).filter(
+        (downloader) => !isLinkOnlyDownloader(downloader)
+      );
       routesLogger.debug(
         { count: enabledDownloaders.length },
         "fetching storage info for downloaders"
@@ -3911,6 +4055,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const downloader = await storage.updateDownloader(id, updates);
         if (!downloader) {
           return res.status(404).json({ error: "Downloader not found" });
+        }
+        // Switched to link-only: copies still running would keep filling the staging folder.
+        // Effects run one at a time per downloader and follow the latest saved mode, so
+        // overlapping PATCH requests cannot leave the staging block out of step with it.
+        try {
+          await applyStagingMode(downloader);
+        } catch (error) {
+          routesLogger.error({ error, downloaderId: downloader.id }, "staging mode update failed");
         }
         return res.json(maskDownloader(downloader));
       } catch (error) {
@@ -4293,6 +4445,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting download details:", error);
       return res.status(500).json({ error: "Failed to get download details" });
+    }
+  });
+
+  // A fresh download link for a finished link-only download (e.g. TorBox). Requested on
+  // demand, never stored: such links are short-lived.
+  app.get("/api/downloaders/:id/downloads/:downloadId/link", async (req, res) => {
+    try {
+      const { id, downloadId } = req.params as { id: string; downloadId: string };
+      const downloader = await storage.getDownloader(id);
+
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+      if (!isLinkOnlyDownloader(downloader)) {
+        return res.status(400).json({ error: "This downloader does not provide download links" });
+      }
+
+      const url = await DownloaderManager.getRemoteDownloadUrl(downloader, downloadId);
+      if (!url) {
+        return res.status(404).json({ error: "No download link is available yet" });
+      }
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ url });
+    } catch (error) {
+      routesLogger.error({ error }, "error getting download link");
+      return res.status(500).json({ error: "Failed to get download link" });
     }
   });
 

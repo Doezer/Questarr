@@ -8,6 +8,7 @@ import type { ReleaseEvaluation } from "../shared/release-scoring.js";
 import { typesafeClient, type ReleaseType } from "./typesafe.js";
 import { config } from "./config.js";
 import type { SearchPriority } from "./search-guard.js";
+import { buildSearchCacheKey, getCachedSearch, setCachedSearch } from "./search-cache.js";
 import { classifyRelease, legacyType, PROVIDER_MAX_ITEMS } from "./classification/hold.js";
 
 // Cap how many top results get AI-enriched per search so an optional, user-supplied
@@ -66,6 +67,11 @@ export interface AggregatedSearchOptions {
   signal?: AbortSignal | undefined;
   /** "background" (auto-search) has its own line per indexer, apart from the interactive ones. */
   priority?: SearchPriority | undefined;
+  /**
+   * Serve a recent identical search from memory (and remember this one). Only for interactive
+   * searches: auto-search must always see what the indexers have right now.
+   */
+  cache?: boolean | undefined;
 }
 
 export interface AggregatedSearchResults {
@@ -123,6 +129,32 @@ async function searchIndexersOnce(
     return { items: [], total: 0, offset: options.offset || 0, errors: ["No indexers configured"] };
   }
 
+  const cacheKey = options.cache
+    ? buildSearchCacheKey({
+        query: options.query,
+        category: options.category,
+        limit: options.limit,
+        offset: options.offset,
+        indexers: enabledIndexers,
+      })
+    : undefined;
+  if (cacheKey) {
+    const cached = getCachedSearch(cacheKey);
+    if (cached) {
+      searchLogger.debug({ query: options.query }, "Serving indexer search from cache");
+      return cached;
+    }
+  }
+  const results = await runIndexerSearch(options, enabledIndexers);
+  // an aborted search is partial: never remember it
+  if (cacheKey && !options.signal?.aborted) setCachedSearch(cacheKey, results);
+  return results;
+}
+
+async function runIndexerSearch(
+  options: AggregatedSearchOptions,
+  enabledIndexers: Awaited<ReturnType<typeof storage.getEnabledIndexers>>
+): Promise<AggregatedSearchResults> {
   const torznabIndexers = enabledIndexers.filter(
     (i) => i.protocol !== "newznab" && i.protocol !== "g4u"
   );
@@ -228,9 +260,11 @@ async function searchIndexersOnce(
           indexerUrl: item.indexerUrl,
           category: item.category ? item.category.split(",") : [],
           guid: item.guid || item.link,
-          downloadType: "torrent" as const,
+          // A usenet indexer added as Torznab still hands out .nzb files: trust the link
+          downloadType: item.isNzb ? ("usenet" as const) : ("torrent" as const),
           seeders: item.seeders,
           leechers: item.leechers,
+          grabs: item.grabs,
           downloadVolumeFactor: item.downloadVolumeFactor,
           uploadVolumeFactor: item.uploadVolumeFactor,
           group: parseReleaseMetadata(item.title).group,

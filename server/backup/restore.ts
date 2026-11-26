@@ -39,6 +39,20 @@ function allowedEntry(name: string): boolean {
   );
 }
 
+/** A missing table file would be read as an empty table and wipe the current one. */
+function assertManifestComplete(manifest: BackupManifest): void {
+  const listed = new Set(manifest.files.map((f) => f.path));
+  if (dialect === "postgres") {
+    for (const table of TABLE_ORDER) {
+      if (!listed.has(ndjsonFileName(table))) {
+        throw new RestoreError(`The backup is incomplete: ${ndjsonFileName(table)} is missing`);
+      }
+    }
+  } else if (!listed.has(SQLITE_DB_ENTRY)) {
+    throw new RestoreError("The backup is incomplete: the database file is missing");
+  }
+}
+
 function parseManifest(raw: string): BackupManifest {
   let manifest: BackupManifest;
   try {
@@ -74,17 +88,7 @@ function parseManifest(raw: string): BackupManifest {
       throw new RestoreError(`Unexpected file in the backup: ${f.path}`);
     }
   }
-  // A missing table file would be read as an empty table and wipe the current one.
-  const listed = new Set(manifest.files.map((f) => f.path));
-  if (dialect === "postgres") {
-    for (const table of TABLE_ORDER) {
-      if (!listed.has(ndjsonFileName(table))) {
-        throw new RestoreError(`The backup is incomplete: ${ndjsonFileName(table)} is missing`);
-      }
-    }
-  } else if (!listed.has(SQLITE_DB_ENTRY)) {
-    throw new RestoreError("The backup is incomplete: the database file is missing");
-  }
+  assertManifestComplete(manifest);
   return manifest;
 }
 

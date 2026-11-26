@@ -4,6 +4,7 @@ import { igdbClient } from "./igdb.js";
 import { logger } from "./logger.js";
 import { RssFeed, InsertRssFeedItem } from "../shared/schema.js";
 import { safeFetch } from "./ssrf.js";
+import { extractItemLinks } from "./ddl-feed.js";
 
 const rssLogger = logger.child({ module: "rss" });
 
@@ -87,6 +88,20 @@ export class RssService {
     }
   }
 
+  /**
+   * A feed switched to link extraction later: fill in the items it already holds.
+   * (GUIDs are looked up across feeds: never fill in another feed's item.)
+   */
+  private async backfillLinks(
+    feed: RssFeed,
+    existing: { id: number | string; feedId: string; links?: unknown },
+    item: unknown
+  ): Promise<void> {
+    if (!feed.extractLinks || existing.feedId !== feed.id || existing.links != null) return;
+    const links = await extractItemLinks(item as Record<string, unknown>, feed.url);
+    if (links) await storage.updateRssFeedItem(String(existing.id), { links });
+  }
+
   private async fetchFeed(feed: RssFeed) {
     rssLogger.debug(`Fetching feed: ${feed.name} (${feed.url})`);
 
@@ -110,7 +125,7 @@ export class RssService {
       // 2. Check if exists
       const existing = await storage.getRssFeedItemByGuid(normalized.guid);
       if (existing) {
-        // Optionally update fields if needed, but usually GUID implies identity
+        await this.backfillLinks(feed, existing, item);
         continue;
       }
 
@@ -126,6 +141,9 @@ export class RssService {
         igdbGameId: null,
         igdbGameName: null,
         coverUrl: null,
+        links: feed.extractLinks
+          ? await extractItemLinks(item as Record<string, unknown>, feed.url)
+          : null,
       };
 
       const created = await storage.addRssFeedItem(newItem);

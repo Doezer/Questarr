@@ -224,6 +224,39 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
       expect(await storage().replaceGameInstalledVersion(game.id, null, "v2.0")).toBe(false);
       expect(await storage().replaceGameInstalledVersion(game.id, "v1.0", "v1.1")).toBe(true);
       expect((await storage().getGame(game.id))?.installedVersion).toBe("v1.1");
+      expect((await storage().getGame(game.id))?.installedVersionSource).toBe("release");
+    });
+
+    it("never lets a detected version replace one the user typed", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      await storage().updateGameInstalledVersion(game.id, user.id, "v7.0");
+      expect((await storage().getGame(game.id))?.installedVersionSource).toBe("manual");
+      expect(await storage().replaceGameInstalledVersion(game.id, "v7.0", "v8.0", "install")).toBe(
+        false
+      );
+      expect((await storage().getGame(game.id))?.installedVersion).toBe("v7.0");
+      // A caller that found a download strictly newer may move it forward (overManual).
+      expect(
+        await storage().replaceGameInstalledVersion(game.id, "v7.0", "v8.0", "release", true)
+      ).toBe(true);
+      expect((await storage().getGame(game.id))?.installedVersion).toBe("v8.0");
+      expect((await storage().getGame(game.id))?.installedVersionSource).toBe("release");
+      await storage().updateGameInstalledVersion(game.id, user.id, null);
+      expect((await storage().getGame(game.id))?.installedVersionSource).toBeNull();
+    });
+
+    it("updateGameFinishBy stores and clears the target day, scoped to the user", async () => {
+      const [user] = await storage().getAllUsers();
+      const [game] = await storage().getUserGames(user.id);
+      expect(await storage().updateGameFinishBy(game.id, "someone-else", "2026-12-31")).toBe(
+        undefined
+      );
+      expect((await storage().updateGameFinishBy(game.id, user.id, "2026-12-31"))?.finishBy).toBe(
+        "2026-12-31"
+      );
+      expect((await storage().getGame(game.id))?.finishBy).toBe("2026-12-31");
+      expect((await storage().updateGameFinishBy(game.id, user.id, null))?.finishBy).toBeNull();
     });
 
     it("a synced status never overwrites one set by hand, but replaces an earlier synced one", async () => {
@@ -260,6 +293,96 @@ describe.each(activeTestDialects())("storage behaviour on %s", (dialect) => {
         { ...sync, allowWanted: true }
       );
       expect(promoted?.status).toBe("owned");
+    });
+
+    it("records a status event when a game is added and on every real status change", async () => {
+      const [user] = await storage().getAllUsers();
+      const game = await storage().addGame({
+        title: "Burn Down",
+        userId: user.id,
+        status: "owned",
+      } as Parameters<ReturnType<typeof storage>["addGame"]>[0]);
+      await storage().updateGameStatus(game.id, { status: "owned" }); // no change, no event
+      await storage().updateGameStatus(game.id, { status: "playing" });
+      await storage().updateGameStatus(game.id, { status: "completed" });
+
+      const events = (await storage().getUserGameStatusEvents(user.id)).filter(
+        (e) => e.gameId === game.id
+      );
+      expect(events.map((e) => e.status)).toEqual(["owned", "playing", "completed"]);
+      expect(events[0]?.createdAt).toBeInstanceOf(Date);
+      expect(await storage().getUserGameStatusEvents("someone-else")).toEqual([]);
+
+      // The history goes with the game.
+      await storage().removeGame(game.id);
+      const left = await storage().getUserGameStatusEvents(user.id);
+      expect(left.some((e) => e.gameId === game.id)).toBe(false);
+    });
+
+    it("keeps status events of one game strictly ordered even when changes overlap", async () => {
+      const [user] = await storage().getAllUsers();
+      const game = await storage().addGame({
+        title: "Overlap",
+        userId: user.id,
+        status: "owned",
+      } as Parameters<ReturnType<typeof storage>["addGame"]>[0]);
+      await Promise.all([
+        storage().updateGameStatus(game.id, { status: "playing" }),
+        storage().updateGameStatus(game.id, { status: "completed" }),
+      ]);
+      const events = (await storage().getUserGameStatusEvents(user.id))
+        .filter((e) => e.gameId === game.id)
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      const times = events.map((e) => e.createdAt.getTime());
+      expect(times).toHaveLength(3);
+      expect(events.map((e) => e.status)).toEqual(["owned", "playing", "completed"]);
+      expect(new Set(times).size).toBe(times.length);
+      expect(times).toEqual([...times].sort((a, b) => a - b));
+      await storage().removeGame(game.id);
+    });
+
+    it("stores a direct-download job with its links as JSON and cascades with the game", async () => {
+      const [user] = await storage().getAllUsers();
+      const game = await storage().addGame({
+        title: "Linked",
+        userId: user.id,
+        status: "wanted",
+      } as Parameters<ReturnType<typeof storage>["addGame"]>[0]);
+      const downloader = await storage().addDownloader({
+        name: "rd",
+        type: "realdebrid",
+        url: "https://api.real-debrid.com",
+        downloadPath: "/tmp/rd",
+      } as never);
+      const links = ["https://host.example/a", "https://host.example/b"];
+
+      const job = await storage().addDdlJob({
+        id: "ddl-job-1",
+        downloaderId: downloader!.id,
+        gameId: game.id,
+        title: "Linked",
+        links,
+        password: "pw",
+      });
+      expect(job.createdAt).toBeInstanceOf(Date);
+      expect((await storage().getDdlJob("ddl-job-1"))?.links).toEqual(links);
+      expect((await storage().getDdlJobsByDownloader(downloader!.id)).map((j) => j.id)).toEqual([
+        "ddl-job-1",
+      ]);
+      expect(await storage().getDdlJob("missing")).toBeUndefined();
+
+      await storage().deleteDdlJob("ddl-job-1");
+      expect(await storage().getDdlJob("ddl-job-1")).toBeUndefined();
+
+      await storage().addDdlJob({
+        id: "ddl-job-2",
+        downloaderId: downloader!.id,
+        gameId: game.id,
+        title: "Linked",
+        links,
+      });
+      await storage().removeGame(game.id);
+      expect(await storage().getDdlJob("ddl-job-2")).toBeUndefined();
     });
 
     it("aggregates come back as numbers, not strings", async () => {

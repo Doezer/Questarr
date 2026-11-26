@@ -25,7 +25,8 @@ import { makeImportConfig } from "./helpers/import-test-helpers.js";
 function planFor(
   platforms: unknown[],
   downloadTitle = "Some.Game-GRP",
-  targetPlatformId: number | null = null
+  targetPlatformId: number | null = null,
+  importPlatformIds: number[] = []
 ) {
   const storage = {
     getGameDownload: vi.fn().mockResolvedValue({
@@ -42,7 +43,9 @@ function planFor(
       platforms,
       targetPlatformId,
     }),
-    getImportConfig: vi.fn().mockResolvedValue(makeImportConfig({ libraryRoot: "/roms" })),
+    getImportConfig: vi
+      .fn()
+      .mockResolvedValue(makeImportConfig({ libraryRoot: "/roms", importPlatformIds })),
     getDownloader: vi.fn().mockResolvedValue(undefined),
   };
   const manager = new ImportManager(
@@ -75,6 +78,21 @@ describe("RomM platform folders", () => {
   it("uses the chosen target platform before defaulting to win", async () => {
     expect((await planFor(["Super Nintendo"], "Some.Game-GRP", 19)).proposedPath).toBe(
       path.normalize("/roms/snes/Some Game")
+    );
+  });
+
+  it("puts Switch 2 games in switch-2, not win (#1393)", async () => {
+    expect((await planFor([{ id: 508, name: "Nintendo Switch 2" }])).proposedPath).toBe(
+      path.normalize("/roms/switch-2/Some Game")
+    );
+    expect((await planFor([6], "Some.Game.Switch.2-GRP")).proposedPath).toBe(
+      path.normalize("/roms/switch-2/Some Game")
+    );
+  });
+
+  it("keeps the game's platform when it is outside the allowed platforms (#1393)", async () => {
+    expect((await planFor([508], "Some.Game-GRP", null, [6])).proposedPath).toBe(
+      path.normalize("/roms/switch-2/Some Game")
     );
   });
 
@@ -118,6 +136,23 @@ describe("RomM platform folders in the naming preview", () => {
     rommMock.isRommPlatformFoldersEnabled.mockResolvedValue(false);
     const withoutRomm = await manager.previewNaming("{Title}", "u1");
     expect(withoutRomm[0]?.fullPath).toBe(path.normalize("/roms/SNES/Some Game"));
+  });
+});
+
+describe("game platform ids", () => {
+  it("reads ids, numeric strings, names and objects, and ignores the rest", () => {
+    const manager = new ImportManager(
+      {} as never, // NOSONAR
+      {} as never, // NOSONAR
+      {} as never, // NOSONAR
+      {} as never // NOSONAR
+    );
+    expect(
+      manager.getGamePlatformIds({
+        platforms: [6, "130", "Nintendo Switch 2", { id: 19 }, { id: "20" }, "unknown", null],
+      })
+    ).toEqual([6, 130, 508, 19, 20]);
+    expect(manager.getGamePlatformIds({ platforms: undefined })).toEqual([]);
   });
 });
 

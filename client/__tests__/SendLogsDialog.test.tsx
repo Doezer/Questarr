@@ -4,16 +4,29 @@ import "@testing-library/jest-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { toastMock, scrubLogLinesMock, detectPlatformMock, sendLogsMock, buildGitHubIssueUrlMock } =
-  vi.hoisted(() => ({
-    toastMock: vi.fn(),
-    scrubLogLinesMock: vi.fn((lines: string[]) => lines.join("\n")),
-    detectPlatformMock: vi.fn(() => "Windows"),
-    sendLogsMock: vi.fn(),
-    buildGitHubIssueUrlMock: vi.fn(
-      () => "https://github.com/Doezer/Questarr/issues/new?title=test"
-    ),
-  }));
+const {
+  toastMock,
+  scrubLogLinesMock,
+  detectPlatformMock,
+  sendLogsMock,
+  buildGitHubIssueUrlMock,
+  fetchDiagnosticsReportMock,
+  findRecentDuplicateMock,
+  recordSentReportMock,
+  prepareReportMock,
+} = vi.hoisted(() => ({
+  toastMock: vi.fn(),
+  fetchDiagnosticsReportMock: vi.fn(async () => "=== DIAG ==="),
+  scrubLogLinesMock: vi.fn((lines: string[]) => lines.join("\n")),
+  detectPlatformMock: vi.fn(() => "Windows"),
+  sendLogsMock: vi.fn(),
+  buildGitHubIssueUrlMock: vi.fn(() => "https://github.com/Doezer/Questarr/issues/new?title=test"),
+  findRecentDuplicateMock: vi.fn(
+    (): { signature: string; sentAt: number; code?: string } | undefined => undefined
+  ),
+  recordSentReportMock: vi.fn(),
+  prepareReportMock: vi.fn(),
+}));
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: toastMock }),
@@ -24,6 +37,10 @@ vi.mock("@/lib/send-logs", () => ({
   detectPlatform: detectPlatformMock,
   sendLogs: sendLogsMock,
   buildGitHubIssueUrl: buildGitHubIssueUrlMock,
+  fetchDiagnosticsReport: fetchDiagnosticsReportMock,
+  findRecentDuplicate: findRecentDuplicateMock,
+  recordSentReport: recordSentReportMock,
+  prepareReport: prepareReportMock,
 }));
 
 vi.mock("@/components/ui/button", () => ({
@@ -80,6 +97,19 @@ import SendLogsDialog from "../src/components/SendLogsDialog";
 describe("SendLogsDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    findRecentDuplicateMock.mockReturnValue(undefined);
+    prepareReportMock.mockImplementation(
+      (options: { logLines: string[]; diagnostics: string; note: string }) => {
+        const logs = scrubLogLinesMock(options.logLines);
+        return {
+          logs: options.diagnostics ? `${options.diagnostics}\n\n${logs}` : logs,
+          title: "Support log vunknown - test",
+          labels: ["trigger:manual"],
+          signature: "sig-1",
+          note: options.note.trim(),
+        };
+      }
+    );
     Object.assign(navigator, {
       clipboard: {
         writeText: vi.fn().mockResolvedValue(undefined),
@@ -109,13 +139,14 @@ describe("SendLogsDialog", () => {
     expect(scrubLogLinesMock).toHaveBeenCalledWith(["user@example.com", privateIp]);
     expect(sendLogsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        logs: `user@example.com\n${privateIp}`,
+        logs: `=== DIAG ===\n\nuser@example.com\n${privateIp}`,
         appVersion: "unknown",
         platform: "Windows",
         timestamp: "2026-05-31T12:34:56.000Z",
       })
     );
     expect(buildGitHubIssueUrlMock).toHaveBeenCalledWith("ABCD", "unknown", 123);
+    expect(recordSentReportMock).toHaveBeenCalledWith("sig-1", "ABCD", currentDate.getTime());
 
     fireEvent.click(screen.getByRole("button", { name: "Copy support code" }));
     await waitFor(() => {
@@ -137,6 +168,45 @@ describe("SendLogsDialog", () => {
     rerender(<SendLogsDialog open={false} onOpenChange={onOpenChange} logLines={["x"]} />);
     rerender(<SendLogsDialog open={true} onOpenChange={onOpenChange} logLines={["x"]} />);
     expect(screen.getByText("Send logs to support")).toBeInTheDocument();
+  });
+
+  it("sends the optional note with the triage metadata", async () => {
+    sendLogsMock.mockResolvedValue({ ok: true, code: "ABCD", issueNumber: 123 });
+    render(<SendLogsDialog open={true} onOpenChange={vi.fn()} logLines={["line 1"]} />);
+
+    fireEvent.change(screen.getByLabelText("What were you doing? (optional)"), {
+      target: { value: "  searched for a game  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send logs" }));
+
+    expect(await screen.findByText("Logs uploaded")).toBeInTheDocument();
+    expect(sendLogsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Support log vunknown - test",
+        labels: ["trigger:manual"],
+        signature: "sig-1",
+        note: "searched for a game",
+      })
+    );
+  });
+
+  it("flags an identical recent report and sends it only after confirmation", async () => {
+    findRecentDuplicateMock.mockReturnValue({
+      signature: "sig-1",
+      sentAt: Date.now(),
+      code: "ZZZZ",
+    });
+    sendLogsMock.mockResolvedValue({ ok: true, code: "ABCD", issueNumber: 123 });
+    render(<SendLogsDialog open={true} onOpenChange={vi.fn()} logLines={["line 1"]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Send logs" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("support code ZZZZ");
+    expect(sendLogsMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send anyway" }));
+    expect(await screen.findByText("Logs uploaded")).toBeInTheDocument();
+    expect(sendLogsMock).toHaveBeenCalledTimes(1);
   });
 
   it("shows an error state, rate-limit guidance, and lets the user retry", async () => {

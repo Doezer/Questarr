@@ -37,6 +37,7 @@ const mockUpdateGameSearchResultsByCategory = vi.fn();
 const mockUpdateGameStatus = vi.fn();
 const mockUpdateGame = vi.fn();
 const mockAddGameDownload = vi.fn();
+const mockAddDownloadEvent = vi.fn();
 const mockGetEnabledDownloaders = vi.fn().mockResolvedValue([]);
 const mockGetReleaseBlacklistSet = vi.fn();
 const mockGetEnabledIndexers = vi.fn().mockResolvedValue([]);
@@ -58,6 +59,7 @@ vi.mock("../storage.js", () => ({
     updateGameStatus: mockUpdateGameStatus,
     updateGame: mockUpdateGame,
     addGameDownload: mockAddGameDownload,
+    addDownloadEvent: mockAddDownloadEvent,
     getEnabledDownloaders: mockGetEnabledDownloaders,
     getReleaseBlacklistSet: mockGetReleaseBlacklistSet,
     getEnabledIndexers: mockGetEnabledIndexers,
@@ -110,9 +112,11 @@ vi.mock("../socket.js", () => ({
 
 // Mock downloaders
 const mockAddDownloadWithFallback = vi.fn();
+const mockRemoveDownload = vi.fn().mockResolvedValue({ success: true, message: "" });
 vi.mock("../downloaders.js", () => ({
   DownloaderManager: {
     addDownloadWithFallback: mockAddDownloadWithFallback,
+    removeDownload: mockRemoveDownload,
   },
 }));
 
@@ -120,6 +124,7 @@ vi.mock("../downloaders.js", () => ({
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     getGamesByIds: vi.fn(),
+    hasRemake: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -139,6 +144,13 @@ vi.mock("../xrel.js", () => ({
 }));
 
 // The classification pipeline only runs for the local and hybrid modes
+// The scoring profile is read from storage, which these tests mock without it: by default the
+// load fails and the job uses its legacy filters, as before. Tests that need scoring resolve it.
+const mockLoadScoringConfig = vi.hoisted(() => vi.fn());
+vi.mock("../release-scoring-service.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../release-scoring-service.js")>()),
+  loadScoringConfig: mockLoadScoringConfig,
+}));
 const mockClassify = vi.hoisted(() => vi.fn());
 vi.mock("../classification/index.js", () => ({ releasePipeline: { classify: mockClassify } }));
 
@@ -153,6 +165,7 @@ const {
   deduplicateByTitle,
   narrowToPreferredGroupFormat,
   getAiAutoDownloadHoldReason,
+  resetExhaustedPicks,
 } = await import("../cron.js");
 const { config: appConfig } = await import("../config.js");
 // These tests cover the legacy Jev-only check; the default mode is `hybrid`, which the pipeline
@@ -216,6 +229,7 @@ describe("Cron - checkAutoSearch", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(FIXED_NOW);
+    mockLoadScoringConfig.mockRejectedValue(new Error("no scoring profile in this test"));
 
     // Default mock setup:
     // - 1 user with 1 wanted game (released)
@@ -676,6 +690,374 @@ describe("Cron - checkAutoSearch", () => {
     await checkAutoSearch();
 
     expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+  });
+
+  describe("automatic upgrades of owned games (upgradePolicy auto)", () => {
+    const release = (title: string, seeders = 100) => ({
+      title,
+      link: `https://indexer-a.example.com/${encodeURIComponent(title)}`,
+      pubDate: FIXED_PUB_DATE,
+      seeders,
+      size: 10_000_000_000,
+      indexerId: "indexer-a",
+      indexerName: "Indexer A",
+      category: ["4050"],
+      downloadType: "torrent" as const,
+      group: "CODEX",
+    });
+    const NEWER_FULL = release("Test.Game.v1.2-CODEX");
+    const SAME_FULL = release("Test.Game.v1.0-CODEX");
+    const NO_VERSION = release("Test.Game-CODEX");
+    const ownedGame = {
+      ...baseGame,
+      status: "owned" as const,
+      releaseStatus: "released" as const,
+      installedVersion: "v1.0",
+    };
+    // No xREL check here: with it on, an unavailable xREL defers every automatic grab.
+    const autoSettings = {
+      ...baseSettings,
+      upgradePolicy: "auto",
+      xrelSceneReleases: false,
+      xrelP2pReleases: false,
+    };
+    const searchReturns = (...items: ReturnType<typeof release>[]) =>
+      mockSearchAllIndexers.mockResolvedValue({ items, errors: [], total: items.length });
+
+    beforeEach(() => {
+      mockLoadScoringConfig.mockResolvedValue({
+        profile: {
+          minScore: 0,
+          protocolPreference: "either",
+          requiredTerms: [],
+          ignoredTerms: [],
+          minSeeders: 0,
+          maxSizeBytes: null,
+          builtInOverrides: {},
+          formatScores: {},
+        },
+        formats: [],
+      });
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockGetUserGames.mockResolvedValue([ownedGame]);
+      mockGetUserSettings.mockResolvedValue(autoSettings);
+      mockGetEnabledDownloaders.mockResolvedValue([
+        { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true },
+      ]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-abc",
+        downloaderId: "dl-1",
+      });
+      mockGetEnabledIndexers.mockResolvedValue([{ id: "indexer-a", priority: 1 }]);
+      searchReturns(NEWER_FULL, SAME_FULL);
+    });
+
+    afterEach(() => {
+      mockGetDownloadsByGameId.mockResolvedValue([]);
+    });
+
+    it("downloads a provably newer version, records why and notifies", async () => {
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ url: NEWER_FULL.link })
+      );
+      expect(mockAddGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId: ownedGame.id, category: "main" })
+      );
+      expect(mockAddDownloadEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: "upgrade",
+          releaseTitle: NEWER_FULL.title,
+          downloaderName: "qBittorrent",
+          message: expect.stringContaining("v1.0 to v1.2"),
+        })
+      );
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Upgrade Started" })
+      );
+      // The game is still owned while the newer version downloads.
+      expect(mockUpdateGameStatus).not.toHaveBeenCalled();
+    });
+
+    it("does not download with the notify policy", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...autoSettings, upgradePolicy: "notify" });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("follows the game's own policy over the account default", async () => {
+      mockGetUserSettings.mockResolvedValue({ ...autoSettings, upgradePolicy: "notify" });
+      mockGetUserGames.mockResolvedValue([{ ...ownedGame, upgradePolicy: "auto" }]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
+
+    it("takes nothing when no release proves a newer version", async () => {
+      searchReturns(SAME_FULL, NO_VERSION);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAddDownloadEvent).not.toHaveBeenCalled();
+    });
+
+    it("takes nothing when the installed version is unknown", async () => {
+      mockGetUserGames.mockResolvedValue([{ ...ownedGame, installedVersion: null }]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("needs a scoring profile", async () => {
+      mockLoadScoringConfig.mockRejectedValue(new Error("no scoring profile"));
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("waits while a download of the game is in progress", async () => {
+      mockGetDownloadsByGameId.mockResolvedValue([
+        { status: "downloading", downloadTitle: "Test.Game.v1.1-CODEX" },
+      ]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it.each(["unpacking", "completed_pending_import", "manual_review_required"])(
+      "waits while a download of the game is %s",
+      async (status) => {
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status, downloadTitle: "Test.Game.v1.1-CODEX" },
+        ]);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      }
+    );
+
+    it("does not take a release again once it was downloaded", async () => {
+      // The download finished but the installed version did not move (import off, say).
+      mockGetDownloadsByGameId.mockResolvedValue([
+        { status: "completed", downloadTitle: NEWER_FULL.title },
+      ]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("downloads an update patch that starts from the installed version", async () => {
+      const PATCH = release("Test.Game.Update.v1.0.to.v1.2-CODEX");
+      searchReturns(PATCH);
+      // The legacy check reads the patch as an update: expected here, so it is not held.
+      mockIsConfigured.mockResolvedValueOnce(true);
+      mockAnalyzeRelease.mockResolvedValueOnce({
+        releaseType: "update",
+        releaseTypeConfidence: 0.95,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ url: PATCH.link })
+      );
+      expect(mockAddGameDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId: ownedGame.id, category: "update" })
+      );
+    });
+
+    it("skips a release already held for review, without a new check", async () => {
+      mockHasAiAutoDownloadHold.mockResolvedValueOnce(true);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockAnalyzeRelease).not.toHaveBeenCalled();
+    });
+
+    it("stores the hold when the check holds the release back", async () => {
+      mockIsConfigured.mockResolvedValueOnce(true);
+      mockAnalyzeRelease.mockResolvedValueOnce({
+        releaseType: "dlc",
+        releaseTypeConfidence: 0.95,
+        legitimacyScore: null,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockRecordAiAutoDownloadHold).toHaveBeenCalledWith(
+        expect.objectContaining({ gameId: ownedGame.id, reason: expect.stringContaining("dlc") })
+      );
+    });
+
+    it("cancels the download when it cannot be tracked", async () => {
+      mockAddGameDownload.mockRejectedValueOnce(new Error("db locked"));
+
+      await checkAutoSearch();
+
+      expect(mockRemoveDownload).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "dl-1" }),
+        "hash-abc",
+        true
+      );
+      expect(mockAddDownloadEvent).not.toHaveBeenCalled();
+    });
+
+    it("keeps the upgrade when its notification cannot be saved", async () => {
+      mockAddNotification.mockRejectedValueOnce(new Error("db locked"));
+
+      await checkAutoSearch();
+
+      expect(mockAddGameDownload).toHaveBeenCalledTimes(1);
+      expect(mockAddNotification).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not retry a release that already failed for the game", async () => {
+      mockGetDownloadsByGameId.mockResolvedValue([
+        { status: "failed", downloadTitle: NEWER_FULL.title },
+      ]);
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+    });
+
+    describe("same-version swaps (upgrade cutoff)", () => {
+      // With the default profile the CODEX release scores 155 and the FitGirl repack 143.
+      const INSTALLED = release("Test.Game.v1.0-FitGirl");
+      const BETTER = release("Test.Game.v1.0-CODEX");
+      const withRules = (rules: Record<string, unknown>) =>
+        mockGetUserSettings.mockResolvedValue({
+          ...autoSettings,
+          downloadRules: JSON.stringify(rules),
+        });
+      const installedDownload = (title = INSTALLED.title) =>
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "completed", downloadTitle: title, category: null, addedAt: new Date(1) },
+        ]);
+
+      beforeEach(() => {
+        searchReturns(BETTER, INSTALLED);
+        installedDownload();
+      });
+
+      it("replaces the installed release with a better-scored one below the cutoff", async () => {
+        withRules({ upgradeCutoffScore: 150 });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ url: BETTER.link })
+        );
+        expect(mockAddDownloadEvent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            eventType: "upgrade",
+            releaseTitle: BETTER.title,
+            message: expect.stringContaining("better release of v1.0 (score 155, installed"),
+          })
+        );
+      });
+
+      it("is off by default", async () => {
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("keeps the installed release once it reaches the cutoff", async () => {
+        withRules({ upgradeCutoffScore: 140 });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("needs the minimum score gain", async () => {
+        withRules({ upgradeCutoffScore: 150, upgradeMinScoreGain: 20 });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("takes the newest import as the installed release", async () => {
+        // An earlier swap: the CODEX release replaced the repack and both are imported, which
+        // clears completedAt. The repack must not count as installed again.
+        withRules({ upgradeCutoffScore: 150 });
+        const OTHER = release("Test.Game.v1.0-RUNE");
+        searchReturns(OTHER, BETTER, INSTALLED);
+        mockGetDownloadsByGameId.mockResolvedValue([
+          {
+            status: "imported",
+            downloadTitle: BETTER.title,
+            category: null,
+            addedAt: new Date(2),
+            completedAt: null,
+          },
+          {
+            status: "imported",
+            downloadTitle: INSTALLED.title,
+            category: null,
+            addedAt: new Date(1),
+            completedAt: null,
+          },
+        ]);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("swaps nothing when the installed release is no longer listed", async () => {
+        withRules({ upgradeCutoffScore: 150 });
+        searchReturns(BETTER);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("swaps nothing when the last download is not the installed version", async () => {
+        withRules({ upgradeCutoffScore: 150 });
+        const OLDER = release("Test.Game.v0.9-FitGirl");
+        searchReturns(BETTER, OLDER);
+        installedDownload(OLDER.title);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("still prefers a newer version over a same-version swap", async () => {
+        withRules({ upgradeCutoffScore: 150 });
+        searchReturns(BETTER, INSTALLED, NEWER_FULL);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ url: NEWER_FULL.link })
+        );
+      });
+    });
   });
 
   describe("Preferred Release Groups Filtering", () => {
@@ -1819,6 +2201,193 @@ describe("Cron - checkAutoSearch", () => {
       );
     });
 
+    describe("auto-download of the best-scored release (autoPickBest)", () => {
+      // Scene-style names with a known group, so the scorer reads both as the game itself.
+      const scene = (group: string, seeders: number) => ({
+        title: `Test.Game-${group}`,
+        link: `https://indexer-a.example.com/${group.toLowerCase()}`,
+        pubDate: FIXED_PUB_DATE,
+        seeders,
+        size: 10_000_000_000,
+        indexerId: "indexer-a",
+        indexerName: "Indexer A",
+        category: ["4050"],
+        downloadType: "torrent" as const,
+        group,
+      });
+      const ITEM_INDEXER_A = scene("SKIDROW", 50);
+      const HEALTHIER_ITEM = scene("CODEX", 800);
+      // No xREL check here: with it on, an unavailable xREL defers every automatic grab.
+      const scoredSettings = {
+        ...baseSettings,
+        autoDownloadEnabled: true,
+        xrelSceneReleases: false,
+        xrelP2pReleases: false,
+      };
+      const pickBestSettings = {
+        ...scoredSettings,
+        downloadRules: JSON.stringify({ autoPickBest: true }),
+      };
+
+      beforeEach(() => {
+        mockLoadScoringConfig.mockResolvedValue({
+          profile: {
+            minScore: 0,
+            protocolPreference: "either",
+            requiredTerms: [],
+            ignoredTerms: [],
+            minSeeders: 0,
+            maxSizeBytes: null,
+            builtInOverrides: {},
+            formatScores: {},
+          },
+          formats: [],
+        });
+        mockGetEnabledDownloaders.mockResolvedValue([
+          { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true },
+        ]);
+        mockAddDownloadWithFallback.mockResolvedValue({
+          success: true,
+          id: "hash-abc",
+          downloaderId: "dl-1",
+        });
+        mockGetEnabledIndexers.mockResolvedValue([{ id: "indexer-a", priority: 1 }]);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [ITEM_INDEXER_A, HEALTHIER_ITEM],
+          errors: [],
+          total: 2,
+        });
+      });
+
+      afterEach(() => {
+        // Failed downloads set by a test here must not leak into the following tests.
+        mockGetDownloadsByGameId.mockResolvedValue([]);
+        resetExhaustedPicks();
+      });
+
+      // A game whose results were already flagged in an earlier cycle.
+      const gameAlreadyHadResults = () =>
+        mockGetWantedGamesGroupedByUser.mockResolvedValue(
+          new Map([
+            [
+              userId,
+              [
+                {
+                  ...baseGame,
+                  status: "wanted" as const,
+                  releaseStatus: "released" as const,
+                  searchResultsAvailable: true,
+                },
+              ],
+            ],
+          ])
+        );
+
+      it("still asks the user to choose among several releases by default", async () => {
+        mockGetUserSettings.mockResolvedValue(scoredSettings);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+        expect(mockAddNotification).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
+
+      it("downloads the release ranked first when the rule is on", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ url: HEALTHIER_ITEM.link })
+        );
+        expect(mockAddNotification).not.toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
+
+      it("moves on to the next release when the best one already failed for the game", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+        ]);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ url: ITEM_INDEXER_A.link })
+        );
+      });
+
+      it("asks the user to choose when every release already failed for the game", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+          { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
+        ]);
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+        expect(mockAddNotification).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
+
+      it("asks once when every release failed for a game that already had results", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        gameAlreadyHadResults();
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+          { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
+        ]);
+        const asked = () =>
+          mockAddNotification.mock.calls.filter(
+            ([notification]) => notification.title === "Multiple Results Found"
+          ).length;
+
+        await checkAutoSearch();
+        expect(asked()).toBe(1);
+
+        await checkAutoSearch();
+        expect(asked()).toBe(1);
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      });
+
+      it("asks again next cycle when saving the notification failed", async () => {
+        mockGetUserSettings.mockResolvedValue(pickBestSettings);
+        gameAlreadyHadResults();
+        mockGetDownloadsByGameId.mockResolvedValue([
+          { status: "failed", downloadTitle: HEALTHIER_ITEM.title },
+          { status: "failed", downloadTitle: ITEM_INDEXER_A.title },
+        ]);
+        mockAddNotification.mockRejectedValueOnce(new Error("database is locked"));
+
+        await checkAutoSearch();
+        await checkAutoSearch();
+
+        expect(mockAddNotification).toHaveBeenCalledTimes(2);
+        expect(mockAddNotification).toHaveBeenLastCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
+
+      it("does not download when auto-download itself is off", async () => {
+        mockGetUserSettings.mockResolvedValue({ ...pickBestSettings, autoDownloadEnabled: false });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+        expect(mockAddNotification).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Multiple Results Found" })
+        );
+      });
+    });
+
     it("should treat titles as duplicates despite punctuation or casing differences", async () => {
       // "Test Game SKIDROW" and "Test.Game.SKIDROW" normalise to the same key → de-duplicated to 1.
       const settings = { ...baseSettings, autoDownloadEnabled: true };
@@ -2381,6 +2950,87 @@ describe("Cron - checkAutoSearch", () => {
       });
     });
 
+    describe("include updates automatically", () => {
+      const MAIN_V10 = { ...SINGLE_MAIN_ITEM, title: "Test.Game.v1.0-GROUP" };
+      const PATCH_V11 = {
+        ...SINGLE_MAIN_ITEM,
+        title: "Test.Game.Update.v1.0.to.v1.1-GROUP",
+        link: "https://example.com/patch-v11",
+      };
+      const PATCH_OTHER_BASE = {
+        ...SINGLE_MAIN_ITEM,
+        title: "Test.Game.Update.v0.9.to.v1.2-GROUP",
+        link: "https://example.com/patch-other",
+      };
+      const withUpdates = (on: boolean) =>
+        mockGetUserSettings.mockResolvedValue({
+          ...baseSettings,
+          autoDownloadEnabled: true,
+          downloadRules: JSON.stringify({ autoIncludeUpdates: on }),
+        });
+
+      it("takes the patch that starts from the grabbed version", async () => {
+        withUpdates(true);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [MAIN_V10, PATCH_V11, PATCH_OTHER_BASE],
+          errors: [],
+          total: 3,
+        });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(2);
+        expect(mockAddDownloadWithFallback).toHaveBeenNthCalledWith(
+          2,
+          expect.anything(),
+          expect.objectContaining({ url: PATCH_V11.link })
+        );
+        expect(mockAddGameDownload).toHaveBeenLastCalledWith(
+          expect.objectContaining({ downloadTitle: PATCH_V11.title, category: "update" })
+        );
+      });
+
+      it("is off by default", async () => {
+        withUpdates(false);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [MAIN_V10, PATCH_V11],
+          errors: [],
+          total: 2,
+        });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+      });
+
+      it("still takes the patch when the notification about the main download fails", async () => {
+        withUpdates(true);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [MAIN_V10, PATCH_V11],
+          errors: [],
+          total: 2,
+        });
+        mockAddNotification.mockRejectedValueOnce(new Error("notification store down"));
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(2);
+      });
+
+      it("takes nothing when no patch proves it starts from the grabbed version", async () => {
+        withUpdates(true);
+        mockSearchAllIndexers.mockResolvedValue({
+          items: [MAIN_V10, PATCH_OTHER_BASE],
+          errors: [],
+          total: 2,
+        });
+
+        await checkAutoSearch();
+
+        expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it("does not auto-download a release that already failed for this game", async () => {
       mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: true });
       // Same release, different casing/punctuation: a client that purges finished jobs or a
@@ -2844,6 +3494,16 @@ describe("release scoring in auto-search", () => {
     expect(scoreReleasesForGame([item(title)], game, scoring)).toHaveLength(0);
   });
 
+  it("keeps an unknown-group release for the badge only when ambiguous matches are included", () => {
+    const title = "Dishonored-NEWGROUP";
+    expect(scoreReleasesForGame([item(title)], game, scoring)).toHaveLength(0);
+    expect(
+      scoreReleasesForGame([item(title)], game, { ...scoring, includeAmbiguous: true }).map(
+        (i) => i.title
+      )
+    ).toEqual([title]);
+  });
+
   it("keeps a single preferred-group release as the only candidate (auto-download)", () => {
     const withFormat = {
       ...scoring,
@@ -3110,6 +3770,17 @@ describe("auto-download hold with the classification pipeline", () => {
     classification.holdUnknown = false;
   });
   afterEach(() => Object.assign(classification, original));
+
+  it("lets an expected patch through, and still holds the rest", async () => {
+    mockClassify.mockResolvedValue({ confidence: 0.9, path: ["rules"], class: "patch" });
+    expect(
+      await getAiAutoDownloadHoldReason(item, null, "Test Game", { allowPatch: true })
+    ).toBeNull();
+    mockClassify.mockResolvedValue({ confidence: 0.9, path: ["rules"], class: "dlc" });
+    expect(
+      await getAiAutoDownloadHoldReason(item, null, "Test Game", { allowPatch: true })
+    ).toMatch(/as "dlc"/);
+  });
 
   it("keeps the Jev-only check, and skips the pipeline, in cloud mode", async () => {
     classification.mode = "cloud";

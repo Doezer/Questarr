@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import express from "express";
 import cors from "cors";
 import { generalApiLimiter } from "./middleware.js";
@@ -15,6 +16,10 @@ export function createApp() {
   // generalApiLimiter (express-rate-limit responds directly and never calls
   // next() once its limit is hit, skipping anything registered after it).
   app.use((_req, res, next) => {
+    // Short correlation id: logged with the request and its errors so the
+    // lines of one failing request can be tied together in a support log.
+    res.locals.requestId = randomUUID().slice(0, 8);
+    res.setHeader("X-Request-Id", res.locals.requestId as string);
     res.setHeader("Origin-Agent-Cluster", "?1");
     // Questarr instances are personal/self-hosted and should never be indexed
     // by search engines, even if exposed to the public internet.
@@ -73,6 +78,7 @@ export function createApp() {
 
         expressLogger.info(
           {
+            requestId: res.locals.requestId,
             method: req.method,
             path,
             statusCode: res.statusCode,
@@ -85,6 +91,7 @@ export function createApp() {
         if (isNoisyEndpoint) {
           expressLogger.debug(
             {
+              requestId: res.locals.requestId,
               method: req.method,
               path,
               response: capturedJsonResponse,

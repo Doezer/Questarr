@@ -214,6 +214,15 @@ export default function SendErrorReportDialog({
                 <li className="flex gap-2">
                   <span className="mt-0.5 text-blue-400">•</span>
                   <span>
+                    <strong>Configuration summary</strong> — runtime, database type, and each
+                    indexer and download client&apos;s type, enabled state and whether a key or
+                    password is set, plus a digest of recent errors. Never hostnames, addresses, or
+                    credentials.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="mt-0.5 text-blue-400">•</span>
+                  <span>
                     <strong>App version</strong> — {meta.appVersion}
                   </span>
                 </li>

@@ -28,12 +28,20 @@ export function usePlaySessionsSocket(): void {
         predicate: (query) => isPlaySessionsQuery(query.queryKey),
       });
     };
+    const achievementsHandler = () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/achievements/progress"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/steam/achievements"] });
+    };
     socket.on("playSessionsUpdated", handler);
+    socket.on("achievementsUpdated", achievementsHandler);
     // Reconcile sessions added while the socket was offline.
     socket.on("connect", handler);
+    socket.on("connect", achievementsHandler);
     return () => {
       socket.off("playSessionsUpdated", handler);
+      socket.off("achievementsUpdated", achievementsHandler);
       socket.off("connect", handler);
+      socket.off("connect", achievementsHandler);
     };
   }, [queryClient]);
 }

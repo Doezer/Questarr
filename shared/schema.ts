@@ -4,6 +4,8 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import type { FormatSpec, ReleaseProfile } from "./release-scoring.js";
 import { resolveTargetPlatform } from "./title-utils.js";
+import { isValidFinishByDate } from "./play-goal.js";
+import { getTorBoxFetchMode } from "./downloader-types.js";
 import { hasReversedYearRange, isEmptyCollectionRules } from "./collection-rules.js";
 
 export const users = sqliteTable("users", {
@@ -89,9 +91,22 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   sortExtras: integer("sort_extras", { mode: "boolean" }).notNull().default(false),
+  // What happens to the version already in the library when a new one is imported:
+  // "off" (kept), "archive" (moved to .questarr-replaced) or "delete".
+  upgradeReplaceMode: text("upgrade_replace_mode").notNull().default("off"),
+  // A release that is a single file lands in a folder named like the game, as multi-file
+  // releases do, instead of directly in the platform folder.
+  folderForSingleFiles: integer("folder_for_single_files", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  // A release categorized as an update or DLC goes into `update/` or `dlc/` inside the game's
+  // folder instead of next to the base game (the layout RomM reads).
+  addonSubfolders: integer("addon_subfolders", { mode: "boolean" }).notNull().default(false),
   // Telemetry: opt-in, off by default. When enabled, automatically-detected server
   // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
   telemetryEnabled: integer("telemetry_enabled", { mode: "boolean" }).notNull().default(false),
+  // Backlog quests and their medals; players who find them noisy can switch them off.
+  questsEnabled: integer("quests_enabled", { mode: "boolean" }).notNull().default(true),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -137,6 +152,9 @@ export interface ImportConfig {
   libraryRoot: string;
   autoDeleteAfterImport: boolean;
   sortExtras: boolean;
+  upgradeReplaceMode: UpgradeReplaceMode;
+  folderForSingleFiles: boolean;
+  addonSubfolders: boolean;
 }
 
 // gameDownloads.status value for a download whose linked game record can't be
@@ -158,6 +176,15 @@ export type ImportTransferMode = (typeof IMPORT_TRANSFER_MODES)[number];
 
 export const importTransferModeSchema = z.enum(IMPORT_TRANSFER_MODES);
 
+// What happens to the version a game already has in the library once a new one is imported.
+// "off" keeps it (and the import asks for review when both would share a folder), "archive"
+// moves it to .questarr-replaced under the library root, "delete" removes it.
+export const UPGRADE_REPLACE_MODES = ["off", "archive", "delete"] as const;
+
+export type UpgradeReplaceMode = (typeof UPGRADE_REPLACE_MODES)[number];
+
+export const upgradeReplaceModeSchema = z.enum(UPGRADE_REPLACE_MODES);
+
 export const importConfigSchema = z.object({
   enablePostProcessing: z.boolean(),
   autoUnpack: z.boolean(),
@@ -170,6 +197,9 @@ export const importConfigSchema = z.object({
   libraryRoot: z.string().min(1),
   autoDeleteAfterImport: z.boolean(),
   sortExtras: z.boolean(),
+  upgradeReplaceMode: upgradeReplaceModeSchema,
+  folderForSingleFiles: z.boolean(),
+  addonSubfolders: z.boolean(),
 });
 
 // A DLC/expansion IGDB reports as related to a game, carried through from
@@ -255,8 +285,12 @@ export const games = sqliteTable("games", {
   userRating: real("user_rating"),
   libraryPath: text("library_path"),
   installedVersion: text("installed_version"),
+  // Where installedVersion came from (INSTALLED_VERSION_SOURCES); null while it is unset.
+  installedVersionSource: text("installed_version_source"),
   // Per-game override of the account default upgrade policy; null = use the default.
   upgradePolicy: text("upgrade_policy"), // UPGRADE_POLICIES
+  // Personal target day ("finish by"), `YYYY-MM-DD` in the user's local calendar; null = no goal.
+  finishBy: text("finish_by"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -491,7 +525,7 @@ export const gamePlaySessions = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     endedAt: integer("ended_at", { mode: "timestamp_ms" }),
-    source: text("source").notNull().default("manual"), // "manual" | "timer" | "steam" | "playnite"
+    source: text("source").notNull().default("manual"), // "manual" | "timer" | "steam" | "steam_import" | "playnite" | "playnite_import"
     createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
       sql`(strftime('%s', 'now') * 1000)`
     ),
@@ -504,6 +538,169 @@ export const gamePlaySessions = sqliteTable(
       .on(t.userId)
       .where(sql`${t.endedAt} is null`),
   ]
+);
+
+// Status history of a game, one row each time its status changes (and one when it is added). It
+// feeds the backlog burn-down on the Stats page. Games that existed before the table did get one
+// row each, backfilled from the date they were added, so older history is approximate.
+export const gameStatusEvents = sqliteTable(
+  "game_status_events",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(strftime('%s', 'now') * 1000)`),
+  },
+  (t) => [
+    index("game_status_events_game_idx").on(t.gameId),
+    index("game_status_events_user_created_idx").on(t.userId, t.createdAt),
+  ]
+);
+
+// Backlog quests: optional weekly and monthly challenges picked from the user's library (see
+// shared/quests.ts). A row is one quest of one period; `periodStart` is the first local day of
+// that week or month (`YYYY-MM-DD`), which with the kind makes it unique. History is these rows.
+export const quests = sqliteTable(
+  "quests",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    period: text("period").notNull(), // QUEST_PERIODS
+    periodStart: text("period_start").notNull(),
+    kind: text("kind").notNull(), // QUEST_KINDS
+    gameId: text("game_id").references(() => games.id, { onDelete: "set null" }),
+    target: integer("target").notNull(),
+    progress: integer("progress").notNull().default(0),
+    status: text("status").notNull().default("active"), // QUEST_STATUSES
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(strftime('%s', 'now') * 1000)`),
+  },
+  (t) => [
+    uniqueIndex("quests_user_period_kind_idx").on(t.userId, t.period, t.periodStart, t.kind),
+    index("quests_user_start_idx").on(t.userId, t.periodStart),
+  ]
+);
+
+// Achievement progress of a game for one user and provider (Steam today), refreshed by the
+// achievements sync. Only the totals and the rarest unlock are kept, not every achievement.
+export const gameAchievementProgress = sqliteTable(
+  "game_achievement_progress",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    unlocked: integer("unlocked").notNull().default(0),
+    total: integer("total").notNull().default(0),
+    rarestName: text("rarest_name"),
+    // Share of players (0-100) who unlocked the rarest achievement this user has.
+    rarestPercent: real("rarest_percent"),
+    lastUnlockedAt: integer("last_unlocked_at", { mode: "timestamp_ms" }),
+    syncedAt: integer("synced_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(strftime('%s', 'now') * 1000)`),
+  },
+  (t) => [
+    uniqueIndex("game_achievement_progress_unique_idx").on(t.gameId, t.userId, t.provider),
+    index("game_achievement_progress_user_idx").on(t.userId),
+  ]
+);
+
+// Direct-download (DDL) jobs: a list of file-hoster links a debrid downloader fetches into local
+// staging. Progress lives on disk and in memory; this row only keeps what a restart needs to
+// resume (the links and the archive password).
+export const ddlJobs = sqliteTable(
+  "ddl_jobs",
+  {
+    id: text("id").primaryKey(),
+    downloaderId: text("downloader_id")
+      .notNull()
+      .references(() => downloaders.id, { onDelete: "cascade" }),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    links: text("links", { mode: "json" }).$type<string[]>().notNull(),
+    password: text("password"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(strftime('%s', 'now') * 1000)`),
+  },
+  (t) => [index("ddl_jobs_downloader_idx").on(t.downloaderId)]
+);
+
+// Outbound webhooks: external automation (n8n, Home Assistant, deployment scripts) subscribes to
+// Questarr events. Every request is signed with the subscription secret (HMAC-SHA256).
+export const WEBHOOK_EVENT_TYPES = [
+  "download.completed",
+  "download.failed",
+  "import.failed",
+  "game.released",
+  "game.delayed",
+] as const;
+export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
+/** Sent only by the test operation; never selectable in a subscription. */
+export const WEBHOOK_TEST_EVENT = "webhook.test" as const;
+
+export const webhookSubscriptions = sqliteTable(
+  "webhook_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    // Encrypted at rest (credential-crypto): the signature needs the raw value.
+    secret: text("secret").notNull(),
+    events: text("events", { mode: "json" }).$type<WebhookEventType[]>().notNull().default([]),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("webhook_subscriptions_user_id_idx").on(t.userId)]
+);
+
+// Recent delivery attempts per subscription, capped and purged by the "webhook-deliveries-purge"
+// System Task. One row per attempt; retries of the same event share `eventId`.
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    subscriptionId: text("subscription_id")
+      .notNull()
+      .references(() => webhookSubscriptions.id, { onDelete: "cascade" }),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    attempt: integer("attempt").notNull().default(1),
+    // HTTP status of the response, null when the request never got one.
+    statusCode: integer("status_code"),
+    error: text("error"),
+    durationMs: integer("duration_ms"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("webhook_deliveries_sub_created_idx").on(t.subscriptionId, t.createdAt)]
 );
 
 // User-defined "successes" checklist per game. Kept separate from any
@@ -795,7 +992,21 @@ export const updateGameUserRatingSchema = z.object({
 
 // What to do when a newer version of an owned game turns up. Later steps of the upgrade loop add
 // "auto" (grab it); for now: "off" ignores updates, "notify" flags them and tells the user.
-export const UPGRADE_POLICIES = ["off", "notify"] as const;
+/**
+ * Where a game's installed version came from. "manual" (typed by the user) always wins;
+ * "install" (read from files in the game folder) beats "release" (taken from the title of
+ * the release that was downloaded).
+ */
+export const INSTALLED_VERSION_SOURCES = ["manual", "release", "install"] as const;
+export type InstalledVersionSource = (typeof INSTALLED_VERSION_SOURCES)[number];
+/** The sources a version can be detected from, i.e. every one but the user typing it. */
+export type DetectedVersionSource = Exclude<InstalledVersionSource, "manual">;
+
+/**
+ * "notify" flags newer versions and packs. "auto" also downloads a provably newer version by
+ * itself (see shared/upgrade-decision.ts) and still flags the rest. Opt-in: never the default.
+ */
+export const UPGRADE_POLICIES = ["off", "notify", "auto"] as const;
 export type UpgradePolicy = (typeof UPGRADE_POLICIES)[number];
 export const DEFAULT_UPGRADE_POLICY: UpgradePolicy = "notify";
 
@@ -818,6 +1029,14 @@ export const updateGameInstalledVersionSchema = z.object({
     .max(64, "installedVersion must be at most 64 characters")
     .nullable()
     .transform((v) => v || null),
+});
+
+export const updateGameFinishBySchema = z.object({
+  // null clears the goal.
+  finishBy: z
+    .string()
+    .refine(isValidFinishByDate, "finishBy must be a date written YYYY-MM-DD")
+    .nullable(),
 });
 
 export const updateGameUpgradePolicySchema = z.object({
@@ -931,6 +1150,50 @@ export const insertManualPlaySessionSchema = z.object({
     .max(24 * 60),
 });
 
+/** Sessions the user can edit, merge and split: imported or estimated ones stay as recorded. */
+export const EDITABLE_PLAY_SESSION_SOURCES = ["manual", "timer"] as const;
+
+/** True for a finished session whose source the user may edit, merge or split. */
+export function isEditablePlaySession(session: {
+  source: string | null;
+  endedAt: Date | null;
+}): boolean {
+  return (
+    session.endedAt !== null &&
+    (EDITABLE_PLAY_SESSION_SOURCES as readonly string[]).includes(session.source ?? "")
+  );
+}
+
+/** Change a finished session: a new start, and a new end or duration (not both). */
+export const updatePlaySessionSchema = z
+  .object({
+    startedAt: z.coerce.date().optional(),
+    endedAt: z.coerce.date().optional(),
+    // JSON only: coercion would turn `true` into 1.
+    durationMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(24 * 60)
+      .optional(),
+  })
+  .refine((v) => v.startedAt || v.endedAt || v.durationMinutes, {
+    message: "Provide startedAt, endedAt or durationMinutes",
+  })
+  .refine((v) => !(v.endedAt && v.durationMinutes), {
+    message: "Provide endedAt or durationMinutes, not both",
+  });
+
+/** Merge several finished sessions of one game into one. */
+export const mergePlaySessionsSchema = z.object({
+  sessionIds: z.array(z.string().uuid()).min(2).max(20),
+});
+
+/** Cut a finished session in two at `splitAt`. */
+export const splitPlaySessionSchema = z.object({
+  splitAt: z.coerce.date(),
+});
+
 export const insertGameMilestoneSchema = createInsertSchema(gameMilestones, {
   label: (schema) => schema.trim().min(1, "Label is required").max(200),
 }).omit({
@@ -982,6 +1245,26 @@ export const insertDownloaderSchema = createInsertSchema(downloaders, {
   .refine((data) => !(data.type === "sabnzbd" && !data.username), {
     message: "API key is required for SABnzbd",
     path: ["username"],
+  })
+  .refine((data) => !(data.type === "realdebrid" && !data.downloadPath), {
+    message: "A staging path is required for Real-Debrid",
+    path: ["downloadPath"],
+  })
+  .refine(
+    (data) =>
+      !(
+        data.type === "torbox" &&
+        getTorBoxFetchMode(data.settings) === "local" &&
+        !data.downloadPath
+      ),
+    {
+      message: "A staging path is required for TorBox",
+      path: ["downloadPath"],
+    }
+  )
+  .refine((data) => !(data.type === "torbox" && !data.password), {
+    message: "An API key is required for TorBox",
+    path: ["password"],
   });
 
 export const insertGameDownloadSchema = createInsertSchema(gameDownloads).omit({
@@ -1036,6 +1319,26 @@ export const downloadRulesSchema = z.object({
   // releases the scoring profile rejects (wrong title, nuked, below the minimum score) stay out
   // of the manual download dialog unless the user turns this off
   hideRejected: z.boolean().default(true),
+  // when auto-download is on and several releases remain for a wanted game, take the
+  // best-scored one instead of asking the user to choose. Off: only a single remaining
+  // release is downloaded.
+  autoPickBest: z.boolean().default(false),
+  // "auto" upgrade policy, same version: while the installed release scores below this cutoff,
+  // a better-scored release of the installed version replaces it. null (default) turns these
+  // swaps off; newer versions are taken either way.
+  upgradeCutoffScore: z.number().int().min(-10000).max(10000).nullable().default(null),
+  // how many points better a same-version release must score to be worth the swap
+  upgradeMinScoreGain: z.number().int().min(1).max(10000).default(10),
+  // "auto" upgrade policy: take an update-only patch (one that names the installed version as
+  // its starting point) over a full release of the same version. Off: full releases first.
+  upgradePreferPatches: z.boolean().default(false),
+  // auto-download of a wanted game: also take the newest update patch that provably starts from
+  // the version of the release just grabbed (the "bundle" of the manual dialog, without the
+  // extras). Off by default.
+  autoIncludeUpdates: z.boolean().default(false),
+  // manual download dialog: a DLC or extra is offered with the main release only when its size
+  // is at most this percentage of the main release's (unknown sizes are never offered)
+  bundleExtraMaxPercent: z.number().int().min(1).max(100).default(25),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;
@@ -1270,6 +1573,23 @@ export type InsertCollection = {
   rules: CollectionRules | null;
 };
 export type CollectionGame = typeof collectionGames.$inferSelect;
+export type WebhookSubscription = typeof webhookSubscriptions.$inferSelect;
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+/** A subscription as returned to clients: the secret never leaves the server after creation. */
+export type WebhookSubscriptionPublic = Omit<WebhookSubscription, "secret">;
+export type NewWebhookSubscriptionInput = {
+  userId: string;
+  name: string;
+  url: string;
+  /** Already encrypted. */
+  secret: string;
+  events: WebhookEventType[];
+  enabled?: boolean;
+};
+export type UpdateWebhookSubscriptionInput = Partial<
+  Pick<WebhookSubscription, "name" | "url" | "secret" | "events" | "enabled">
+>;
+export type NewWebhookDeliveryInput = Omit<WebhookDelivery, "id" | "createdAt">;
 
 export type Tag = typeof tags.$inferSelect;
 export type InsertTag = z.infer<typeof insertTagSchema>;
@@ -1277,6 +1597,14 @@ export type UpdateTag = z.infer<typeof updateTagSchema>;
 
 export type GameTag = typeof gameTags.$inferSelect;
 export type InsertGameTag = z.infer<typeof insertGameTagSchema>;
+export type DdlJob = typeof ddlJobs.$inferSelect;
+export type InsertDdlJob = typeof ddlJobs.$inferInsert;
+export type Quest = typeof quests.$inferSelect;
+export type InsertQuest = typeof quests.$inferInsert;
+export type GameAchievementProgress = typeof gameAchievementProgress.$inferSelect;
+export type InsertGameAchievementProgress = typeof gameAchievementProgress.$inferInsert;
+export type GameStatusEvent = typeof gameStatusEvents.$inferSelect;
+export type InsertGameStatusEvent = typeof gameStatusEvents.$inferInsert;
 export type GamePlaySession = typeof gamePlaySessions.$inferSelect;
 export type InsertGamePlaySession = typeof gamePlaySessions.$inferInsert;
 export type GameJournalEntry = typeof gameJournalEntries.$inferSelect;
@@ -1308,6 +1636,7 @@ export type NotificationEvent =
   | "gameUpdates"
   | "xrelRelease"
   | "steamSync"
+  | "achievementUnlocked"
   | "errorDetected"
   | "securityAlert";
 
@@ -1335,6 +1664,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   gameUpdates: { inApp: true, apprise: true, includeShelved: true, includeCompleted: true },
   xrelRelease: { inApp: true, apprise: true },
   steamSync: { inApp: true, apprise: false },
+  achievementUnlocked: { inApp: true, apprise: false },
   errorDetected: { inApp: true, apprise: false },
   securityAlert: { inApp: true, apprise: true },
 };
@@ -1429,6 +1759,11 @@ export interface DownloadStatus {
   error?: string | undefined;
   category?: string | undefined;
   // Questarr tracking fields
+  /**
+   * True for a finished download that stays on a cloud client: nothing is copied or imported,
+   * the user fetches it through a link requested on demand (TorBox "link only" mode).
+   */
+  linkOnly?: boolean;
   trackedByQuestarr?: boolean; // True if the download was initiated through Questarr
   downloaderCategory?: string; // The category configured on the downloader (for display purposes)
 }
@@ -1485,6 +1820,8 @@ export const rssFeeds = sqliteTable("rss_feeds", {
   type: text("type").notNull().default("custom"), // 'preset' or 'custom'
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   mapping: text("mapping", { mode: "json" }).$type<{ titleField?: string; linkField?: string }>(),
+  // Direct-download feed: pull file-hoster links out of each item's content.
+  extractLinks: integer("extract_links", { mode: "boolean" }).notNull().default(false),
   lastCheck: integer("last_check", { mode: "timestamp_ms" }),
   status: text("status").default("ok"), // 'ok' or 'error'
   errorMessage: text("error_message"),
@@ -1509,6 +1846,8 @@ export const rssFeedItems = sqliteTable("rss_feed_items", {
   igdbGameId: integer("igdb_game_id"),
   igdbGameName: text("igdb_game_name"),
   coverUrl: text("cover_url"),
+  // Hoster links found in the item content (direct-download feeds only).
+  links: text("links", { mode: "json" }).$type<string[]>(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -1618,6 +1957,8 @@ export const DOWNLOAD_EVENT_TYPES = [
   "needs_review",
   "removed",
   "blocklisted",
+  // A newer version of an owned game taken by the "auto" upgrade policy; the message says why.
+  "upgrade",
 ] as const;
 export type DownloadEventType = (typeof DOWNLOAD_EVENT_TYPES)[number];
 

@@ -33,6 +33,10 @@ export const {
   gameJournalEntries,
   gameMilestones,
   gamePlaySessions,
+  gameStatusEvents,
+  quests,
+  gameAchievementProgress,
+  ddlJobs,
   gameScreenshots,
   importTaskItems,
   importTasks,
@@ -53,5 +57,7 @@ export const {
   gameTags,
   userSettings,
   users,
+  webhookDeliveries,
+  webhookSubscriptions,
   xrelNotifiedReleases,
 } = active;

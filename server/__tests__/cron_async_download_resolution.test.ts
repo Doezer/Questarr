@@ -13,6 +13,7 @@ const createMockLogger = () => ({
 });
 
 const mockNotifyUser = vi.fn();
+const mockEmitWebhookEvent = vi.fn();
 const mockProcessImport = vi.fn();
 const mockIsImportInFlight = vi.fn().mockReturnValue(false);
 const mockFindDownloadByTag = vi.fn();
@@ -30,6 +31,10 @@ const mockUpdateGameDownloadStatus = vi.fn();
 const mockGetDownloader = vi.fn();
 const mockGetDownloadingGameDownloads = vi.fn();
 
+vi.mock("../webhooks.js", () => ({
+  emitWebhookEvent: mockEmitWebhookEvent,
+  purgeWebhookDeliveries: vi.fn(),
+}));
 vi.mock("../apprise.js", () => ({
   appriseClient: { send: vi.fn() },
 }));
@@ -140,7 +145,8 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
     remoteId: string | null;
     remoteStatus?: string;
     remoteProgress?: number;
-    siblings?: { id: string; status: string }[];
+    siblings?: { id: string; status: string; category?: string }[];
+    category?: "main" | "update" | "dlc" | "extra";
   }) {
     const asyncDownload = {
       id: opts.gdId,
@@ -152,6 +158,7 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       downloadType: "torrent" as const,
+      ...(opts.category ? { category: opts.category } : {}),
     };
     mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
     mockGetDownloader.mockResolvedValue(qbDownloader);
@@ -328,6 +335,15 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
       { preserveCurated: true }
     );
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", "game-1");
+    expect(mockEmitWebhookEvent).toHaveBeenCalledWith(
+      "download.failed",
+      expect.objectContaining({
+        gameId: "game-1",
+        downloadId: "gd-async-fail",
+        reason: "The download client never registered this download.",
+      }),
+      expect.anything()
+    );
   });
 
   it("preserves game status when a sibling remains downloading on tag failure", async () => {
@@ -416,5 +432,28 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
       { preserveCurated: true }
     );
     expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", "game-1");
+  });
+
+  it("keeps the game status while the main release is still downloading after a patch finishes", async () => {
+    mockTagScenario({
+      gdId: "gd-patch-1",
+      tag: "questarr-add-patch",
+      title: "Game Update v1.1",
+      resolvedHash: "patchhash",
+      remoteId: "patchhash",
+      remoteStatus: "completed",
+      remoteProgress: 100,
+      category: "update",
+      siblings: [{ id: "gd-main-1", status: "downloading", category: "main" }],
+    });
+
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith("gd-patch-1", "completed");
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(
+      "game-1",
+      { status: "owned" },
+      { preserveCurated: true }
+    );
   });
 });

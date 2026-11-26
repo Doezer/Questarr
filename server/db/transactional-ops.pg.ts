@@ -1,16 +1,19 @@
 import { randomUUID } from "crypto";
-import { count, eq, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { db as appDb } from "../db.js";
 import * as pgSchema from "../../shared/schema.pg.js";
+import { EDITABLE_PLAY_SESSION_SOURCES } from "../../shared/schema.js";
 import { encryptCredentialSync } from "../credential-crypto.js";
 import {
   validateIndexerInput,
   buildIndexerUpdate,
   buildNewIndexer,
   formatSyncFailure,
+  PlaySessionsChangedError,
 } from "./transactional-ops.shared.js";
 import type {
+  GamePlaySession,
   ApiKeyPublic,
   NewApiKeyInput,
   Game,
@@ -19,7 +22,11 @@ import type {
   InsertUser,
   User,
 } from "../../shared/schema.js";
-import type { SyncIndexersResult } from "./transactional-ops.js";
+import type {
+  ExpectedPlaySession,
+  PlaySessionReplacement,
+  SyncIndexersResult,
+} from "./transactional-ops.js";
 
 /**
  * Postgres implementations.
@@ -33,7 +40,8 @@ import type { SyncIndexersResult } from "./transactional-ops.js";
  * Postgres tables and their real types directly instead of the app-wide
  * SQLite-shaped view of the schema.
  */
-const { apiKeys, games, indexers, platformMappings, systemConfig, users } = pgSchema;
+const { apiKeys, gamePlaySessions, games, indexers, platformMappings, systemConfig, users } =
+  pgSchema;
 const db = appDb as unknown as NodePgDatabase<typeof pgSchema>;
 
 export async function seedPlatformMappingsIfEmpty(
@@ -203,4 +211,50 @@ export async function addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<A
       });
     return created!;
   });
+}
+
+export async function replaceGamePlaySessions(
+  userId: string,
+  gameId: string,
+  expected: ExpectedPlaySession[],
+  replacements: PlaySessionReplacement[]
+): Promise<GamePlaySession[] | undefined> {
+  try {
+    return await db.transaction(async (tx) => {
+      const removed = await tx
+        .delete(gamePlaySessions)
+        .where(
+          and(
+            or(
+              ...expected.map((e) =>
+                and(
+                  eq(gamePlaySessions.id, e.id),
+                  eq(gamePlaySessions.startedAt, e.startedAt),
+                  eq(gamePlaySessions.endedAt, e.endedAt)
+                )
+              )
+            ),
+            eq(gamePlaySessions.gameId, gameId),
+            eq(gamePlaySessions.userId, userId),
+            inArray(gamePlaySessions.source, [...EDITABLE_PLAY_SESSION_SOURCES]),
+            isNotNull(gamePlaySessions.endedAt)
+          )
+        )
+        .returning({ id: gamePlaySessions.id });
+      if (removed.length !== new Set(expected.map((e) => e.id)).size)
+        throw new PlaySessionsChangedError();
+      const created: GamePlaySession[] = [];
+      for (const r of replacements) {
+        const [row] = await tx
+          .insert(gamePlaySessions)
+          .values({ id: randomUUID(), gameId, userId, ...r })
+          .returning();
+        created.push(row! as GamePlaySession);
+      }
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof PlaySessionsChangedError) return undefined;
+    throw error;
+  }
 }

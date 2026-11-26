@@ -227,6 +227,66 @@ export type _InsertGamePlaySessions = Expect<
     typeof pgSchema.gamePlaySessions.$inferInsert
   >
 >;
+export type _SelectGameStatusEvents = Expect<
+  Equal<
+    typeof sqliteSchema.gameStatusEvents.$inferSelect,
+    typeof pgSchema.gameStatusEvents.$inferSelect
+  >
+>;
+export type _InsertGameStatusEvents = Expect<
+  Equal<
+    typeof sqliteSchema.gameStatusEvents.$inferInsert,
+    typeof pgSchema.gameStatusEvents.$inferInsert
+  >
+>;
+export type _SelectQuests = Expect<
+  Equal<typeof sqliteSchema.quests.$inferSelect, typeof pgSchema.quests.$inferSelect>
+>;
+export type _InsertQuests = Expect<
+  Equal<typeof sqliteSchema.quests.$inferInsert, typeof pgSchema.quests.$inferInsert>
+>;
+export type _SelectGameAchievementProgress = Expect<
+  Equal<
+    typeof sqliteSchema.gameAchievementProgress.$inferSelect,
+    typeof pgSchema.gameAchievementProgress.$inferSelect
+  >
+>;
+export type _InsertGameAchievementProgress = Expect<
+  Equal<
+    typeof sqliteSchema.gameAchievementProgress.$inferInsert,
+    typeof pgSchema.gameAchievementProgress.$inferInsert
+  >
+>;
+export type _SelectDdlJobs = Expect<
+  Equal<typeof sqliteSchema.ddlJobs.$inferSelect, typeof pgSchema.ddlJobs.$inferSelect>
+>;
+export type _InsertDdlJobs = Expect<
+  Equal<typeof sqliteSchema.ddlJobs.$inferInsert, typeof pgSchema.ddlJobs.$inferInsert>
+>;
+export type _SelectWebhookSubscriptions = Expect<
+  Equal<
+    typeof sqliteSchema.webhookSubscriptions.$inferSelect,
+    typeof pgSchema.webhookSubscriptions.$inferSelect
+  >
+>;
+export type _InsertWebhookSubscriptions = Expect<
+  Equal<
+    typeof sqliteSchema.webhookSubscriptions.$inferInsert,
+    typeof pgSchema.webhookSubscriptions.$inferInsert
+  >
+>;
+export type _SelectWebhookDeliveries = Expect<
+  Equal<
+    typeof sqliteSchema.webhookDeliveries.$inferSelect,
+    typeof pgSchema.webhookDeliveries.$inferSelect
+  >
+>;
+export type _InsertWebhookDeliveries = Expect<
+  Equal<
+    typeof sqliteSchema.webhookDeliveries.$inferInsert,
+    typeof pgSchema.webhookDeliveries.$inferInsert
+  >
+>;
 export type _SelectGameMilestones = Expect<
   Equal<
     typeof sqliteSchema.gameMilestones.$inferSelect,

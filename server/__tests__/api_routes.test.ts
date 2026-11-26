@@ -1060,6 +1060,57 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  describe("PATCH /api/games/:id/finish-by", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("saves a target day scoped to the authenticated user", async () => {
+      vi.mocked(storage.updateGameFinishBy).mockResolvedValue({
+        id: gameId,
+        finishBy: "2026-12-31",
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/finish-by`)
+        .send({ finishBy: "2026-12-31" });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameFinishBy)).toHaveBeenCalledWith(
+        gameId,
+        "user-1",
+        "2026-12-31"
+      );
+    });
+
+    it("clears the goal with null", async () => {
+      vi.mocked(storage.updateGameFinishBy).mockResolvedValue({
+        id: gameId,
+        finishBy: null,
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/finish-by`)
+        .send({ finishBy: null });
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGameFinishBy)).toHaveBeenCalledWith(gameId, "user-1", null);
+    });
+
+    it.each(["2026-02-30", "31/12/2026", 12])("rejects %s", async (value) => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/finish-by`)
+        .send({ finishBy: value });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid finish-by date");
+    });
+
+    it("returns 404 when the game is not the user's", async () => {
+      vi.mocked(storage.updateGameFinishBy).mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/finish-by`)
+        .send({ finishBy: "2026-12-31" });
+      expect(response.status).toBe(404);
+    });
+  });
+
   describe("PATCH /api/games/:id/upgrade-policy", () => {
     it("also clears an aggregate-only searchResultsAvailable badge when off", async () => {
       const id = "123e4567-e89b-12d3-a456-426614174000";
@@ -1171,7 +1222,7 @@ describe("API Routes - Extended Coverage", () => {
     it("rejects an unknown policy", async () => {
       const response = await request(app)
         .patch(`/api/games/${gameId}/upgrade-policy`)
-        .send({ upgradePolicy: "auto" });
+        .send({ upgradePolicy: "always" });
       expect(response.status).toBe(400);
       expect(response.body.error).toBe("Invalid upgrade policy data");
     });
@@ -1993,6 +2044,86 @@ describe("API Routes - Extended Coverage", () => {
             urlPath: "downloadstation",
           })
         );
+      });
+    });
+
+    describe("PATCH /api/downloaders/:id switching TorBox to link-only", () => {
+      it("falls back to the saved mode when the staging mode lookup fails", async () => {
+        const { stagingJobs } = await import("../downloaders/debrid-staging.js");
+        const abort = new AbortController();
+        stagingJobs.set("dl-tb:9", {
+          state: "running",
+          bytesDone: 0,
+          bytesTotal: 10,
+          startedAt: Date.now(),
+          attempts: 1,
+          cancelled: false,
+          abort,
+          done: Promise.resolve(),
+        });
+        const saved = {
+          id: "dl-tb",
+          type: "torbox",
+          url: "https://api.torbox.app",
+          settings: JSON.stringify({ fetchMode: "linkOnly" }),
+        } as unknown as Downloader;
+        vi.mocked(storage.updateDownloader).mockResolvedValue(saved);
+        vi.mocked(storage.getDownloader).mockRejectedValue(new Error("db down"));
+
+        const response = await request(app)
+          .patch("/api/downloaders/dl-tb")
+          .send({ settings: { fetchMode: "linkOnly" } });
+
+        expect(response.status).toBe(200);
+        expect(abort.signal.aborted).toBe(true);
+      });
+
+      it("still answers 200 when the staging mode lookup fails", async () => {
+        const saved = {
+          id: "dl-tb",
+          type: "torbox",
+          url: "https://api.torbox.app",
+          settings: JSON.stringify({ fetchMode: "linkOnly" }),
+        } as unknown as Downloader;
+        vi.mocked(storage.updateDownloader).mockResolvedValue(saved);
+        vi.mocked(storage.getDownloader).mockRejectedValue(new Error("db down"));
+
+        const response = await request(app)
+          .patch("/api/downloaders/dl-tb")
+          .send({ settings: { fetchMode: "linkOnly" } });
+
+        expect(response.status).toBe(200);
+      });
+
+      it("aborts the staging copies still running for that downloader", async () => {
+        const { stagingJobs } = await import("../downloaders/debrid-staging.js");
+        const abort = new AbortController();
+        stagingJobs.set("dl-tb:7", {
+          state: "running",
+          bytesDone: 0,
+          bytesTotal: 10,
+          startedAt: Date.now(),
+          attempts: 1,
+          cancelled: false,
+          abort,
+          done: Promise.resolve(),
+        });
+        const linkOnly = {
+          id: "dl-tb",
+          type: "torbox",
+          url: "https://api.torbox.app",
+          settings: JSON.stringify({ fetchMode: "linkOnly" }),
+        } as unknown as Downloader;
+        vi.mocked(storage.updateDownloader).mockResolvedValue(linkOnly);
+        vi.mocked(storage.getDownloader).mockResolvedValue(linkOnly);
+
+        const response = await request(app)
+          .patch("/api/downloaders/dl-tb")
+          .send({ settings: JSON.stringify({ fetchMode: "linkOnly" }) });
+
+        expect(response.status).toBe(200);
+        expect(abort.signal.aborted).toBe(true);
+        expect(stagingJobs.has("dl-tb:7")).toBe(false);
       });
     });
 
@@ -3010,6 +3141,55 @@ describe("API Routes - Extended Coverage", () => {
 
       const response = await request(app).get("/api/downloaders/dl-1/downloads/d-missing/details");
       expect(response.status).toBe(404);
+    });
+  });
+
+  // ─── Link-only download link route ───
+  describe("GET /api/downloaders/:id/downloads/:downloadId/link", () => {
+    const linkOnlyDownloader = {
+      id: "tb-1",
+      type: "torbox",
+      settings: JSON.stringify({ fetchMode: "linkOnly" }),
+    } as unknown as Downloader;
+
+    it("returns a fresh link without caching it", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(linkOnlyDownloader);
+      vi.mocked(DownloaderManager.getRemoteDownloadUrl).mockResolvedValue("https://cdn.example/x");
+
+      const response = await request(app).get("/api/downloaders/tb-1/downloads/7/link");
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ url: "https://cdn.example/x" });
+      expect(response.headers["cache-control"]).toBe("no-store");
+    });
+
+    it("returns 404 for a missing downloader", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(undefined);
+      const response = await request(app).get("/api/downloaders/nope/downloads/7/link");
+      expect(response.status).toBe(404);
+    });
+
+    it("refuses downloaders that are not link-only", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue({
+        id: "tb-2",
+        type: "torbox",
+        settings: JSON.stringify({ fetchMode: "local" }),
+      } as unknown as Downloader);
+      const response = await request(app).get("/api/downloaders/tb-2/downloads/7/link");
+      expect(response.status).toBe(400);
+    });
+
+    it("returns 404 while no link is available", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(linkOnlyDownloader);
+      vi.mocked(DownloaderManager.getRemoteDownloadUrl).mockResolvedValue(null);
+      const response = await request(app).get("/api/downloaders/tb-1/downloads/7/link");
+      expect(response.status).toBe(404);
+    });
+
+    it("returns 500 when the lookup fails", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(linkOnlyDownloader);
+      vi.mocked(DownloaderManager.getRemoteDownloadUrl).mockRejectedValue(new Error("boom"));
+      const response = await request(app).get("/api/downloaders/tb-1/downloads/7/link");
+      expect(response.status).toBe(500);
     });
   });
 

@@ -1,0 +1,264 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Downloader, Indexer, UserSettings } from "../../shared/schema.js";
+
+const { storageMock, loadProwlarrMock } = vi.hoisted(() => ({
+  storageMock: {
+    getAllIndexers: vi.fn(),
+    getAllDownloaders: vi.fn(),
+    getAllUsers: vi.fn(),
+    getUserSettings: vi.fn(),
+    getPathMappings: vi.fn(),
+    getSystemConfig: vi.fn(),
+  },
+  loadProwlarrMock: vi.fn(),
+}));
+
+vi.mock("../storage.js", () => ({ storage: storageMock }));
+vi.mock("../db.js", () => ({ dialect: "sqlite" }));
+vi.mock("../prowlarr-settings.js", () => ({ loadProwlarrSyncSettings: loadProwlarrMock }));
+
+import {
+  buildDiagnosticsSnapshot,
+  describeEndpoint,
+  describeSecret,
+  formatDiagnosticsBlock,
+  sanitizeName,
+  scrubFreeText,
+  summarizeErrors,
+} from "../diagnostics.js";
+
+const SECRET_KEY = "0123456789abcdef0123456789abcdef";
+
+function indexer(overrides: Partial<Indexer> = {}): Indexer {
+  return {
+    id: "6f1c2f0e-1111-4222-8333-444455556666",
+    name: "NZBgeek",
+    url: "http://192.168.1.20:9696/1/api",
+    apiKey: SECRET_KEY,
+    protocol: "newznab",
+    enabled: true,
+    priority: 1,
+    categories: ["4000"],
+    rssEnabled: true,
+    autoSearchEnabled: true,
+    allowInsecureLan: false,
+    timeoutSeconds: null,
+    ...overrides,
+  } as Indexer;
+}
+
+describe("describeEndpoint", () => {
+  it("classifies hosts without exposing them", () => {
+    expect(describeEndpoint("http://192.168.1.20:9696/1/api")).toEqual({
+      scheme: "http",
+      hostKind: "private-ip",
+      port: 9696,
+    });
+    expect(describeEndpoint("https://indexer.example.com/api").hostKind).toBe("fqdn");
+    expect(describeEndpoint("http://prowlarr:9696").hostKind).toBe("single-label-hostname");
+    expect(describeEndpoint("localhost", 8080)).toEqual({
+      scheme: "http",
+      hostKind: "loopback",
+      port: 8080,
+    });
+    expect(describeEndpoint("8.8.8.8").hostKind).toBe("public-ip");
+    expect(describeEndpoint("").hostKind).toBe("invalid");
+  });
+});
+
+describe("strict endpoint parsing", () => {
+  it("does not invent a scheme for indexer URLs", () => {
+    expect(describeEndpoint("192.168.1.20:9696/1/api", null, { strict: true }).hostKind).toBe(
+      "invalid"
+    );
+    expect(describeEndpoint("192.168.1.20:9696/1/api").scheme).toBe("http");
+  });
+});
+
+describe("free text scrubbing", () => {
+  it("removes hosts and paths that scrubPii leaves behind", () => {
+    const text = scrubFreeText(
+      "getaddrinfo ENOTFOUND downloads.private.example; open /mnt/private/library failed; GET https://idx.private.example/api"
+    );
+    expect(text).not.toContain("private.example");
+    expect(text).not.toContain("/mnt/private");
+    expect(sanitizeName("NZBgeek")).toBe("NZBgeek");
+    expect(sanitizeName("idx.private.example")).toBe("[host]");
+    expect(sanitizeName("Indexer idx.private.example")).toBe("Indexer [host]");
+    expect(scrubFreeText("Failed to resolve hostname: downloads.private.example")).toBe(
+      "Failed to resolve hostname: [host]"
+    );
+    expect(scrubFreeText("GET http://h.example/a/b failed")).toBe("GET http://[host] failed");
+    expect(scrubFreeText("mount nas.example:/volume1/private; nas.example.com/secret/dir")).toBe(
+      "mount [host] [host]"
+    );
+    expect(scrubFreeText("cannot read /mnt and/or HTTP/1.1")).toBe(
+      "cannot read [path] and/or HTTP/1.1"
+    );
+  });
+});
+
+describe("describeSecret", () => {
+  it("reports shape only and flags padding", () => {
+    expect(describeSecret(SECRET_KEY)).toEqual({
+      set: true,
+      length: 32,
+      charset: "hex",
+      suspiciousPadding: false,
+    });
+    expect(describeSecret(` ${SECRET_KEY}\n`).suspiciousPadding).toBe(true);
+    expect(describeSecret(`"${SECRET_KEY}"`).suspiciousPadding).toBe(true);
+    expect(describeSecret("")).toMatchObject({ set: false, charset: "none" });
+  });
+});
+
+describe("summarizeErrors", () => {
+  it("groups repeated warnings and errors and ignores info lines", () => {
+    const line = (time: string, msg: string, error: string) =>
+      JSON.stringify({ level: 50, time, module: "torznab", msg, error: { message: error } });
+    const result = summarizeErrors([
+      line("t1", "error searching indexer", "HTTP 401: Unauthorized"),
+      JSON.stringify({ level: 30, module: "express", msg: "GET /api 200" }),
+      line("t2", "error searching indexer", "HTTP 401: Unauthorized"),
+      "not json",
+      line("t3", "other", "boom from 10.0.0.5"),
+    ]);
+
+    expect(result[0]).toMatchObject({
+      count: 2,
+      module: "torznab",
+      message: "error searching indexer: HTTP 401: Unauthorized",
+      firstSeen: "t1",
+      lastSeen: "t2",
+    });
+    expect(result[1]?.message).toBe("other: boom from [ip:lan]");
+    expect(result).toHaveLength(2);
+  });
+});
+
+describe("buildDiagnosticsSnapshot", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    storageMock.getAllUsers.mockResolvedValue([{ id: "u1" }]);
+    storageMock.getUserSettings.mockResolvedValue({
+      autoSearchEnabled: true,
+      upgradePolicy: "notify",
+      libraryRoot: "/home/alice/games",
+      preferredReleaseGroups: "SECRETGROUP",
+    } as unknown as UserSettings);
+    storageMock.getAllIndexers.mockResolvedValue([indexer()]);
+    storageMock.getAllDownloaders.mockResolvedValue([
+      {
+        name: "NZBget",
+        type: "nzbget",
+        url: "nas",
+        port: 6789,
+        useSsl: false,
+        username: "nzbget",
+        password: "tegbzn6789",
+        enabled: true,
+        priority: 1,
+        allowInsecureLan: false,
+        allowSelfSignedCertificate: false,
+        category: "/mnt/private/library",
+      } as unknown as Downloader,
+    ]);
+    storageMock.getPathMappings.mockResolvedValue([
+      { id: "1", remotePath: "D:\\Games", localPath: "/data/games", remoteHost: "pc" },
+      { id: "2", remotePath: "/downloads/secretdir", localPath: "/data/dl", remoteHost: null },
+    ]);
+    storageMock.getSystemConfig.mockResolvedValue(undefined);
+    loadProwlarrMock.mockResolvedValue({
+      url: "http://192.168.1.20:9696",
+      apiKey: SECRET_KEY,
+      allowInsecureLan: true,
+      categories: [],
+    });
+  });
+
+  it("describes configuration without leaking hosts, keys or credentials", async () => {
+    const snapshot = await buildDiagnosticsSnapshot({ logLines: [] });
+    const text = formatDiagnosticsBlock(snapshot);
+
+    expect(() => JSON.parse(text.split("\n").slice(1, -1).join("\n"))).not.toThrow();
+    expect(snapshot.app.database).toBe("sqlite");
+    expect(snapshot.indexers[0]).toMatchObject({
+      name: "NZBgeek",
+      hostKind: "private-ip",
+      port: 9696,
+      prowlarrProxyPath: true,
+      apiKeyWithheld: true,
+      keyMatchesProwlarrKey: true,
+      apiKeyShape: { set: true, length: 32, charset: "hex" },
+    });
+    expect(snapshot.downloaders[0]).toMatchObject({
+      type: "nzbget",
+      hostKind: "single-label-hostname",
+      port: 6789,
+      username: true,
+      passwordShape: { set: true },
+    });
+    expect(snapshot.settings).toEqual({ autoSearchEnabled: true, upgradePolicy: "notify" });
+
+    for (const secret of [
+      SECRET_KEY,
+      "tegbzn6789",
+      "192.168.1.20",
+      "/mnt/private",
+      "nas.example",
+      "alice",
+      "SECRETGROUP",
+    ]) {
+      expect(text).not.toContain(secret);
+    }
+  });
+
+  it("reports integrations and path mapping shape without any path", async () => {
+    const snapshot = await buildDiagnosticsSnapshot();
+    const text = formatDiagnosticsBlock(snapshot);
+
+    expect(snapshot.pathMappings).toEqual({ count: 2, windowsStyleRemote: 1, withRemoteHost: 1 });
+    expect(snapshot.integrations.igdbConfigured).toBe(false);
+    for (const path of ["D:\\\\Games", "secretdir", "/data/games"]) {
+      expect(text).not.toContain(path);
+    }
+
+    storageMock.getSystemConfig.mockImplementation(async (key: string) =>
+      key.startsWith("igdb.") ? "value" : undefined
+    );
+    expect((await buildDiagnosticsSnapshot()).integrations.igdbConfigured).toBe(true);
+  });
+
+  it("digests serialized errors with their name and code", () => {
+    const line = JSON.stringify({
+      level: 50,
+      module: "downloaders",
+      msg: "Download check failed",
+      time: "2026-11-26T10:00:00.000Z",
+      error: { name: "Error", code: "ECONNREFUSED", message: "connect refused" },
+    });
+    expect(summarizeErrors([line])[0]?.message).toBe(
+      "Download check failed: Error ECONNREFUSED: connect refused"
+    );
+  });
+
+  it("keeps going when a section fails", async () => {
+    storageMock.getAllIndexers.mockRejectedValue(new Error("db down"));
+    loadProwlarrMock.mockRejectedValue(new Error("no config"));
+
+    const snapshot = await buildDiagnosticsSnapshot();
+
+    expect(snapshot.indexers).toEqual([]);
+    expect(snapshot.prowlarr).toBeNull();
+    expect(snapshot.downloaders).toHaveLength(1);
+  });
+
+  it("removes the whole path after home-user and ip markers", () => {
+    expect(scrubFreeText("open /home/alice/private/library failed")).toBe("open [path] failed");
+    expect(scrubFreeText("connect 10.0.0.5/private/dir")).toBe("connect [ip:lan]");
+    expect(scrubFreeText("connect 10.0.0.5:9696/private/dir failed")).toBe(
+      "connect [ip:lan] failed"
+    );
+    expect(scrubFreeText("open /mnt/private/library failed")).toBe("open [path] failed");
+  });
+});

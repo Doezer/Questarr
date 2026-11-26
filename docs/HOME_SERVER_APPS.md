@@ -15,15 +15,33 @@ Leave it unmounted if you import manually.
 
 | File                                       | Platform                        |
 | ------------------------------------------ | ------------------------------- |
-| `casaos/docker-compose.yml`                | CasaOS (AppFile)                |
+| `Doezer/questarr-zimaos-store` (own repo)  | ZimaOS (third-party store)      |
 | `umbrel-app-store.yml`, `doezer-questarr/` | Umbrel (community app store)    |
 | `cosmos/questarr.cosmos-compose.json`      | Cosmos Cloud (ServApp)          |
 | `unraid/questarr.xml`                      | Unraid (Community Applications) |
 | `questarr/config.yaml`                     | Home Assistant add-on           |
+| `casaos/docker-compose.yml`                | CasaOS (legacy AppFile)         |
 
-## CasaOS
+## ZimaOS
 
-CasaOS installs custom apps from an AppFile — a Compose file carrying `x-casaos` metadata.
+ZimaOS installs third-party apps from a store source: a static `store.json` built from a Git
+repository. Questarr's store lives in its own repository,
+[Doezer/questarr-zimaos-store](https://github.com/Doezer/questarr-zimaos-store), and is rebuilt on
+every push to its `main` branch with the official `IceWhaleTech/build-appstore-action`.
+
+1. Open the **App Store** and add a third-party store source (import a store link).
+2. Paste:
+   `https://cdn.jsdelivr.net/gh/Doezer/questarr-zimaos-store@gh-pages/store.json`
+3. Open the new store, pick **Questarr** and click **Install** (port `5000`).
+
+The store pins the image to a Questarr release tag (not `:latest`), so ZimaOS shows a real version
+and offers updates when the store is bumped. Questarr is also proposed to the official ZimaOS store;
+once it is merged there, this section will say so.
+
+## CasaOS (legacy)
+
+ZimaOS is the successor of CasaOS, and the [ZimaOS store](#zimaos) is the maintained option. The
+AppFile below is for installs that still run CasaOS itself, and it is not updated with each release. It is a Compose file carrying `x-casaos` metadata.
 
 1. Open the **App Store** and click **Custom Install**.
 2. Click the **import** icon (top right) and paste:

@@ -45,6 +45,7 @@ function makeStorage() {
     getDownloader: vi.fn(),
     updateGameDownloadStatus: vi.fn(),
     updateGameStatus: vi.fn(),
+    getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     updateGame: vi.fn(),
     addNotification: vi.fn().mockResolvedValue(undefined),
   };
@@ -735,7 +736,8 @@ describe("ImportManager - shouldSkipPCPlatform", () => {
 
         expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
           "dl-1",
-          allowed ? "imported" : "completed"
+          allowed ? "imported" : "completed",
+          ...(allowed ? [null] : [])
         );
         expect(execSpy).toHaveBeenCalledTimes(allowed ? 1 : 0);
         if ("folder" in expected) {
@@ -1029,5 +1031,64 @@ describe("ImportManager - confirmImport path resolution failures", () => {
       "manual_review_required",
       "disk full"
     );
+  });
+});
+
+// ─── per-game import lock ─────────────────────────────────────────────────────
+
+describe("ImportManager - per-game import lock", () => {
+  type Locker = { acquireGameLock(gameId: string): Promise<() => void> };
+
+  function lockerOf(manager: ImportManager): Locker {
+    return manager as unknown as Locker;
+  }
+
+  it("makes a second import of the same game wait for the first to finish", async () => {
+    const locker = lockerOf(makeManager(makeStorage()));
+    const order: string[] = [];
+
+    const releaseFirst = await locker.acquireGameLock("g1");
+    order.push("first acquired");
+    const second = locker.acquireGameLock("g1").then((release) => {
+      order.push("second acquired");
+      return release;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(order).toEqual(["first acquired"]);
+
+    releaseFirst();
+    const releaseSecond = await second;
+    expect(order).toEqual(["first acquired", "second acquired"]);
+    releaseSecond();
+  });
+
+  it("lets imports of different games run at the same time", async () => {
+    const locker = lockerOf(makeManager(makeStorage()));
+    const releaseA = await locker.acquireGameLock("g1");
+    const releaseB = await locker.acquireGameLock("g2");
+    releaseA();
+    releaseB();
+  });
+
+  it("hands the lock to waiters in arrival order and forgets the game once idle", async () => {
+    const manager = makeManager(makeStorage());
+    const locker = lockerOf(manager);
+    const order: number[] = [];
+
+    const release1 = await locker.acquireGameLock("g1");
+    const waiters = [2, 3].map((n) =>
+      locker.acquireGameLock("g1").then((release) => {
+        order.push(n);
+        release();
+      })
+    );
+    release1();
+    await Promise.all(waiters);
+
+    expect(order).toEqual([2, 3]);
+    const queues = (manager as unknown as { gameImportQueues: Map<string, unknown> })
+      .gameImportQueues;
+    expect(queues.size).toBe(0);
   });
 });

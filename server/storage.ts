@@ -52,6 +52,11 @@ import {
   type ApiKey,
   DEFAULT_API_KEY_SCOPE,
   type ApiKeyPublic,
+  type WebhookSubscription,
+  type WebhookDelivery,
+  type NewWebhookSubscriptionInput,
+  type UpdateWebhookSubscriptionInput,
+  type NewWebhookDeliveryInput,
   type NewApiKeyInput,
   type IntegrationRequest,
   type IntegrationRequestProvider,
@@ -72,6 +77,8 @@ import {
   type InsertCollection,
   type GameJournalEntry,
   type GamePlaySession,
+  EDITABLE_PLAY_SESSION_SOURCES,
+  isEditablePlaySession,
   type InsertGamePlaySession,
   type InsertGameJournalEntry,
   type GameMilestone,
@@ -84,9 +91,19 @@ import {
   type InsertGameTag,
   type UpgradePolicy,
   DEFAULT_UPGRADE_POLICY,
+  type DetectedVersionSource,
+  type GameStatusEvent,
+  type Quest,
+  type InsertQuest,
+  type GameAchievementProgress,
+  type InsertGameAchievementProgress,
+  type DdlJob,
+  type InsertDdlJob,
 } from "../shared/schema.js";
 import {
   users,
+  webhookDeliveries,
+  webhookSubscriptions,
   games,
   indexers,
   downloaders,
@@ -116,6 +133,10 @@ import {
   gameJournalEntries,
   gameMilestones,
   gamePlaySessions,
+  gameStatusEvents,
+  quests,
+  gameAchievementProgress,
+  ddlJobs,
   gameScreenshots,
   classificationCache,
   classificationCandidates,
@@ -138,6 +159,7 @@ import {
   not,
   inArray,
   count,
+  max,
   isNull,
   isNotNull,
   type SQL,
@@ -147,8 +169,13 @@ import {
   exists,
 } from "drizzle-orm";
 import { containsCI, distinctJoin, affectedRows } from "./sql-compat.js";
-import { transactionalOps } from "./db/transactional-ops.js";
+import {
+  transactionalOps,
+  type ExpectedPlaySession,
+  type PlaySessionReplacement,
+} from "./db/transactional-ops.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { canAutoWriteVersion } from "../shared/version-utils.js";
 import { firstOrThrow, stripUndefined } from "./object-utils.js";
 import {
   encryptCredential,
@@ -193,6 +220,9 @@ function buildImportConfigFromSettings(
     | "libraryRoot"
     | "autoDeleteAfterImport"
     | "sortExtras"
+    | "upgradeReplaceMode"
+    | "folderForSingleFiles"
+    | "addonSubfolders"
   >
 ): ImportConfig {
   const parsed = importConfigSchema.safeParse({
@@ -207,6 +237,9 @@ function buildImportConfigFromSettings(
     libraryRoot: settings?.libraryRoot ?? "/data",
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
     sortExtras: settings?.sortExtras ?? false,
+    upgradeReplaceMode: settings?.upgradeReplaceMode ?? "off",
+    folderForSingleFiles: settings?.folderForSingleFiles ?? true,
+    addonSubfolders: settings?.addonSubfolders ?? false,
   });
 
   if (parsed.success) return parsed.data;
@@ -223,6 +256,9 @@ function buildImportConfigFromSettings(
     libraryRoot: settings?.libraryRoot ?? "/data",
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
     sortExtras: settings?.sortExtras ?? false,
+    upgradeReplaceMode: "off",
+    folderForSingleFiles: settings?.folderForSingleFiles ?? true,
+    addonSubfolders: settings?.addonSubfolders ?? false,
   };
 }
 
@@ -299,19 +335,28 @@ export interface IStorage {
     userId: string,
     userRating: number | null
   ): Promise<Game | undefined>;
+  updateGameFinishBy(
+    id: string,
+    userId: string,
+    finishBy: string | null
+  ): Promise<Game | undefined>;
   updateGameInstalledVersion(
     id: string,
     userId: string,
     installedVersion: string | null
   ): Promise<Game | undefined>;
   /**
-   * Sets a game's installed version only if it still equals `expected` (null = not set), so a
-   * detected version can't overwrite one written in between. Returns whether it was written.
+   * Sets a game's detected installed version only if it still equals `expected` (null = not
+   * set) and was not typed by the user, so a detected version can't overwrite one written in
+   * between. `overManual` lets the caller replace a typed version too; it is for a version the
+   * caller has already compared and found strictly newer. Returns whether it was written.
    */
   replaceGameInstalledVersion(
     id: string,
     expected: string | null,
-    installedVersion: string
+    installedVersion: string,
+    source?: DetectedVersionSource,
+    overManual?: boolean
   ): Promise<boolean>;
   updateGameUpgradePolicy(
     id: string,
@@ -364,6 +409,33 @@ export interface IStorage {
   // Play session methods (time spent per game: manual entries and a start/stop timer)
   getGamePlaySessions(gameId: string, userId: string): Promise<GamePlaySession[]>;
   getUserPlaySessions(userId: string): Promise<GamePlaySession[]>;
+  /** The user's status history (one row per status change), oldest first. */
+  getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]>;
+
+  // Backlog quests
+  /** The user's quests, newest period first. */
+  getUserQuests(userId: string): Promise<Quest[]>;
+  /** Adds quests; one that already exists for the same user, period and kind is left alone. */
+  addQuests(rows: InsertQuest[]): Promise<void>;
+  updateQuest(
+    id: string,
+    patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
+  ): Promise<boolean>;
+  // Achievement progress (one row per game, user and provider)
+  getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]>;
+  /** Insert or replace the row for (gameId, userId, provider). */
+  upsertAchievementProgress(
+    progress: Omit<InsertGameAchievementProgress, "id">
+  ): Promise<GameAchievementProgress>;
+  /** Drop every stored row of one provider for the user (the linked account changed). */
+  /** Forget a provider's rows of one user: all of them, or only those of the given games. */
+  deleteAchievementProgress(userId: string, provider: string, gameIds?: string[]): Promise<void>;
+
+  // Direct-download (DDL) jobs
+  addDdlJob(job: InsertDdlJob): Promise<DdlJob>;
+  getDdlJob(id: string): Promise<DdlJob | undefined>;
+  getDdlJobsByDownloader(downloaderId: string): Promise<DdlJob[]>;
+  deleteDdlJob(id: string): Promise<void>;
   /** The user's running timer (a session with no end), if any. */
   getRunningPlaySession(userId: string): Promise<GamePlaySession | undefined>;
   addGamePlaySession(
@@ -376,6 +448,21 @@ export interface IStorage {
     endedAt: Date
   ): Promise<GamePlaySession | undefined>;
   deleteGamePlaySession(id: string, gameId: string, userId: string): Promise<boolean>;
+  /** Moves a finished manual or timer session; `undefined` if it is missing, running or imported. */
+  updateGamePlaySession(
+    id: string,
+    gameId: string,
+    userId: string,
+    times: { startedAt: Date; endedAt: Date },
+    expected: { startedAt: Date; endedAt: Date }
+  ): Promise<GamePlaySession | undefined>;
+  /** Swaps finished manual or timer sessions for new ones in one transaction (merge, split). */
+  replaceGamePlaySessions(
+    userId: string,
+    gameId: string,
+    expected: ExpectedPlaySession[],
+    replacements: PlaySessionReplacement[]
+  ): Promise<GamePlaySession[] | undefined>;
 
   // Game milestone methods (manual "successes" checklist)
   getGameMilestones(gameId: string, userId: string): Promise<GameMilestone[]>;
@@ -638,6 +725,25 @@ export interface IStorage {
   touchApiKey(id: string): Promise<void>;
   removeApiKey(id: string, userId: string): Promise<boolean>;
 
+  // Outbound webhooks. Subscription reads return the stored (encrypted) secret: only the
+  // dispatcher uses it; routes must strip it with toPublicWebhookSubscription.
+  getWebhookSubscriptions(userId: string): Promise<WebhookSubscription[]>;
+  getWebhookSubscription(id: string, userId: string): Promise<WebhookSubscription | undefined>;
+  /** Enabled subscriptions across all users, for event dispatch. */
+  getEnabledWebhookSubscriptions(): Promise<WebhookSubscription[]>;
+  addWebhookSubscription(input: NewWebhookSubscriptionInput): Promise<WebhookSubscription>;
+  updateWebhookSubscription(
+    id: string,
+    userId: string,
+    patch: UpdateWebhookSubscriptionInput
+  ): Promise<WebhookSubscription | undefined>;
+  removeWebhookSubscription(id: string, userId: string): Promise<boolean>;
+  addWebhookDelivery(input: NewWebhookDeliveryInput): Promise<WebhookDelivery>;
+  /** Newest first. */
+  getWebhookDeliveries(subscriptionId: string, limit: number): Promise<WebhookDelivery[]>;
+  /** Keeps the newest `keepPerSubscription` attempts of each subscription; returns rows removed. */
+  pruneWebhookDeliveries(keepPerSubscription: number): Promise<number>;
+
   // External request ledger (SeerrNG), always scoped to the owning user.
   getIntegrationRequest(
     userId: string,
@@ -692,6 +798,8 @@ export class MemStorage implements IStorage {
   private classificationCandidates: Map<string, ClassificationCandidate>;
   private classificationCacheRows: Map<string, ClassificationCacheRow>;
   private apiKeys: Map<string, ApiKey>;
+  private webhookSubscriptionRows: Map<string, WebhookSubscription>;
+  private webhookDeliveryRows: Map<string, WebhookDelivery>;
   private integrationRequests: Map<string, IntegrationRequest>;
   private collections: Map<string, Collection>;
   private collectionGames: Map<string, { id: string; collectionId: string; gameId: string }>;
@@ -700,6 +808,10 @@ export class MemStorage implements IStorage {
   private gameJournalEntries: Map<string, GameJournalEntry>;
   private gameMilestones: Map<string, GameMilestone>;
   private gamePlaySessions: Map<string, GamePlaySession>;
+  private gameStatusEvents: GameStatusEvent[];
+  private quests: Quest[];
+  private achievementProgress: Map<string, GameAchievementProgress>;
+  private ddlJobs = new Map<string, DdlJob>();
   private gameScreenshots: Map<string, GameScreenshot>;
 
   constructor() {
@@ -726,6 +838,8 @@ export class MemStorage implements IStorage {
     this.ignoredScanFolders = new Map();
     this.classificationCandidates = new Map();
     this.classificationCacheRows = new Map();
+    this.webhookSubscriptionRows = new Map();
+    this.webhookDeliveryRows = new Map();
     this.apiKeys = new Map();
     this.integrationRequests = new Map();
     this.collections = new Map();
@@ -735,6 +849,9 @@ export class MemStorage implements IStorage {
     this.gameJournalEntries = new Map();
     this.gameMilestones = new Map();
     this.gamePlaySessions = new Map();
+    this.gameStatusEvents = [];
+    this.quests = [];
+    this.achievementProgress = new Map();
     this.gameScreenshots = new Map();
   }
 
@@ -782,6 +899,12 @@ export class MemStorage implements IStorage {
     if (!user) return undefined;
     const updatedUser = { ...user, steamId64: steamId };
     this.users.set(userId, updatedUser);
+    if (user.steamId64 !== steamId) {
+      // Another account's achievement counts must not become this account's baseline.
+      for (const [key, row] of this.achievementProgress) {
+        if (row.userId === userId && row.provider === "steam") this.achievementProgress.delete(key);
+      }
+    }
     return updatedUser;
   }
 
@@ -900,12 +1023,137 @@ export class MemStorage implements IStorage {
       userRating: null,
       libraryPath: null,
       installedVersion: null,
+      installedVersionSource: null,
       upgradePolicy: null,
+      finishBy: null,
       addedAt: new Date(),
       completedAt: null,
     };
     this.games.set(id, game);
+    this.recordStatusEvent(game);
     return game;
+  }
+
+  private recordStatusEvent(game: Game): void {
+    if (!game.userId) return;
+    // Strictly increasing per game, so quick successive changes keep their order.
+    const last = this.gameStatusEvents
+      .filter((e) => e.gameId === game.id)
+      .reduce((max, e) => Math.max(max, e.createdAt.getTime()), 0);
+    this.gameStatusEvents.push({
+      id: randomUUID(),
+      gameId: game.id,
+      userId: game.userId,
+      status: game.status,
+      createdAt: new Date(Math.max(Date.now(), last + 1)),
+    });
+  }
+
+  async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {
+    return this.gameStatusEvents.filter((e) => e.userId === userId);
+  }
+
+  async getUserQuests(userId: string): Promise<Quest[]> {
+    return this.quests
+      .filter((q) => q.userId === userId)
+      .sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+  }
+
+  async addQuests(rows: InsertQuest[]): Promise<void> {
+    for (const row of rows) {
+      const exists = this.quests.some(
+        (q) =>
+          q.userId === row.userId &&
+          q.period === row.period &&
+          q.periodStart === row.periodStart &&
+          q.kind === row.kind
+      );
+      if (exists) continue;
+      this.quests.push({
+        id: row.id,
+        userId: row.userId,
+        period: row.period,
+        periodStart: row.periodStart,
+        kind: row.kind,
+        gameId: row.gameId ?? null,
+        target: row.target,
+        progress: row.progress ?? 0,
+        status: row.status ?? "active",
+        completedAt: row.completedAt ?? null,
+        createdAt: new Date(),
+      });
+    }
+  }
+
+  async updateQuest(
+    id: string,
+    patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
+  ): Promise<boolean> {
+    const quest = this.quests.find((q) => q.id === id);
+    if (quest?.status !== "active") return false;
+    Object.assign(quest, patch);
+    return true;
+  }
+
+  async getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]> {
+    return [...this.achievementProgress.values()].filter((r) => r.userId === userId);
+  }
+
+  async deleteAchievementProgress(
+    userId: string,
+    provider: string,
+    gameIds?: string[]
+  ): Promise<void> {
+    for (const [key, row] of this.achievementProgress) {
+      if (row.userId !== userId || row.provider !== provider) continue;
+      if (!gameIds || gameIds.includes(row.gameId)) this.achievementProgress.delete(key);
+    }
+  }
+
+  async upsertAchievementProgress(
+    progress: Omit<InsertGameAchievementProgress, "id">
+  ): Promise<GameAchievementProgress> {
+    const key = `${progress.gameId}:${progress.userId}:${progress.provider}`;
+    const row: GameAchievementProgress = {
+      id: this.achievementProgress.get(key)?.id ?? randomUUID(),
+      gameId: progress.gameId,
+      userId: progress.userId,
+      provider: progress.provider,
+      unlocked: progress.unlocked ?? 0,
+      total: progress.total ?? 0,
+      rarestName: progress.rarestName ?? null,
+      rarestPercent: progress.rarestPercent ?? null,
+      lastUnlockedAt: progress.lastUnlockedAt ?? null,
+      syncedAt: progress.syncedAt ?? new Date(),
+    };
+    this.achievementProgress.set(key, row);
+    return row;
+  }
+
+  async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {
+    const created: DdlJob = {
+      id: job.id,
+      downloaderId: job.downloaderId,
+      gameId: job.gameId,
+      title: job.title,
+      links: job.links,
+      password: job.password ?? null,
+      createdAt: job.createdAt ?? new Date(),
+    };
+    this.ddlJobs.set(created.id, created);
+    return created;
+  }
+
+  async getDdlJob(id: string): Promise<DdlJob | undefined> {
+    return this.ddlJobs.get(id);
+  }
+
+  async getDdlJobsByDownloader(downloaderId: string): Promise<DdlJob[]> {
+    return [...this.ddlJobs.values()].filter((j) => j.downloaderId === downloaderId);
+  }
+
+  async deleteDdlJob(id: string): Promise<void> {
+    this.ddlJobs.delete(id);
   }
 
   async updateGameStatus(
@@ -916,11 +1164,7 @@ export class MemStorage implements IStorage {
     const game = this.games.get(id);
     if (!game) return undefined;
     if (options?.preserveCurated && isUserCuratedGameStatus(game.status)) return undefined;
-    if (options?.syncSource) {
-      if (game.status === "downloading") return undefined;
-      if (game.status === "wanted" && !options.allowWanted) return undefined;
-      if (isUserCuratedGameStatus(game.status) && game.statusSyncSource === null) return undefined;
-    }
+    if (options?.syncSource && isSyncBlocked(game, options.allowWanted)) return undefined;
 
     const leavingWanted = game.status === "wanted" && statusUpdate.status !== "wanted";
 
@@ -939,6 +1183,7 @@ export class MemStorage implements IStorage {
     };
 
     this.games.set(id, updatedGame);
+    if (game.status !== updatedGame.status) this.recordStatusEvent(updatedGame);
     return updatedGame;
   }
 
@@ -968,6 +1213,19 @@ export class MemStorage implements IStorage {
     return updatedGame;
   }
 
+  async updateGameFinishBy(
+    id: string,
+    userId: string,
+    finishBy: string | null
+  ): Promise<Game | undefined> {
+    const game = this.games.get(id);
+    if (!game || game.userId !== userId) return undefined;
+
+    const updatedGame: Game = { ...game, finishBy };
+    this.games.set(id, updatedGame);
+    return updatedGame;
+  }
+
   updateGameUpgradePolicy(
     id: string,
     userId: string,
@@ -989,7 +1247,12 @@ export class MemStorage implements IStorage {
     const game = this.games.get(id);
     if (game?.userId !== userId) return Promise.resolve(undefined);
 
-    const updatedGame: Game = { ...game, installedVersion };
+    // A version typed by the user is "manual"; clearing it clears the source too.
+    const updatedGame: Game = {
+      ...game,
+      installedVersion,
+      installedVersionSource: installedVersion ? "manual" : null,
+    };
     this.games.set(id, updatedGame);
     return Promise.resolve(updatedGame);
   }
@@ -997,11 +1260,19 @@ export class MemStorage implements IStorage {
   replaceGameInstalledVersion(
     id: string,
     expected: string | null,
-    installedVersion: string
+    installedVersion: string,
+    source: DetectedVersionSource = "release",
+    overManual = false
   ): Promise<boolean> {
     const game = this.games.get(id);
-    if (!game || (game.installedVersion ?? null) !== expected) return Promise.resolve(false);
-    this.games.set(id, { ...game, installedVersion });
+    if (
+      !game ||
+      (game.installedVersion ?? null) !== expected ||
+      (!overManual && !canAutoWriteVersion(game))
+    ) {
+      return Promise.resolve(false);
+    }
+    this.games.set(id, { ...game, installedVersion, installedVersionSource: source });
     return Promise.resolve(true);
   }
 
@@ -1252,6 +1523,49 @@ export class MemStorage implements IStorage {
     const session = this.gamePlaySessions.get(id);
     if (session?.gameId !== gameId || session.userId !== userId) return false;
     return this.gamePlaySessions.delete(id);
+  }
+
+  async updateGamePlaySession(
+    id: string,
+    gameId: string,
+    userId: string,
+    times: { startedAt: Date; endedAt: Date },
+    expected: { startedAt: Date; endedAt: Date }
+  ): Promise<GamePlaySession | undefined> {
+    const session = this.gamePlaySessions.get(id);
+    if (session?.gameId !== gameId || session.userId !== userId) return undefined;
+    if (!isEditablePlaySession(session)) return undefined;
+    if (
+      session.startedAt.getTime() !== expected.startedAt.getTime() ||
+      session.endedAt?.getTime() !== expected.endedAt.getTime()
+    ) {
+      return undefined;
+    }
+    const updated = { ...session, ...times };
+    this.gamePlaySessions.set(id, updated);
+    return updated;
+  }
+
+  async replaceGamePlaySessions(
+    userId: string,
+    gameId: string,
+    expected: ExpectedPlaySession[],
+    replacements: PlaySessionReplacement[]
+  ): Promise<GamePlaySession[] | undefined> {
+    const unique = new Map(expected.map((e) => [e.id, e]));
+    const valid = Array.from(unique.values()).every((e) => {
+      const s = this.gamePlaySessions.get(e.id);
+      return (
+        s?.gameId === gameId &&
+        s.userId === userId &&
+        isEditablePlaySession(s) &&
+        s.startedAt.getTime() === e.startedAt.getTime() &&
+        s.endedAt?.getTime() === e.endedAt.getTime()
+      );
+    });
+    if (!valid) return undefined;
+    for (const id of unique.keys()) this.gamePlaySessions.delete(id);
+    return Promise.all(replacements.map((r) => this.addGamePlaySession({ gameId, userId, ...r })));
   }
 
   async getGameMilestones(gameId: string, userId: string): Promise<GameMilestone[]> {
@@ -1951,6 +2265,7 @@ export class MemStorage implements IStorage {
       errorMessage: null,
       type: feed.type || "custom",
       enabled: feed.enabled ?? true,
+      extractLinks: feed.extractLinks ?? false,
       mapping: feed.mapping || null,
     };
     this.rssFeeds.set(id, newFeed);
@@ -1994,6 +2309,7 @@ export class MemStorage implements IStorage {
       igdbGameId: item.igdbGameId ?? null,
       igdbGameName: item.igdbGameName ?? null,
       coverUrl: item.coverUrl ?? null,
+      links: item.links ?? null,
       pubDate: item.pubDate ?? null,
       sourceName: item.sourceName ?? null,
     };
@@ -2054,6 +2370,9 @@ export class MemStorage implements IStorage {
       libraryRoot: insertSettings.libraryRoot ?? "/data",
       autoDeleteAfterImport: insertSettings.autoDeleteAfterImport ?? false,
       sortExtras: insertSettings.sortExtras ?? false,
+      upgradeReplaceMode: insertSettings.upgradeReplaceMode ?? "off",
+      folderForSingleFiles: insertSettings.folderForSingleFiles ?? true,
+      addonSubfolders: insertSettings.addonSubfolders ?? false,
 
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
@@ -2064,6 +2383,7 @@ export class MemStorage implements IStorage {
       hideShelvedByDefault: insertSettings.hideShelvedByDefault ?? true,
       hideOwnedInHasResults: insertSettings.hideOwnedInHasResults ?? true,
       telemetryEnabled: insertSettings.telemetryEnabled ?? false,
+      questsEnabled: insertSettings.questsEnabled ?? true,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -2787,6 +3107,87 @@ export class MemStorage implements IStorage {
     return this.apiKeys.delete(id);
   }
 
+  async getWebhookSubscriptions(userId: string): Promise<WebhookSubscription[]> {
+    return Array.from(this.webhookSubscriptionRows.values())
+      .filter((s) => s.userId === userId)
+      .sort((a, b) => (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0));
+  }
+
+  async getWebhookSubscription(
+    id: string,
+    userId: string
+  ): Promise<WebhookSubscription | undefined> {
+    const row = this.webhookSubscriptionRows.get(id);
+    return row && row.userId === userId ? row : undefined;
+  }
+
+  async getEnabledWebhookSubscriptions(): Promise<WebhookSubscription[]> {
+    return Array.from(this.webhookSubscriptionRows.values()).filter((s) => s.enabled);
+  }
+
+  async addWebhookSubscription(input: NewWebhookSubscriptionInput): Promise<WebhookSubscription> {
+    const now = new Date();
+    const row: WebhookSubscription = {
+      id: randomUUID(),
+      userId: input.userId,
+      name: input.name,
+      url: input.url,
+      secret: input.secret,
+      events: input.events,
+      enabled: input.enabled ?? true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.webhookSubscriptionRows.set(row.id, row);
+    return row;
+  }
+
+  async updateWebhookSubscription(
+    id: string,
+    userId: string,
+    patch: UpdateWebhookSubscriptionInput
+  ): Promise<WebhookSubscription | undefined> {
+    const existing = await this.getWebhookSubscription(id, userId);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...stripUndefined(patch), updatedAt: new Date() };
+    this.webhookSubscriptionRows.set(id, updated);
+    return updated;
+  }
+
+  async removeWebhookSubscription(id: string, userId: string): Promise<boolean> {
+    const existing = await this.getWebhookSubscription(id, userId);
+    if (!existing) return false;
+    this.webhookSubscriptionRows.delete(id);
+    for (const [deliveryId, d] of this.webhookDeliveryRows) {
+      if (d.subscriptionId === id) this.webhookDeliveryRows.delete(deliveryId);
+    }
+    return true;
+  }
+
+  async addWebhookDelivery(input: NewWebhookDeliveryInput): Promise<WebhookDelivery> {
+    const row: WebhookDelivery = { ...input, id: randomUUID(), createdAt: new Date() };
+    this.webhookDeliveryRows.set(row.id, row);
+    return row;
+  }
+
+  async getWebhookDeliveries(subscriptionId: string, limit: number): Promise<WebhookDelivery[]> {
+    return Array.from(this.webhookDeliveryRows.values())
+      .filter((d) => d.subscriptionId === subscriptionId)
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+      .slice(0, limit);
+  }
+
+  async pruneWebhookDeliveries(keepPerSubscription: number): Promise<number> {
+    let removed = 0;
+    for (const sub of this.webhookSubscriptionRows.values()) {
+      const rows = await this.getWebhookDeliveries(sub.id, Number.MAX_SAFE_INTEGER);
+      for (const stale of rows.slice(keepPerSubscription)) {
+        if (this.webhookDeliveryRows.delete(stale.id)) removed++;
+      }
+    }
+    return removed;
+  }
+
   private integrationRequestKey(
     userId: string,
     provider: IntegrationRequestProvider,
@@ -3021,11 +3422,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUserSteamId(userId: string, steamId: string): Promise<User | undefined> {
+    const [before] = await db.select().from(users).where(eq(users.id, userId));
     const [user] = await db
       .update(users)
       .set({ steamId64: steamId })
       .where(eq(users.id, userId))
       .returning();
+    if (before && before.steamId64 !== steamId) {
+      // Another account's achievement counts must not become this account's baseline.
+      await db
+        .delete(gameAchievementProgress)
+        .where(
+          and(
+            eq(gameAchievementProgress.userId, userId),
+            eq(gameAchievementProgress.provider, "steam")
+          )
+        );
+    }
     return user;
   }
 
@@ -3150,10 +3563,171 @@ export class DatabaseStorage implements IStorage {
     };
 
     const rows = await db.insert(games).values(gameWithId).returning();
+    const created = firstOrThrow(rows);
+    await this.recordStatusEvent(created);
+    return created;
+  }
+
+  /** Tail of the pending status writes of each game, so those writes run one at a time. */
+  private statusEventQueues = new Map<string, Promise<unknown>>();
+
+  /** Runs `task` after the earlier status writes of the same game, keeping their order. */
+  private runPerGame<T>(gameId: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.statusEventQueues.get(gameId) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    const tail = run.catch(() => undefined);
+    this.statusEventQueues.set(gameId, tail);
+    void tail.then(() => {
+      if (this.statusEventQueues.get(gameId) === tail) this.statusEventQueues.delete(gameId);
+    });
+    return run;
+  }
+
+  /** Writes one status-history row, queued behind the other status writes of the game. */
+  private recordStatusEvent(game: Game): Promise<void> {
+    return this.runPerGame(game.id, () => this.writeStatusEvent(game));
+  }
+
+  /** Writes one status-history row; a game with no owner has no history. */
+  private async writeStatusEvent(game: Game): Promise<void> {
+    if (!game.userId) return;
+    try {
+      // Strictly increasing per game, so changes made within the same millisecond keep their order.
+      const [latest] = await db
+        .select({ at: max(gameStatusEvents.createdAt) })
+        .from(gameStatusEvents)
+        .where(eq(gameStatusEvents.gameId, game.id));
+      const last = latest?.at ? new Date(latest.at).getTime() : 0;
+      await db.insert(gameStatusEvents).values({
+        id: randomUUID(),
+        gameId: game.id,
+        userId: game.userId,
+        status: game.status,
+        createdAt: new Date(Math.max(Date.now(), last + 1)),
+      });
+    } catch (error) {
+      // The history is a nice-to-have; never fail the status change because of it.
+      logger.warn({ error, gameId: game.id }, "Could not record the game status change");
+    }
+  }
+
+  async getUserGameStatusEvents(userId: string): Promise<GameStatusEvent[]> {
+    return db
+      .select()
+      .from(gameStatusEvents)
+      .where(eq(gameStatusEvents.userId, userId))
+      .orderBy(asc(gameStatusEvents.createdAt), asc(gameStatusEvents.id));
+  }
+
+  async getUserQuests(userId: string): Promise<Quest[]> {
+    return db
+      .select()
+      .from(quests)
+      .where(eq(quests.userId, userId))
+      .orderBy(desc(quests.periodStart), asc(quests.kind));
+  }
+
+  async addQuests(rows: InsertQuest[]): Promise<void> {
+    if (rows.length === 0) return;
+    await db.insert(quests).values(rows).onConflictDoNothing();
+  }
+
+  async updateQuest(
+    id: string,
+    patch: Partial<Pick<Quest, "progress" | "status" | "completedAt">>
+  ): Promise<boolean> {
+    // Only an open quest changes: a completed or missed one is final, even if two syncs overlap.
+    const rows = await db
+      .update(quests)
+      .set(patch)
+      .where(and(eq(quests.id, id), eq(quests.status, "active")))
+      .returning({ id: quests.id });
+    // False when another sync already changed it, so only one of them notifies.
+    return rows.length > 0;
+  }
+
+  async getUserAchievementProgress(userId: string): Promise<GameAchievementProgress[]> {
+    return db
+      .select()
+      .from(gameAchievementProgress)
+      .where(eq(gameAchievementProgress.userId, userId));
+  }
+
+  async deleteAchievementProgress(
+    userId: string,
+    provider: string,
+    gameIds?: string[]
+  ): Promise<void> {
+    if (gameIds && gameIds.length === 0) return;
+    await db
+      .delete(gameAchievementProgress)
+      .where(
+        and(
+          eq(gameAchievementProgress.userId, userId),
+          eq(gameAchievementProgress.provider, provider),
+          gameIds ? inArray(gameAchievementProgress.gameId, gameIds) : undefined
+        )
+      );
+  }
+
+  async upsertAchievementProgress(
+    progress: Omit<InsertGameAchievementProgress, "id">
+  ): Promise<GameAchievementProgress> {
+    const values = {
+      ...progress,
+      unlocked: progress.unlocked ?? 0,
+      total: progress.total ?? 0,
+      syncedAt: progress.syncedAt ?? new Date(),
+    };
+    const rows = await db
+      .insert(gameAchievementProgress)
+      .values({ id: randomUUID(), ...values })
+      .onConflictDoUpdate({
+        target: [
+          gameAchievementProgress.gameId,
+          gameAchievementProgress.userId,
+          gameAchievementProgress.provider,
+        ],
+        set: {
+          unlocked: values.unlocked,
+          total: values.total,
+          rarestName: values.rarestName ?? null,
+          rarestPercent: values.rarestPercent ?? null,
+          lastUnlockedAt: values.lastUnlockedAt ?? null,
+          syncedAt: values.syncedAt,
+        },
+      })
+      .returning();
     return firstOrThrow(rows);
   }
 
+  async addDdlJob(job: InsertDdlJob): Promise<DdlJob> {
+    return firstOrThrow(await db.insert(ddlJobs).values(job).returning());
+  }
+
+  async getDdlJob(id: string): Promise<DdlJob | undefined> {
+    const rows = await db.select().from(ddlJobs).where(eq(ddlJobs.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async getDdlJobsByDownloader(downloaderId: string): Promise<DdlJob[]> {
+    return db.select().from(ddlJobs).where(eq(ddlJobs.downloaderId, downloaderId));
+  }
+
+  async deleteDdlJob(id: string): Promise<void> {
+    await db.delete(ddlJobs).where(eq(ddlJobs.id, id));
+  }
+
   async updateGameStatus(
+    id: string,
+    statusUpdate: UpdateGameStatus,
+    options?: { preserveCurated?: boolean; syncSource?: string; allowWanted?: boolean }
+  ): Promise<Game | undefined> {
+    // The UPDATE and its history row share one queue entry, so the history follows the commit order.
+    return this.runPerGame(id, () => this.applyGameStatus(id, statusUpdate, options));
+  }
+
+  private async applyGameStatus(
     id: string,
     statusUpdate: UpdateGameStatus,
     options?: { preserveCurated?: boolean; syncSource?: string; allowWanted?: boolean }
@@ -3200,6 +3774,9 @@ export class DatabaseStorage implements IStorage {
       .where(and(...guards))
       .returning();
 
+    if (updatedGame && existingGame?.status !== updatedGame.status) {
+      await this.writeStatusEvent(updatedGame);
+    }
     return updatedGame || undefined;
   }
 
@@ -3225,6 +3802,19 @@ export class DatabaseStorage implements IStorage {
     return updatedGame || undefined;
   }
 
+  async updateGameFinishBy(
+    id: string,
+    userId: string,
+    finishBy: string | null
+  ): Promise<Game | undefined> {
+    const [updatedGame] = await db
+      .update(games)
+      .set({ finishBy })
+      .where(and(eq(games.id, id), eq(games.userId, userId)))
+      .returning();
+    return updatedGame || undefined;
+  }
+
   async updateGameUpgradePolicy(
     id: string,
     userId: string,
@@ -3245,7 +3835,8 @@ export class DatabaseStorage implements IStorage {
   ): Promise<Game | undefined> {
     const [updatedGame] = await db
       .update(games)
-      .set({ installedVersion })
+      // A version typed by the user is "manual"; clearing it clears the source too.
+      .set({ installedVersion, installedVersionSource: installedVersion ? "manual" : null })
       .where(and(eq(games.id, id), eq(games.userId, userId)))
       .returning();
     return updatedGame || undefined;
@@ -3254,14 +3845,22 @@ export class DatabaseStorage implements IStorage {
   async replaceGameInstalledVersion(
     id: string,
     expected: string | null,
-    installedVersion: string
+    installedVersion: string,
+    source: DetectedVersionSource = "release",
+    overManual = false
   ): Promise<boolean> {
     const current =
       expected === null ? isNull(games.installedVersion) : eq(games.installedVersion, expected);
+    // Never over a version the user typed (or a legacy one with no source recorded), unless the
+    // caller found the new one strictly newer (overManual); `current` still guards the race.
+    const notManual = or(
+      inArray(games.installedVersionSource, ["release", "install"]),
+      and(isNull(games.installedVersionSource), isNull(games.installedVersion))
+    );
     const result = await db
       .update(games)
-      .set({ installedVersion })
-      .where(and(eq(games.id, id), current));
+      .set({ installedVersion, installedVersionSource: source })
+      .where(and(eq(games.id, id), current, overManual ? undefined : notManual));
     return affectedRows(result) > 0;
   }
 
@@ -3565,6 +4164,39 @@ export class DatabaseStorage implements IStorage {
       )
       .returning();
     return result.length > 0;
+  }
+
+  async updateGamePlaySession(
+    id: string,
+    gameId: string,
+    userId: string,
+    times: { startedAt: Date; endedAt: Date },
+    expected: { startedAt: Date; endedAt: Date }
+  ): Promise<GamePlaySession | undefined> {
+    const rows = await db
+      .update(gamePlaySessions)
+      .set(times)
+      .where(
+        and(
+          eq(gamePlaySessions.id, id),
+          eq(gamePlaySessions.gameId, gameId),
+          eq(gamePlaySessions.userId, userId),
+          eq(gamePlaySessions.startedAt, expected.startedAt),
+          eq(gamePlaySessions.endedAt, expected.endedAt),
+          inArray(gamePlaySessions.source, [...EDITABLE_PLAY_SESSION_SOURCES])
+        )
+      )
+      .returning();
+    return rows[0];
+  }
+
+  async replaceGamePlaySessions(
+    userId: string,
+    gameId: string,
+    expected: ExpectedPlaySession[],
+    replacements: PlaySessionReplacement[]
+  ): Promise<GamePlaySession[] | undefined> {
+    return transactionalOps.replaceGamePlaySessions(userId, gameId, expected, replacements);
   }
 
   async getGameMilestones(gameId: string, userId: string): Promise<GameMilestone[]> {
@@ -5288,6 +5920,99 @@ export class DatabaseStorage implements IStorage {
     return affectedRows(result) > 0;
   }
 
+  async getWebhookSubscriptions(userId: string): Promise<WebhookSubscription[]> {
+    return db
+      .select()
+      .from(webhookSubscriptions)
+      .where(eq(webhookSubscriptions.userId, userId))
+      .orderBy(asc(webhookSubscriptions.createdAt));
+  }
+
+  async getWebhookSubscription(
+    id: string,
+    userId: string
+  ): Promise<WebhookSubscription | undefined> {
+    const [row] = await db
+      .select()
+      .from(webhookSubscriptions)
+      .where(and(eq(webhookSubscriptions.id, id), eq(webhookSubscriptions.userId, userId)));
+    return row ?? undefined;
+  }
+
+  async getEnabledWebhookSubscriptions(): Promise<WebhookSubscription[]> {
+    return db.select().from(webhookSubscriptions).where(eq(webhookSubscriptions.enabled, true));
+  }
+
+  async addWebhookSubscription(input: NewWebhookSubscriptionInput): Promise<WebhookSubscription> {
+    const rows = await db
+      .insert(webhookSubscriptions)
+      .values({ id: randomUUID(), ...input, enabled: input.enabled ?? true })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async updateWebhookSubscription(
+    id: string,
+    userId: string,
+    patch: UpdateWebhookSubscriptionInput
+  ): Promise<WebhookSubscription | undefined> {
+    const rows = await db
+      .update(webhookSubscriptions)
+      .set({ ...stripUndefined(patch), updatedAt: new Date() })
+      .where(and(eq(webhookSubscriptions.id, id), eq(webhookSubscriptions.userId, userId)))
+      .returning();
+    return rows[0] ?? undefined;
+  }
+
+  async removeWebhookSubscription(id: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(webhookSubscriptions)
+      .where(and(eq(webhookSubscriptions.id, id), eq(webhookSubscriptions.userId, userId)));
+    return affectedRows(result) > 0;
+  }
+
+  async addWebhookDelivery(input: NewWebhookDeliveryInput): Promise<WebhookDelivery> {
+    const rows = await db
+      .insert(webhookDeliveries)
+      // createdAt set here: the column default only has second resolution, which ties
+      // attempts of one event and breaks "newest first".
+      .values({ id: randomUUID(), ...input, createdAt: new Date() })
+      .returning();
+    return firstOrThrow(rows);
+  }
+
+  async getWebhookDeliveries(subscriptionId: string, limit: number): Promise<WebhookDelivery[]> {
+    return db
+      .select()
+      .from(webhookDeliveries)
+      .where(eq(webhookDeliveries.subscriptionId, subscriptionId))
+      .orderBy(desc(webhookDeliveries.createdAt))
+      .limit(limit);
+  }
+
+  async pruneWebhookDeliveries(keepPerSubscription: number): Promise<number> {
+    const subs = await db.select({ id: webhookSubscriptions.id }).from(webhookSubscriptions);
+    let removed = 0;
+    for (const { id } of subs) {
+      const stale = await db
+        .select({ id: webhookDeliveries.id })
+        .from(webhookDeliveries)
+        .where(eq(webhookDeliveries.subscriptionId, id))
+        .orderBy(desc(webhookDeliveries.createdAt), desc(webhookDeliveries.id))
+        .offset(keepPerSubscription)
+        .limit(1_000_000);
+      if (stale.length === 0) continue;
+      const result = await db.delete(webhookDeliveries).where(
+        inArray(
+          webhookDeliveries.id,
+          stale.map((r) => r.id)
+        )
+      );
+      removed += affectedRows(result);
+    }
+    return removed;
+  }
+
   async getIntegrationRequest(
     userId: string,
     externalRequestId: string,
@@ -5382,3 +6107,10 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+/** Whether a sync-sourced status change must leave the game alone. */
+function isSyncBlocked(game: Game, allowWanted?: boolean): boolean {
+  if (game.status === "downloading") return true;
+  if (game.status === "wanted" && !allowWanted) return true;
+  return isUserCuratedGameStatus(game.status) && game.statusSyncSource === null;
+}

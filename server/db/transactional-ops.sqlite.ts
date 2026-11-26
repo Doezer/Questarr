@@ -1,8 +1,10 @@
 import { randomUUID } from "crypto";
-import { count, eq } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { db } from "../db.js";
 import {
+  EDITABLE_PLAY_SESSION_SOURCES,
   apiKeys,
+  gamePlaySessions,
   games,
   indexers,
   platformMappings,
@@ -15,8 +17,10 @@ import {
   buildIndexerUpdate,
   buildNewIndexer,
   formatSyncFailure,
+  PlaySessionsChangedError,
 } from "./transactional-ops.shared.js";
 import type {
+  GamePlaySession,
   ApiKeyPublic,
   NewApiKeyInput,
   Game,
@@ -25,7 +29,11 @@ import type {
   InsertUser,
   User,
 } from "../../shared/schema.js";
-import type { SyncIndexersResult } from "./transactional-ops.js";
+import type {
+  ExpectedPlaySession,
+  PlaySessionReplacement,
+  SyncIndexersResult,
+} from "./transactional-ops.js";
 
 /**
  * SQLite implementations, moved verbatim from DatabaseStorage.
@@ -187,4 +195,49 @@ export async function addApiKey(key: NewApiKeyInput, maxKeys: number): Promise<A
       .all();
     return created!;
   });
+}
+
+export async function replaceGamePlaySessions(
+  userId: string,
+  gameId: string,
+  expected: ExpectedPlaySession[],
+  replacements: PlaySessionReplacement[]
+): Promise<GamePlaySession[] | undefined> {
+  try {
+    return db.transaction((tx) => {
+      const removed = tx
+        .delete(gamePlaySessions)
+        .where(
+          and(
+            or(
+              ...expected.map((e) =>
+                and(
+                  eq(gamePlaySessions.id, e.id),
+                  eq(gamePlaySessions.startedAt, e.startedAt),
+                  eq(gamePlaySessions.endedAt, e.endedAt)
+                )
+              )
+            ),
+            eq(gamePlaySessions.gameId, gameId),
+            eq(gamePlaySessions.userId, userId),
+            inArray(gamePlaySessions.source, [...EDITABLE_PLAY_SESSION_SOURCES]),
+            isNotNull(gamePlaySessions.endedAt)
+          )
+        )
+        .returning({ id: gamePlaySessions.id })
+        .all();
+      if (removed.length !== new Set(expected.map((e) => e.id)).size)
+        throw new PlaySessionsChangedError();
+      return replacements.map((r) =>
+        tx
+          .insert(gamePlaySessions)
+          .values({ id: randomUUID(), gameId, userId, ...r })
+          .returning()
+          .get()
+      );
+    });
+  } catch (error) {
+    if (error instanceof PlaySessionsChangedError) return undefined;
+    throw error;
+  }
 }

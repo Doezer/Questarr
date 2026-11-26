@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -37,11 +38,23 @@ import {
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertDownloaderSchema, type Downloader, type InsertDownloader } from "@shared/schema";
-import { isUsenetDownloaderType } from "@shared/downloader-types";
+import { getTorBoxFetchMode, isUsenetDownloaderType } from "@shared/downloader-types";
 import { parseJsonObject } from "@shared/json-object-utils";
 import { useToast } from "@/hooks/use-toast";
 import { getDownloadTypeColor } from "@/lib/downloads-utils";
 import PageHeader from "@/components/PageHeader";
+
+const REAL_DEBRID_API_URL = "https://api.real-debrid.com";
+const TORBOX_API_URL = "https://api.torbox.app";
+
+/** Cloud services have one fixed endpoint: no host or port to enter. */
+function getFixedEndpoint(type: string): string | undefined {
+  if (type === "realdebrid") return REAL_DEBRID_API_URL;
+  if (type === "torbox") return TORBOX_API_URL;
+  return undefined;
+}
+/** What the server echoes back instead of a stored password; sending it means "unchanged". */
+const SAVED_PASSWORD_PLACEHOLDER = "********";
 
 const downloaderTypes = [
   { value: "transmission", label: "Transmission", protocol: "torrent" },
@@ -49,6 +62,8 @@ const downloaderTypes = [
   { value: "qbittorrent", label: "qBittorrent", protocol: "torrent" },
   { value: "synology", label: "Synology Download Station", protocol: "torrent" },
   { value: "deluge", label: "Deluge", protocol: "torrent" },
+  { value: "realdebrid", label: "Real-Debrid", protocol: "torrent" },
+  { value: "torbox", label: "TorBox", protocol: "torrent" },
   { value: "sabnzbd", label: "SABnzbd", protocol: "usenet" },
   { value: "nzbget", label: "NZBGet", protocol: "usenet" },
 ] as const;
@@ -231,6 +246,128 @@ function PriorityControl({
       >
         +
       </button>
+    </div>
+  );
+}
+
+interface RealDebridFlow {
+  flowId: string;
+  userCode: string;
+  verificationUrl: string;
+  directVerificationUrl?: string;
+  interval: number;
+  expiresIn: number;
+}
+
+/**
+ * Connects a Real-Debrid downloader through the OAuth device flow. The tokens are stored by the
+ * server; the browser only ever sees the one-time code to approve on real-debrid.com.
+ */
+function RealDebridConnect({
+  downloaderId,
+  connected,
+}: {
+  downloaderId: string | null;
+  connected: boolean;
+}) {
+  const { toast } = useToast();
+  const [flow, setFlow] = useState<RealDebridFlow | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [isConnected, setIsConnected] = useState(connected);
+
+  useEffect(() => {
+    setIsConnected(connected);
+  }, [connected, downloaderId]);
+
+  useEffect(() => {
+    if (!flow || !downloaderId) return;
+    const timer = setInterval(
+      async () => {
+        try {
+          const response = await apiFetch(`/api/downloaders/${downloaderId}/realdebrid/auth/poll`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ flowId: flow.flowId }),
+          });
+          if (!response.ok) throw new Error("poll failed");
+          const result = (await response.json()) as { status: string };
+          if (result.status === "authorized") {
+            setFlow(null);
+            setIsConnected(true);
+            queryClient.invalidateQueries({ queryKey: ["/api/downloaders"] });
+            toast({ title: "Real-Debrid connected" });
+          } else if (result.status === "expired") {
+            setFlow(null);
+            toast({ title: "The code expired, try again", variant: "destructive" });
+          }
+        } catch {
+          setFlow(null);
+          toast({ title: "Could not check the Real-Debrid authorization", variant: "destructive" });
+        }
+      },
+      Math.max(flow.interval, 3) * 1000
+    );
+    return () => clearInterval(timer);
+  }, [flow, downloaderId, toast]);
+
+  const start = async () => {
+    if (!downloaderId) return;
+    setStarting(true);
+    try {
+      const response = await apiFetch(`/api/downloaders/${downloaderId}/realdebrid/auth/start`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("start failed");
+      setFlow((await response.json()) as RealDebridFlow);
+    } catch {
+      toast({ title: "Could not reach Real-Debrid", variant: "destructive" });
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-lg border p-3" data-testid="realdebrid-connect">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Real-Debrid account</h3>
+        <Badge variant={isConnected ? "default" : "outline"}>
+          {isConnected ? "Connected" : "Not connected"}
+        </Badge>
+      </div>
+      {!downloaderId ? (
+        <p className="text-xs text-muted-foreground">
+          Save the downloader first, then edit it to connect your Real-Debrid account.
+        </p>
+      ) : flow ? (
+        <div className="space-y-2 text-sm" aria-live="polite">
+          <p>
+            Open{" "}
+            <a
+              href={flow.directVerificationUrl ?? flow.verificationUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              {flow.verificationUrl}
+            </a>{" "}
+            and enter this code:
+          </p>
+          <p className="text-2xl font-mono font-bold tracking-widest" data-testid="realdebrid-code">
+            {flow.userCode}
+          </p>
+          <p className="text-xs text-muted-foreground">Waiting for your approval…</p>
+        </div>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={start}
+          disabled={starting}
+          data-testid="button-realdebrid-connect"
+        >
+          {isConnected ? "Reconnect" : "Connect Real-Debrid"}
+        </Button>
+      )}
     </div>
   );
 }
@@ -420,9 +557,39 @@ export default function DownloadersPage() {
     },
   });
 
+  const isRealDebrid = form.watch("type") === "realdebrid";
+  const isTorBox = form.watch("type") === "torbox";
+  const isCloud = isRealDebrid || isTorBox;
+  const settingsValue = form.watch("settings");
+  const torBoxLinkOnly = isTorBox && getTorBoxFetchMode(settingsValue) === "linkOnly";
+
   const onSubmit = (data: InsertDownloader) => {
     if (editingDownloader) {
-      updateMutation.mutate({ id: editingDownloader.id, data });
+      // The form never holds the OAuth tokens: an empty password must not wipe the ones
+      // stored by Connect (a connection made after the dialog opened included).
+      const update: Partial<InsertDownloader> = { ...data };
+      if (isRealDebrid) {
+        if (editingDownloader.type === "realdebrid") {
+          if (!update.password) delete update.password;
+        } else if (!update.password || update.password === SAVED_PASSWORD_PLACEHOLDER) {
+          // Converting from another client: never let its old password become the token.
+          update.password = "";
+        }
+      }
+      if (
+        isTorBox &&
+        editingDownloader.type !== "torbox" &&
+        (!update.password || update.password === SAVED_PASSWORD_PLACEHOLDER)
+      ) {
+        // Converting from another client: its old password must never become the API key (it
+        // would be sent to TorBox). Ask for a real key instead of saving.
+        form.setError("password", {
+          type: "required",
+          message: "An API key is required for TorBox",
+        });
+        return;
+      }
+      updateMutation.mutate({ id: editingDownloader.id, data: update });
     } else {
       addMutation.mutate(data);
     }
@@ -716,9 +883,39 @@ export default function DownloadersPage() {
                             previousType,
                             useSsl
                           );
-                          const nextDefaultPort = getDefaultDownloaderPort(nextType, useSsl);
+                          // A cloud service forces SSL on and leaving it forces SSL off, so the
+                          // default port must follow the resulting setting.
+                          const nextEndpoint = getFixedEndpoint(nextType);
+                          const resultingSsl = nextEndpoint
+                            ? true
+                            : getFixedEndpoint(previousType)
+                              ? false
+                              : useSsl;
+                          const nextDefaultPort = getDefaultDownloaderPort(nextType, resultingSsl);
 
                           field.onChange(nextType);
+
+                          // Another client's password must never become this one's credential (a
+                          // TorBox API key is sent to api.torbox.app, also by Test Connection).
+                          // Going back to the edited downloader's own type restores its saved value.
+                          if (nextType !== previousType) {
+                            form.setValue(
+                              "password",
+                              editingDownloader && nextType === editingDownloader.type
+                                ? (editingDownloader.password ?? "")
+                                : ""
+                            );
+                          }
+
+                          // Cloud services are fixed endpoints: no host or port to enter.
+                          if (nextEndpoint) {
+                            form.setValue("url", nextEndpoint);
+                            form.setValue("useSsl", true);
+                            form.setValue("port", undefined);
+                          } else if (getFixedEndpoint(previousType)) {
+                            form.setValue("url", "");
+                            form.setValue("useSsl", false);
+                          }
 
                           if (
                             nextDefaultPort !== undefined &&
@@ -759,239 +956,249 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="url"
-                  render={({ field }) => (
-                    <FormItem>
-                      <RequiredFormLabel required>Host</RequiredFormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="http://localhost or https://192.168.1.100"
-                          required
-                          {...field}
-                          data-testid="input-downloader-url"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <>
-                  <FormField
-                    control={form.control}
-                    name="port"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Port</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            placeholder={getDownloaderPortPlaceholder(
-                              form.watch("type"),
-                              !!form.watch("useSsl")
-                            )}
-                            {...field}
-                            value={field.value || ""}
-                            onChange={(e) => field.onChange(parseIntegerInput(e.target.value))}
-                            data-testid="input-downloader-port"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="useSsl"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
-                        <div className="space-y-0">
-                          <FormLabel className="text-sm">Use SSL</FormLabel>
-                          <FormDescription className="text-xs">
-                            {form.watch("type") === "qbittorrent"
-                              ? "See Options → Web UI → 'Use HTTPS instead of HTTP' in qBittorrent"
-                              : form.watch("type") === "transmission"
-                                ? "Enable HTTPS (see Settings → Web in Transmission)"
-                                : form.watch("type") === "synology"
-                                  ? "DSM 7 commonly uses HTTPS on port 5001"
-                                  : form.watch("type") === "sabnzbd"
-                                    ? "Enable HTTPS in SABnzbd (Config → General)"
-                                    : form.watch("type") === "nzbget"
-                                      ? "Enable HTTPS in NZBGet (Settings → Security)"
-                                      : "Enable HTTPS"}
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Checkbox
-                            checked={!!field.value}
-                            onCheckedChange={(checked) => {
-                              const nextUseSsl = !!checked;
-                              const type = form.getValues("type");
-                              const currentPort = form.getValues("port");
-                              const previousDefaultPort = getDefaultDownloaderPort(
-                                type,
-                                !nextUseSsl
-                              );
-                              const nextDefaultPort = getDefaultDownloaderPort(type, nextUseSsl);
-
-                              field.onChange(checked);
-
-                              if (
-                                nextDefaultPort !== undefined &&
-                                (currentPort == null || currentPort === previousDefaultPort)
-                              ) {
-                                form.setValue("port", nextDefaultPort);
-                              }
-
-                              // Enabling SSL makes the insecure-LAN opt-in irrelevant — clear it
-                              // so it can't carry a stale true into a saved record.
-                              if (nextUseSsl) {
-                                form.setValue("allowInsecureLan", false);
-                              }
-                            }}
-                            data-testid="checkbox-downloader-usessl"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                  {form.watch("type") === "sabnzbd" && (
+                {!isCloud && (
+                  <>
                     <FormField
                       control={form.control}
-                      name="allowSelfSignedCertificate"
+                      name="url"
                       render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
-                          <div className="space-y-0">
-                            <FormLabel className="text-sm">Allow self-signed certificate</FormLabel>
-                            <FormDescription className="text-xs">
-                              Skips TLS certificate validation for this downloader over HTTPS. Only
-                              enable this if you trust the network path and understand it allows
-                              man-in-the-middle interception.
-                            </FormDescription>
-                          </div>
+                        <FormItem>
+                          <RequiredFormLabel required>Host</RequiredFormLabel>
                           <FormControl>
-                            <Checkbox
-                              checked={!!field.value}
-                              onCheckedChange={(checked) => field.onChange(!!checked)}
-                              data-testid="checkbox-downloader-allow-self-signed-certificate"
+                            <Input
+                              placeholder="http://localhost or https://192.168.1.100"
+                              required
+                              {...field}
+                              data-testid="input-downloader-url"
                             />
                           </FormControl>
+                          <FormMessage />
                         </FormItem>
                       )}
                     />
-                  )}
-                  {!form.watch("useSsl") && (
-                    <FormField
-                      control={form.control}
-                      name="allowInsecureLan"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between rounded-lg border border-amber-600/50 bg-amber-950/20 p-2">
-                          <div className="space-y-0">
-                            <FormLabel className="text-sm text-amber-400">
-                              Allow insecure LAN
-                            </FormLabel>
-                            <FormDescription className="text-xs">
-                              Permits sending passwords and API keys over plain HTTP. Only enable
-                              this if the downloader is on a trusted LAN without TLS support and you
-                              accept the risk of credentials being intercepted.
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Checkbox
-                              checked={!!field.value}
-                              onCheckedChange={(checked) => field.onChange(!!checked)}
-                              data-testid="checkbox-downloader-allow-insecure-lan"
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                  )}
-                </>
-                <FormField
-                  control={form.control}
-                  name="urlPath"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>URL Path (Optional)</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder={
-                            form.watch("type") === "rtorrent"
-                              ? "RPC2"
-                              : form.watch("type") === "sabnzbd"
-                                ? "sabnzbd"
-                                : form.watch("type") === "synology"
-                                  ? "downloadstation"
-                                  : ""
-                          }
-                          {...field}
-                          value={field.value || ""}
-                          data-testid="input-downloader-urlpath"
-                        />
-                      </FormControl>
-                      <FormDescription className="text-xs">
-                        Base path or endpoint (e.g. "/sabnzbd" for reverse proxy)
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="username"
-                  render={({ field }) => (
-                    <FormItem>
-                      <RequiredFormLabel
-                        required={
-                          form.watch("type") === "sabnzbd" || form.watch("type") === "synology"
-                        }
-                      >
-                        {form.watch("type") === "sabnzbd"
-                          ? "API Key"
-                          : form.watch("type") === "qbittorrent" ||
-                              form.watch("type") === "transmission" ||
-                              form.watch("type") === "nzbget" ||
-                              form.watch("type") === "synology"
-                            ? "Username"
-                            : "Username (Optional)"}
-                      </RequiredFormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder={
-                            form.watch("type") === "sabnzbd"
-                              ? "Enter SABnzbd API key"
-                              : "Enter username"
-                          }
-                          required={
-                            form.watch("type") === "sabnzbd" || form.watch("type") === "synology"
-                          }
-                          {...field}
-                          value={field.value || ""}
-                          data-testid="input-downloader-username"
-                        />
-                      </FormControl>
+
+                    <>
+                      <FormField
+                        control={form.control}
+                        name="port"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Port</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                placeholder={getDownloaderPortPlaceholder(
+                                  form.watch("type"),
+                                  !!form.watch("useSsl")
+                                )}
+                                {...field}
+                                value={field.value || ""}
+                                onChange={(e) => field.onChange(parseIntegerInput(e.target.value))}
+                                data-testid="input-downloader-port"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="useSsl"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                            <div className="space-y-0">
+                              <FormLabel className="text-sm">Use SSL</FormLabel>
+                              <FormDescription className="text-xs">
+                                {form.watch("type") === "qbittorrent"
+                                  ? "See Options → Web UI → 'Use HTTPS instead of HTTP' in qBittorrent"
+                                  : form.watch("type") === "transmission"
+                                    ? "Enable HTTPS (see Settings → Web in Transmission)"
+                                    : form.watch("type") === "synology"
+                                      ? "DSM 7 commonly uses HTTPS on port 5001"
+                                      : form.watch("type") === "sabnzbd"
+                                        ? "Enable HTTPS in SABnzbd (Config → General)"
+                                        : form.watch("type") === "nzbget"
+                                          ? "Enable HTTPS in NZBGet (Settings → Security)"
+                                          : "Enable HTTPS"}
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={!!field.value}
+                                onCheckedChange={(checked) => {
+                                  const nextUseSsl = !!checked;
+                                  const type = form.getValues("type");
+                                  const currentPort = form.getValues("port");
+                                  const previousDefaultPort = getDefaultDownloaderPort(
+                                    type,
+                                    !nextUseSsl
+                                  );
+                                  const nextDefaultPort = getDefaultDownloaderPort(
+                                    type,
+                                    nextUseSsl
+                                  );
+
+                                  field.onChange(checked);
+
+                                  if (
+                                    nextDefaultPort !== undefined &&
+                                    (currentPort == null || currentPort === previousDefaultPort)
+                                  ) {
+                                    form.setValue("port", nextDefaultPort);
+                                  }
+
+                                  // Enabling SSL makes the insecure-LAN opt-in irrelevant — clear it
+                                  // so it can't carry a stale true into a saved record.
+                                  if (nextUseSsl) {
+                                    form.setValue("allowInsecureLan", false);
+                                  }
+                                }}
+                                data-testid="checkbox-downloader-usessl"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
                       {form.watch("type") === "sabnzbd" && (
-                        <FormDescription className="text-xs">
-                          Required. Found in SABnzbd Config → General → API Key.
-                        </FormDescription>
+                        <FormField
+                          control={form.control}
+                          name="allowSelfSignedCertificate"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                              <div className="space-y-0">
+                                <FormLabel className="text-sm">
+                                  Allow self-signed certificate
+                                </FormLabel>
+                                <FormDescription className="text-xs">
+                                  Skips TLS certificate validation for this downloader over HTTPS.
+                                  Only enable this if you trust the network path and understand it
+                                  allows man-in-the-middle interception.
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Checkbox
+                                  checked={!!field.value}
+                                  onCheckedChange={(checked) => field.onChange(!!checked)}
+                                  data-testid="checkbox-downloader-allow-self-signed-certificate"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
                       )}
-                      {(form.watch("type") === "qbittorrent" ||
-                        form.watch("type") === "transmission" ||
-                        form.watch("type") === "nzbget" ||
-                        form.watch("type") === "synology") && (
-                        <FormDescription className="text-xs">
-                          {form.watch("type") === "synology"
-                            ? "Required for DSM login."
-                            : "Only required if this client&apos;s web UI uses authentication."}
-                        </FormDescription>
+                      {!form.watch("useSsl") && (
+                        <FormField
+                          control={form.control}
+                          name="allowInsecureLan"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border border-amber-600/50 bg-amber-950/20 p-2">
+                              <div className="space-y-0">
+                                <FormLabel className="text-sm text-amber-400">
+                                  Allow insecure LAN
+                                </FormLabel>
+                                <FormDescription className="text-xs">
+                                  Permits sending passwords and API keys over plain HTTP. Only
+                                  enable this if the downloader is on a trusted LAN without TLS
+                                  support and you accept the risk of credentials being intercepted.
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Checkbox
+                                  checked={!!field.value}
+                                  onCheckedChange={(checked) => field.onChange(!!checked)}
+                                  data-testid="checkbox-downloader-allow-insecure-lan"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
                       )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                    </>
+                    <FormField
+                      control={form.control}
+                      name="urlPath"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>URL Path (Optional)</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={
+                                form.watch("type") === "rtorrent"
+                                  ? "RPC2"
+                                  : form.watch("type") === "sabnzbd"
+                                    ? "sabnzbd"
+                                    : form.watch("type") === "synology"
+                                      ? "downloadstation"
+                                      : ""
+                              }
+                              {...field}
+                              value={field.value || ""}
+                              data-testid="input-downloader-urlpath"
+                            />
+                          </FormControl>
+                          <FormDescription className="text-xs">
+                            Base path or endpoint (e.g. "/sabnzbd" for reverse proxy)
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="username"
+                      render={({ field }) => (
+                        <FormItem>
+                          <RequiredFormLabel
+                            required={
+                              form.watch("type") === "sabnzbd" || form.watch("type") === "synology"
+                            }
+                          >
+                            {form.watch("type") === "sabnzbd"
+                              ? "API Key"
+                              : form.watch("type") === "qbittorrent" ||
+                                  form.watch("type") === "transmission" ||
+                                  form.watch("type") === "nzbget" ||
+                                  form.watch("type") === "synology"
+                                ? "Username"
+                                : "Username (Optional)"}
+                          </RequiredFormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder={
+                                form.watch("type") === "sabnzbd"
+                                  ? "Enter SABnzbd API key"
+                                  : "Enter username"
+                              }
+                              required={
+                                form.watch("type") === "sabnzbd" ||
+                                form.watch("type") === "synology"
+                              }
+                              {...field}
+                              value={field.value || ""}
+                              data-testid="input-downloader-username"
+                            />
+                          </FormControl>
+                          {form.watch("type") === "sabnzbd" && (
+                            <FormDescription className="text-xs">
+                              Required. Found in SABnzbd Config → General → API Key.
+                            </FormDescription>
+                          )}
+                          {(form.watch("type") === "qbittorrent" ||
+                            form.watch("type") === "transmission" ||
+                            form.watch("type") === "nzbget" ||
+                            form.watch("type") === "synology") && (
+                            <FormDescription className="text-xs">
+                              {form.watch("type") === "synology"
+                                ? "Required for DSM login."
+                                : "Only required if this client&apos;s web UI uses authentication."}
+                            </FormDescription>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
                 <FormField
                   control={form.control}
                   name="password"
@@ -1002,7 +1209,8 @@ export default function DownloadersPage() {
                           form.watch("type") === "synology" ||
                           form.watch("type") === "qbittorrent" ||
                           form.watch("type") === "transmission" ||
-                          form.watch("type") === "nzbget"
+                          form.watch("type") === "nzbget" ||
+                          isTorBox
                         }
                       >
                         {form.watch("type") === "qbittorrent" ||
@@ -1010,12 +1218,22 @@ export default function DownloadersPage() {
                         form.watch("type") === "nzbget" ||
                         form.watch("type") === "synology"
                           ? "Password"
-                          : "Password (Optional)"}
+                          : isTorBox
+                            ? "API key"
+                            : isRealDebrid
+                              ? "Private API token (optional)"
+                              : "Password (Optional)"}
                       </RequiredFormLabel>
                       <FormControl>
                         <Input
                           type="password"
-                          placeholder="Enter password"
+                          placeholder={
+                            isTorBox
+                              ? "TorBox API key"
+                              : isRealDebrid
+                                ? "Only if not using Connect"
+                                : "Enter password"
+                          }
                           {...field}
                           value={field.value || ""}
                           data-testid="input-downloader-password"
@@ -1035,25 +1253,70 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
-                {!isUsenetDownloader(form.watch("type")) && (
+                {isRealDebrid && (
+                  <RealDebridConnect
+                    downloaderId={editingDownloader?.id ?? null}
+                    connected={!!editingDownloader?.password}
+                  />
+                )}
+                {isTorBox && (
+                  <div className="flex flex-row items-center justify-between gap-3 rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="torbox-fetch-mode" className="text-sm">
+                        Fetch files to this server
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        {torBoxLinkOnly
+                          ? "Off: finished downloads stay on TorBox. Questarr gives you a download link and does not import anything."
+                          : "On: finished files are copied to the staging path, then imported like any other download."}
+                      </p>
+                    </div>
+                    <Switch
+                      id="torbox-fetch-mode"
+                      checked={!torBoxLinkOnly}
+                      onCheckedChange={(checked) =>
+                        form.setValue(
+                          "settings",
+                          JSON.stringify({
+                            ...parseJsonObject(form.getValues("settings")),
+                            fetchMode: checked ? "local" : "linkOnly",
+                          })
+                        )
+                      }
+                      data-testid="switch-torbox-fetch-mode"
+                    />
+                  </div>
+                )}
+                {!isUsenetDownloader(form.watch("type")) && !torBoxLinkOnly && (
                   <FormField
                     control={form.control}
                     name="downloadPath"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Download Path (Optional)</FormLabel>
+                        <FormLabel>
+                          {isCloud ? "Staging Path" : "Download Path (Optional)"}
+                        </FormLabel>
                         <FormControl>
                           <Input
                             placeholder={
                               form.watch("type") === "synology"
                                 ? "video/downloads"
-                                : "/home/downloads/games"
+                                : isCloud
+                                  ? "/data/debrid-staging"
+                                  : "/home/downloads/games"
                             }
                             {...field}
                             value={field.value || ""}
                             data-testid="input-downloader-path"
                           />
                         </FormControl>
+                        {isCloud && (
+                          <FormDescription className="text-xs">
+                            Required. Completed files are copied here from{" "}
+                            {isTorBox ? "TorBox" : "Real-Debrid"}, then imported like any other
+                            download.
+                          </FormDescription>
+                        )}
                         {form.watch("type") === "synology" && (
                           <FormDescription className="text-xs">
                             Use a shared-folder-relative destination such as{" "}
@@ -1297,6 +1560,16 @@ export default function DownloadersPage() {
                     }
 
                     const formData = form.getValues();
+                    // A saved Real-Debrid account or TorBox key lives server-side only: test the saved
+                    // downloader (which has the OAuth tokens) unless a token was typed in.
+                    if (
+                      ((editingDownloader?.type === "realdebrid" && isRealDebrid) ||
+                        (editingDownloader?.type === "torbox" && isTorBox)) &&
+                      (!formData.password || formData.password === SAVED_PASSWORD_PLACEHOLDER)
+                    ) {
+                      testConnectionMutation.mutate({ id: editingDownloader.id });
+                      return;
+                    }
                     testConnectionMutation.mutate({ formData });
                   }}
                   disabled={testingDownloaderId !== null}

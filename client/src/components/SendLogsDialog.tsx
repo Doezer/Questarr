@@ -10,13 +10,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   buildGitHubIssueUrl,
   detectPlatform,
-  scrubLogLines,
+  fetchDiagnosticsReport,
+  findRecentDuplicate,
+  prepareReport,
+  recordSentReport,
   sendLogs,
   type SendLogsResult,
 } from "@/lib/send-logs";
+import type { SentRecord } from "@shared/support-report";
 import { copyToClipboard } from "@/lib/utils";
 
 interface SendLogsDialogProps {
@@ -44,10 +50,13 @@ export default function SendLogsDialog({
   const { toast } = useToast();
   const [step, setStep] = useState<Step>("consent");
   const [result, setResult] = useState<SendLogsResult | null>(null);
+  const [note, setNote] = useState("");
+  const [duplicate, setDuplicate] = useState<SentRecord | null>(null);
 
   const reset = useCallback(() => {
     setStep("consent");
     setResult(null);
+    setDuplicate(null);
   }, []);
 
   const handleOpenChange = useCallback(
@@ -58,21 +67,44 @@ export default function SendLogsDialog({
     [onOpenChange, reset]
   );
 
-  const handleSend = useCallback(async () => {
-    setStep("sending");
+  const handleSend = useCallback(
+    async (force = false) => {
+      const currentDate = getCurrentDate?.() ?? new Date();
+      if (!force) {
+        const earlier = findRecentDuplicate(logLines, currentDate.getTime());
+        if (earlier) {
+          setDuplicate(earlier);
+          return;
+        }
+      }
+      setDuplicate(null);
+      setStep("sending");
 
-    const scrubbedLogs = scrubLogLines(logLines);
-    const currentDate = getCurrentDate?.() ?? new Date();
-    const outcome = await sendLogs({
-      logs: scrubbedLogs,
-      appVersion: APP_VERSION,
-      platform: detectPlatform(),
-      timestamp: currentDate.toISOString(),
-    });
+      const platform = detectPlatform();
+      const report = prepareReport({
+        logLines,
+        diagnostics: await fetchDiagnosticsReport(),
+        note,
+        appVersion: APP_VERSION,
+        platform,
+      });
+      const outcome = await sendLogs({
+        logs: report.logs,
+        appVersion: APP_VERSION,
+        platform,
+        timestamp: currentDate.toISOString(),
+        title: report.title,
+        labels: report.labels,
+        signature: report.signature,
+        ...(report.note ? { note: report.note } : {}),
+      });
 
-    setResult(outcome);
-    setStep(outcome.ok ? "success" : "error");
-  }, [getCurrentDate, logLines]);
+      if (outcome.ok) recordSentReport(report.signature, outcome.code, currentDate.getTime());
+      setResult(outcome);
+      setStep(outcome.ok ? "success" : "error");
+    },
+    [getCurrentDate, logLines, note]
+  );
 
   const handleCopyCode = useCallback(() => {
     if (!result?.ok) return;
@@ -127,6 +159,15 @@ export default function SendLogsDialog({
                 <li className="flex gap-2">
                   <span className="mt-0.5 text-blue-400">•</span>
                   <span>
+                    <strong>Configuration summary</strong> — runtime, database type, and for each
+                    indexer and download client its type, enabled state and whether a key or
+                    password is set. Never hostnames, addresses, or credentials — and a digest of
+                    recent errors.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="mt-0.5 text-blue-400">•</span>
+                  <span>
                     <strong>App version</strong> — {APP_VERSION}
                   </span>
                 </li>
@@ -144,6 +185,38 @@ export default function SendLogsDialog({
                 </li>
               </ul>
 
+              <div className="space-y-2">
+                <Label htmlFor="send-logs-note">What were you doing? (optional)</Label>
+                <Textarea
+                  id="send-logs-note"
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  maxLength={500}
+                  rows={3}
+                  placeholder="For example: searched for a game, then the download never started."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Included at the top of the report. Emails, addresses and paths are removed.
+                </p>
+              </div>
+
+              {duplicate && (
+                <div
+                  role="status"
+                  className="rounded-lg border border-blue-800/40 bg-blue-950/30 p-3 text-xs leading-relaxed text-blue-200"
+                >
+                  An identical report was already sent{" "}
+                  {Math.max(1, Math.round((Date.now() - duplicate.sentAt) / 60000))} minute(s) ago
+                  {duplicate.code ? (
+                    <>
+                      {" "}
+                      with support code <strong>{duplicate.code}</strong>
+                    </>
+                  ) : null}
+                  . Send it again only if something changed.
+                </div>
+              )}
+
               <div className="flex items-start gap-2 rounded-lg border border-yellow-800/40 bg-yellow-950/30 p-3 text-yellow-300">
                 <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <p className="text-xs leading-relaxed">
@@ -160,12 +233,12 @@ export default function SendLogsDialog({
               </Button>
               <Button
                 onClick={() => {
-                  handleSend();
+                  void handleSend(duplicate !== null);
                 }}
                 disabled={logLines.length === 0}
               >
                 <Send className="mr-2 h-4 w-4" />
-                Send logs
+                {duplicate ? "Send anyway" : "Send logs"}
               </Button>
             </DialogFooter>
           </>

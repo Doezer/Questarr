@@ -22,11 +22,11 @@ Five weighted dimensions. Max score: **100**.
 
 ---
 
-## Current Score: 78.2/100
+## Current Score: 90.3/100
 
-### Automation — 26/30
+### Automation — 30/30
 
-The full end-to-end pipeline now works. The remaining gap is version-aware upgrade tracking.
+The full end-to-end pipeline works, including version-aware upgrades (1.7.0: owned games download newer versions automatically, replacing the old one).
 
 - [x] Scheduled auto-search for wanted games
 - [x] Download triggers (torrent + usenet)
@@ -39,16 +39,16 @@ The full end-to-end pipeline now works. The remaining gap is version-aware upgra
   - [x] Archive extraction (`.rar`, `.zip`, nested)
   - [x] Custom post-processing script hook
   - [x] Per-download post-processing status
-- [ ] Version-aware upgrade tracking (P1)
+- [x] Version-aware upgrade tracking (P1)
   - [x] Parse version from release title
   - [x] Notify when newer version found
-  - [ ] Optional Auto update when newer version found
+  - [x] Optional Auto update when newer version found (`Download automatically`, #1339, #1403, #1406)
 
-### Integrations — 17.9/25
+### Integrations — 22.7/25
 
-Solid core. Debrid download and library imports are the missing pieces.
+Debrid, Steam library, local scanner and webhooks shipped for 1.7.0. Left: Gameyfin, and GOG as a direct import (GOG reaches Questarr through Playnite today).
 
-Scored as the share of checked items (15 of 21) × 25.
+Scored as the share of checked items (20 of 22) × 25.
 
 - [x] Torznab indexer support
 - [x] Newznab indexer support
@@ -62,19 +62,22 @@ Scored as the share of checked items (15 of 21) × 25.
 - [x] PCGamingWiki integration
 - [x] NexusMods trending mods
 - [x] Time to Beat (IGDB `game_time_to_beats`, #1063; replaces the HowLongToBeat item)
-- [ ] Real-Debrid / debrid download client (P2)
-- [ ] Steam library import (owned games) (P3)
-- [ ] GOG library import (P3)
-- [ ] Local filesystem scanner (P3)
-- [ ] Webhook outbound events (P4)
+- [x] Real-Debrid / debrid download client (P2) (Real-Debrid #1395, direct-download links #1411; TorBox #1414/#1418)
+- [x] Steam library import (owned games) (P3) (#1273)
+- [ ] GOG library import (P3) (only via Playnite for now; mgmt #123 for wishlists)
+- [x] Local filesystem scanner (P3) (root folder rescan #1308, import into library #1310)
+- [x] Webhook outbound events (P4) (signed JSON events)
 - [x] Playnite integration (library sync + request-to-download) (P4)
-- [ ] Gameyfin / RomM integrations (P4)
+- [x] RomM integration (P4) (sync, folder repair #1410)
+- [ ] Gameyfin integration (P4)
 - [x] Indexer page links ("View on indexer") (#872)
 - [x] DB system agnostic backend: optional Postgres alongside SQLite (#1046)
 
-### UX quality — 13.3/20
+### UX quality — 18/20
 
-Functional. Mobile responsiveness is the main gap.
+Mobile audit on 2026-11-26 (390 px, touch emulation, 23 routes, empty library): no horizontal overflow on any page, bottom navigation in place. Remaining gap: a few controls under 32 px on Downloads, Backups and Blocklist.
+
+Scored as the share of checked items (9 of 10) × 20.
 
 - [x] Dark-themed visual design with game cover art
 - [x] Library, discover, search, wishlist, calendar, downloads, stats pages
@@ -82,15 +85,18 @@ Functional. Mobile responsiveness is the main gap.
 - [x] Game detail modal with cover, metadata, user rating
 - [x] ARIA labels on most interactive elements (ongoing hardening)
 - [x] Semantic HTML on most components
-- [ ] Mobile responsiveness (thumb-first, touch-safe density)
+- [x] Mobile responsiveness (thumb-first layout, bottom nav, no page overflow at 390 px)
+- [ ] Touch targets of at least 44 px on every page (audit: 5 undersized controls)
 - [x] Notification granularity (per-event control)
-- [ ] Search result ranking and release group filtering improvements
+- [x] Search result ranking and release group filtering improvements (release scoring and trust, preferred release groups)
 
-### Code health — 15/15
+### Code health — 13.6/15
+
+Scored as the share of checked items (10 of 11) × 15. Pagination of the library list (`GET /api/games` returns every game) is the remaining item and too invasive for the 1.7.0 window.
 
 - [x] TypeScript strict mode throughout (no `any`)
-- [x] 115 server test files (unit + integration)
-- [x] 89 client test files
+- [x] 185 server test files (unit + integration)
+- [x] 134 client test files and 26 shared test files
 - [x] Pre-commit hooks (ESLint + Prettier)
 - [x] SSRF-protected outbound fetch
 - [x] In-memory SQLite for tests (no real DB in CI)
@@ -98,11 +104,11 @@ Functional. Mobile responsiveness is the main gap.
 - [x] E2E tests for main user journeys (Playwright, port 5100)
 - [x] Test coverage gate in CI (83% statements / 76% branches / 79% functions / 84% lines)
 - [ ] Pagination on heavy list endpoints
-- [ ] Advanced caching for search results
+- [x] Short-lived cache for manual indexer searches (3 min, error-free answers only, `?refresh=true` bypasses; auto-search never cached)
 
 ### Community — 6/10
 
-Active and growing. Response time is good; structured community artifacts are thin.
+Active and growing. Not re-measured for 1.7.0: the checklist below is all ticked but the dimension was scored 6 on 2026-09-30 and stays there until its criteria are defined.
 
 - [x] GitHub issues responded to promptly
 - [x] Dependabot + grouped dependency updates
@@ -138,10 +144,11 @@ Active and growing. Response time is good; structured community artifacts are th
 
 In priority order:
 
-1. **Mobile responsiveness pass** — thumb-first navigation, touch-safe density.
-2. **Real-Debrid downloader** — expands the user base beyond torrent/usenet.
-3. **Version-aware upgrade tracking** — auto-download newer versions of tracked games.
+1. **Touch targets** — raise the remaining undersized controls to 44 px.
+2. **Library pagination** — `GET /api/games` is unbounded; needs a client change too (post-1.7.0).
+3. **Gameyfin integration and direct GOG import** (post-1.7.0).
+4. **Community dimension** — define measurable criteria so it can be re-scored.
 
 ---
 
-_Score last updated: 2026-09-30. The previous header said 100/100, but its own dimensions summed to 75.3; the total is now the sum of the dimensions._
+_Score last updated: 2026-11-26 (state of `main` at #1437, before the 1.7.0 release). Each dimension is the share of its checked items × its weight, except Automation (all items done) and Community (kept at 6)._

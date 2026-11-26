@@ -102,6 +102,9 @@ const IPV4_RE = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
 /** IPv6 candidates are validated after matching to avoid an overly complex regex */
 const IPV6_RE = /(?<![A-Fa-f0-9:])[A-Fa-f0-9:]{2,}(?![A-Fa-f0-9:])/g;
 
+/** IPv4-mapped IPv6 (`::ffff:192.168.1.5`, what `req.ip` gives on a dual-stack listener) */
+const IPV4_MAPPED_RE = /(?<![A-Fa-f0-9:])::ffff:((?:\d{1,3}\.){3}\d{1,3})(?![\d.])/gi;
+
 /** RFC-4122 UUID */
 const UUID_RE = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
 
@@ -125,6 +128,9 @@ export function scrubPii(text: string): string {
   return redactSecretText(
     scrubUsernames(scrubEmailAddresses(text))
       .replace(JWT_RE, "[jwt]") // before email — JWTs contain dots
+      .replace(IPV4_MAPPED_RE, (match, v4: string) =>
+        isIpv4(v4) ? `[ip:${classifyIpv4(v4)}]` : match
+      )
       .replace(IPV6_RE, (match) => (isIpv6(match) ? `[ip:${classifyIpv6(match)}]` : match))
       .replace(IPV4_RE, (match) => (isIpv4(match) ? `[ip:${classifyIpv4(match)}]` : match))
       .replace(UUID_RE, "[uuid]")
@@ -149,8 +155,13 @@ const USERNAME_ESCAPED_RE = new RegExp(
   String.raw`(\\["'])(${USERNAME_KEY})\1(\s*[:=]\s*)${escapedValue(4)}`,
   "gi"
 );
+/** Unquoted key, escaped-quoted value (`username=\\"bob smith\\"` inside a message). */
+const USERNAME_ESCAPED_VALUE_RE = new RegExp(
+  String.raw`(\b${USERNAME_KEY}\b\s*[:=]\s*)${escapedValue(2)}`,
+  "gi"
+);
 const USERNAME_FIELD_RE = new RegExp(
-  String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|[^"',\s&}]+)`,
+  String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|[^"',\s&}{[\\]+)`,
   "gi"
 );
 
@@ -160,6 +171,7 @@ function scrubUsernames(text: string): string {
       USERNAME_ESCAPED_RE,
       (_m, quote: string, key: string, sep: string) => `${quote}${key}${quote}${sep}\\"[user]\\"`
     )
+    .replace(USERNAME_ESCAPED_VALUE_RE, (_m, prefix: string) => `${prefix}\\"[user]\\"`)
     .replace(USERNAME_FIELD_RE, (_m, quote: string, key: string, sep: string) =>
       quote ? `${quote}${key}${quote}${sep}"[user]"` : `${key}=[user]`
     );

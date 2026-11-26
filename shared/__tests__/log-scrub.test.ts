@@ -159,6 +159,18 @@ describe("scrubPii usernames", () => {
     );
   });
 
+  it("masks an unquoted key with an escaped-quoted value and keeps the line valid JSON", () => {
+    const line = JSON.stringify({ msg: 'login failed username="bob smith" now' });
+    const result = scrubPii(line);
+    expect(result).not.toContain("bob");
+    expect(JSON.parse(result).msg).toBe('login failed username="[user]" now');
+  });
+
+  it("leaves object and array values under login untouched", () => {
+    const line = '{"login":{"id":1},"username":["a"]}';
+    expect(scrubPii(line)).toBe(line);
+  });
+
   it("is idempotent", () => {
     const once = scrubPii('{"username":"jdupont","ip":"10.0.0.2"}');
     expect(scrubPii(once)).toBe(once);
@@ -180,6 +192,12 @@ describe("scrubPii IP classes", () => {
     ["2001:db8::1", "[ip:public]"],
   ])("classifies %s", (ip, expected) => {
     expect(scrubPii(`connect ${ip} failed`)).toBe(`connect ${expected} failed`);
+  });
+
+  it("classifies IPv4-mapped IPv6 addresses by their embedded IPv4", () => {
+    expect(scrubPii("ip=::ffff:192.168.1.5")).toBe("ip=[ip:lan]");
+    expect(scrubPii("ip=::ffff:127.0.0.1,")).toBe("ip=[ip:loopback],");
+    expect(scrubPii("ip=::ffff:8.8.8.8")).toBe("ip=[ip:public]");
   });
 
   it("keeps localhost as is", () => {

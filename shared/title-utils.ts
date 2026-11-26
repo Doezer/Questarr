@@ -10,12 +10,20 @@
  */
 export function normalizeTitle(title: string): string {
   return title
-    .normalize("NFD")
-    .replaceAll(/[\u0300-\u036f]/g, "") // "Pokémon" -> "Pokemon", not "pok mon"
     .toLowerCase()
     .replaceAll(/[^a-z0-9\s]/g, " ") // Replace non-alphanumeric with space
     .replaceAll(/\s+/g, " ") // Multiple spaces to single space
     .trim();
+}
+
+/**
+ * Same as `normalizeTitle`, but accents are stripped first ("Pokémon" -> "pokemon", not
+ * "pok mon"), so an accented title matches its plain-ASCII release name. Matching code uses
+ * this one. `normalizeTitle` keeps its output because it also builds stored keys (review
+ * holds, blacklist entries) that must stay findable after an upgrade.
+ */
+export function normalizeTitleForMatch(title: string): string {
+  return normalizeTitle(title.normalize("NFD").replaceAll(/[\u0300-\u036f]/g, ""));
 }
 
 /**
@@ -245,8 +253,8 @@ export function isSequelOf(longer: string, shorter: string): boolean {
  * Can be used to match a known game title against an xREL title or a cleaned release name.
  */
 export function titleMatches(a: string, b: string): boolean {
-  const normA = normalizeTitle(a);
-  const normB = normalizeTitle(b);
+  const normA = normalizeTitleForMatch(a);
+  const normB = normalizeTitleForMatch(b);
 
   if (!normA || !normB) return false;
   if (normA === normB) return true;
@@ -276,11 +284,10 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
   // ("Dishonored.Update.2" would read as "Dishonored 2") and can drop the number itself
   // ("Dishonored-2" looks like a group suffix). Stopword-free forms are checked too, since
   // indexers often drop the "The".
-  const normRelease = normalizeTitle(releaseName);
-  const normGame = normalizeTitle(gameTitle);
   if (
-    isSequelOf(normRelease, normGame) ||
-    isSequelOf(withoutStopWords(normRelease), withoutStopWords(normGame))
+    APOSTROPHE_FORMS.some((apostrophes) =>
+      isSequelRelease(apostrophes(releaseName), apostrophes(gameTitle))
+    )
   ) {
     return false;
   }
@@ -291,13 +298,15 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
   // 1. Include numbers (for "Witcher 3" vs "Witcher 2")
   // 2. Filter common stopwords
   // 3. Require at least one "meaningful" word (> 2 chars or specific) to avoid matching "Stalker 2" against "Witcher 2" (via "2")
-
-  // Releases write "King's" as "Kings" or "King s", so try the apostrophe both dropped and
-  // spaced. Words must match whole: a substring check let "1-2-Switch" match "Super Mario
-  // Galaxy 2 (v1.2.0) [Switch]" ("1" inside "v1") and "Luigi's Mansion 3" match "Luigi 039s
-  // Mansion 2 HD" ("3" inside "039s").
-  return [(t: string) => t.replaceAll(/['\u2019]/g, ""), (t: string) => t].some((apostrophes) => {
-    const gameWords = normalizeTitle(apostrophes(gameTitle))
+  //
+  // Releases write "King's" as "Kings" or "King s", so the apostrophe is tried both dropped and
+  // spaced, and the sequel guard above runs on each form ("Baldur's.Gate.3" is not "Baldurs Gate").
+  // Words must match whole: a substring check let "1-2-Switch" match "Super Mario Galaxy 2
+  // (v1.2.0) [Switch]" ("1" inside "v1") and "Luigi's Mansion 3" match "Luigi 039s Mansion 2 HD"
+  // ("3" inside "039s"). Releases that glue the words together ("Left4Dead.2", "SpiderMan") are
+  // caught by comparing the title and the release with their spaces removed.
+  return APOSTROPHE_FORMS.some((apostrophes) => {
+    const gameWords = normalizeTitleForMatch(apostrophes(gameTitle))
       .split(" ")
       .filter((w) => {
         // Keep if it's a number (length 1 allowed) OR length > 1
@@ -312,9 +321,26 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
     // disable fallback to prevent false positives.
     if (!gameWords.some((w) => w.length > 2)) return false;
 
-    const releaseWords = new Set(normalizeTitle(apostrophes(releaseName)).split(" "));
-    return gameWords.every((word) => releaseWords.has(word));
+    const releaseWords = normalizeTitleForMatch(apostrophes(releaseName)).split(" ");
+    const releaseWordSet = new Set(releaseWords);
+    if (gameWords.every((word) => releaseWordSet.has(word))) return true;
+    return releaseWords.join("").includes(gameWords.join(""));
   });
+}
+
+const APOSTROPHE_FORMS: ((text: string) => string)[] = [
+  (t) => t.replaceAll(/['\u2019]/g, ""),
+  (t) => t,
+];
+
+/** True when the release reads as a sequel of the game ("Dishonored 2" for "Dishonored"). */
+function isSequelRelease(releaseName: string, gameTitle: string): boolean {
+  const normRelease = normalizeTitleForMatch(releaseName);
+  const normGame = normalizeTitleForMatch(gameTitle);
+  return (
+    isSequelOf(normRelease, normGame) ||
+    isSequelOf(withoutStopWords(normRelease), withoutStopWords(normGame))
+  );
 }
 
 // Trailing edition words an indexer rarely carries in the release name ("... Game of the Year

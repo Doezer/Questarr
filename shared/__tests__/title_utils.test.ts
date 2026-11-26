@@ -134,6 +134,25 @@ describe("title-utils", () => {
       expect(releaseMatchesGame("Luigi s Mansion 3 [NSP]", "Luigi's Mansion 3")).toBe(true);
     });
 
+    it("matches releases that glue the title words together", () => {
+      expect(releaseMatchesGame("Left4Dead.2-GROUP", "Left 4 Dead 2")).toBe(true);
+      expect(releaseMatchesGame("HalfLife.2-GROUP", "Half-Life 2")).toBe(true);
+      expect(
+        releaseMatchesGame("Marvels.SpiderMan.Remastered-GROUP", "Marvel's Spider-Man Remastered")
+      ).toBe(true);
+    });
+
+    it("does not let an apostrophe variant match a numbered sequel to the base game", () => {
+      expect(releaseMatchesGame("Baldur's.Gate.3-GOG", "Baldurs Gate")).toBe(false);
+      expect(releaseMatchesGame("Baldurs.Gate.3-GOG", "Baldur's Gate")).toBe(false);
+      expect(releaseMatchesGame("Baldur's.Gate.3-GOG", "Baldur's Gate 3")).toBe(true);
+    });
+
+    it("keeps normalizeTitle keys stable for accented titles", () => {
+      // stored review holds and blacklist entries are keyed on this output
+      expect(normalizeTitle("Pokémon Sword")).toBe("pok mon sword");
+    });
+
     it("matches accented titles against plain-ASCII release names", () => {
       expect(releaseMatchesGame("[Switch] Pokemon Sword [D86E5AFC]", "Pokémon Sword")).toBe(true);
       expect(

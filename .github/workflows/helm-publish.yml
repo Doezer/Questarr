@@ -86,3 +86,21 @@ jobs:
             echo "helm install questarr ${ref}/${CHART_NAME} --version ${CHART_VERSION} --namespace questarr --create-namespace"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish the Artifact Hub verified publisher metadata
+        env:
+          CHART_NAME: ${{ steps.chart.outputs.name }}
+          OWNER: ${{ github.repository_owner }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          owner_lc=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          curl -fsSL -o oras.tar.gz https://github.com/oras-project/oras/releases/download/v1.2.3/oras_1.2.3_linux_amd64.tar.gz
+          echo "b4efc97a91f471f323f193ea4b4d63d8ff443ca3aab514151a30751330852827  oras.tar.gz" | sha256sum -c -
+          tar -xzf oras.tar.gz oras
+          echo "$GITHUB_TOKEN" | ./oras login ghcr.io --username "$ACTOR" --password-stdin
+          cd charts
+          ../oras push "ghcr.io/${owner_lc}/charts/${CHART_NAME}:artifacthub.io" \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml

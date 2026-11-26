@@ -160,10 +160,30 @@ const USERNAME_ESCAPED_VALUE_RE = new RegExp(
   String.raw`(\b${USERNAME_KEY}\b\s*[:=]\s*)${escapedValue(2)}`,
   "gi"
 );
-const USERNAME_FIELD_RE = new RegExp(
-  String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|(?!(?<=:\s*)[{[])(?:[^"',\s&}{\\]|\\\\|\\(?!["']))+)`,
-  "gi"
-);
+/**
+ * Bare (unquoted) username values. Inside a JSON log line a backslash followed by `n`, `r` or
+ * `t` is an encoded line break or tab, which ends the value; in plain text (`ACME\nancy`) it is
+ * part of the name. An apostrophe is allowed inside a value (`O'Connor`) but not as its first
+ * character, where it would open a quoted value.
+ */
+function usernameFieldRe(jsonLine: boolean): RegExp {
+  const lone = jsonLine ? String.raw`\\(?![nrt"'])` : String.raw`\\(?!["'])`;
+  return new RegExp(
+    String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|(?!(?<=:\s*)[{[])(?:[^"',\s&}{\\]|\\\\|${lone})(?:[^"\s,&}{\\]|\\\\|${lone})*)`,
+    "gi"
+  );
+}
+const USERNAME_FIELD_RE = usernameFieldRe(false);
+const USERNAME_FIELD_JSON_RE = usernameFieldRe(true);
+const JSON_LINE_RE = /^\s*\{.*\}\s*$/;
+
+function maskUsernameField(line: string, jsonLine: boolean): string {
+  return line.replace(
+    jsonLine ? USERNAME_FIELD_JSON_RE : USERNAME_FIELD_RE,
+    (_m, quote: string, key: string, sep: string) =>
+      quote ? `${quote}${key}${quote}${sep}"[user]"` : `${key}=[user]`
+  );
+}
 
 function scrubUsernames(text: string): string {
   return text
@@ -172,9 +192,9 @@ function scrubUsernames(text: string): string {
       (_m, quote: string, key: string, sep: string) => `${quote}${key}${quote}${sep}\\"[user]\\"`
     )
     .replace(USERNAME_ESCAPED_VALUE_RE, (_m, prefix: string) => `${prefix}\\"[user]\\"`)
-    .replace(USERNAME_FIELD_RE, (_m, quote: string, key: string, sep: string) =>
-      quote ? `${quote}${key}${quote}${sep}"[user]"` : `${key}=[user]`
-    );
+    .split("\n")
+    .map((line) => maskUsernameField(line, JSON_LINE_RE.test(line)))
+    .join("\n");
 }
 
 function scrubEmailAddresses(text: string): string {

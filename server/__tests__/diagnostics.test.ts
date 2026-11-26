@@ -7,6 +7,8 @@ const { storageMock, loadProwlarrMock } = vi.hoisted(() => ({
     getAllDownloaders: vi.fn(),
     getAllUsers: vi.fn(),
     getUserSettings: vi.fn(),
+    getPathMappings: vi.fn(),
+    getSystemConfig: vi.fn(),
   },
   loadProwlarrMock: vi.fn(),
 }));
@@ -161,6 +163,11 @@ describe("buildDiagnosticsSnapshot", () => {
         category: "/mnt/private/library",
       } as unknown as Downloader,
     ]);
+    storageMock.getPathMappings.mockResolvedValue([
+      { id: "1", remotePath: "D:\\Games", localPath: "/data/games", remoteHost: "pc" },
+      { id: "2", remotePath: "/downloads/secretdir", localPath: "/data/dl", remoteHost: null },
+    ]);
+    storageMock.getSystemConfig.mockResolvedValue(undefined);
     loadProwlarrMock.mockResolvedValue({
       url: "http://192.168.1.20:9696",
       apiKey: SECRET_KEY,
@@ -204,6 +211,35 @@ describe("buildDiagnosticsSnapshot", () => {
     ]) {
       expect(text).not.toContain(secret);
     }
+  });
+
+  it("reports integrations and path mapping shape without any path", async () => {
+    const snapshot = await buildDiagnosticsSnapshot();
+    const text = formatDiagnosticsBlock(snapshot);
+
+    expect(snapshot.pathMappings).toEqual({ count: 2, windowsStyleRemote: 1, withRemoteHost: 1 });
+    expect(snapshot.integrations.igdbConfigured).toBe(false);
+    for (const path of ["D:\\\\Games", "secretdir", "/data/games"]) {
+      expect(text).not.toContain(path);
+    }
+
+    storageMock.getSystemConfig.mockImplementation(async (key: string) =>
+      key.startsWith("igdb.") ? "value" : undefined
+    );
+    expect((await buildDiagnosticsSnapshot()).integrations.igdbConfigured).toBe(true);
+  });
+
+  it("digests serialized errors with their name and code", () => {
+    const line = JSON.stringify({
+      level: 50,
+      module: "downloaders",
+      msg: "Download check failed",
+      time: "2026-11-26T10:00:00.000Z",
+      error: { name: "Error", code: "ECONNREFUSED", message: "connect refused" },
+    });
+    expect(summarizeErrors([line])[0]?.message).toBe(
+      "Download check failed: Error ECONNREFUSED: connect refused"
+    );
   });
 
   it("keeps going when a section fails", async () => {

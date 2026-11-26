@@ -18,6 +18,10 @@ vi.mock("../src/lib/support-config", () => ({
 import {
   buildGitHubIssueUrl,
   detectPlatform,
+  findRecentDuplicate,
+  loadSentReports,
+  prepareReport,
+  recordSentReport,
   scrubLogLines,
   scrubPii,
   sendLogs,
@@ -217,5 +221,70 @@ describe("send-logs utilities", () => {
       value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
     });
     expect(detectPlatform()).toBe("iOS");
+  });
+});
+
+describe("prepareReport and duplicate detection", () => {
+  const failing = JSON.stringify({
+    level: 50,
+    time: "2026-11-26T10:00:00.000Z",
+    module: "downloaders",
+    msg: "Download check failed",
+    error: { name: "Error", code: "ECONNREFUSED", message: "connect refused" },
+  });
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("builds the summary header, title, labels and scrubbed note ahead of the logs", () => {
+    const report = prepareReport({
+      logLines: [failing, failing],
+      diagnostics: "=== DIAG ===",
+      note: "  tried a search from user@example.com  ",
+      appVersion: "1.7.0",
+      platform: "Linux",
+    });
+
+    expect(report.title).toBe(
+      "Support log v1.7.0 - downloaders: Download check failed: Error ECONNREFUSED: connect refused"
+    );
+    expect(report.labels).toEqual([
+      "trigger:manual",
+      "version:1.7.0",
+      "platform:linux",
+      "module:downloaders",
+    ]);
+    expect(report.note).not.toContain("user@example.com");
+    expect(report.logs.indexOf("=== ERROR SUMMARY")).toBeLessThan(report.logs.indexOf("=== DIAG"));
+    expect(report.logs).toContain("2x [downloaders] Download check failed");
+    expect(report.logs.indexOf("=== DIAG")).toBeLessThan(report.logs.indexOf('"msg"'));
+  });
+
+  it("flags an identical report sent within the hour and forgets it afterwards", () => {
+    const now = Date.UTC(2026, 10, 26, 12, 0, 0);
+    const { signature } = prepareReport({
+      logLines: [failing],
+      diagnostics: "",
+      note: "",
+      appVersion: "1.7.0",
+      platform: "Linux",
+    });
+
+    expect(findRecentDuplicate([failing], now)).toBeUndefined();
+    recordSentReport(signature, "ABCD", now);
+    expect(findRecentDuplicate([failing], now + 60_000)?.code).toBe("ABCD");
+    expect(findRecentDuplicate([failing], now + 2 * 60 * 60 * 1000)).toBeUndefined();
+  });
+
+  it("survives unavailable or corrupt storage", () => {
+    localStorage.setItem("questarr.sentSupportReports", "not json");
+    expect(loadSentReports()).toEqual([]);
+
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    expect(() => recordSentReport("sig", "ABCD", Date.now())).not.toThrow();
+    spy.mockRestore();
   });
 });

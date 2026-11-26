@@ -3,6 +3,7 @@
 // utility grab-bag.
 
 import crypto from "node:crypto";
+import { types } from "node:util";
 import type { NextFunction, Request, Response } from "express";
 
 export const AUTH_COOKIE_NAME = "questarr_auth";
@@ -132,6 +133,48 @@ export { redactSecretText } from "../shared/log-scrub.js";
 const SECRET_KEY_PATTERN =
   /(api[_-]?key|apikey|authorization|bearer|client[_-]?secret|cookie|csrf|jwt|password|secret|token|webhook)/i;
 
+const ERROR_SCALAR_FIELDS = ["code", "errno", "syscall", "status", "statusCode"] as const;
+
+/**
+ * True for real errors (including ones from another realm or a library whose
+ * class doesn't extend `Error`) and for plain objects shaped like one. Both
+ * keep their fields on non-enumerable properties, so the generic object branch
+ * below would collapse them to `{}`.
+ */
+function isErrorLike(value: object): value is Error {
+  if (value instanceof Error || types.isNativeError(value)) return true;
+  const candidate = value as { name?: unknown; message?: unknown; stack?: unknown };
+  return (
+    typeof candidate.message === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.stack === "string"
+  );
+}
+
+/**
+ * Keeps what a maintainer needs to triage an error (name, message, code,
+ * errno/syscall/HTTP status and the cause chain) while never emitting the
+ * stack, request/response objects or any other attached payload.
+ */
+function serializeError(error: Error, depth: number): Record<string, unknown> {
+  const serialized: Record<string, unknown> = {
+    name: typeof error.name === "string" ? redactSecretText(error.name) : error.name,
+    message: redactSecretText(error.message),
+  };
+  const fields = error as unknown as Record<string, unknown>;
+  for (const field of ERROR_SCALAR_FIELDS) {
+    const entry = fields[field];
+    if (typeof entry === "string") serialized[field] = redactSecretText(entry);
+    else if (typeof entry === "number") serialized[field] = entry;
+  }
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause !== undefined && cause !== null) {
+    serialized.cause =
+      typeof cause === "object" ? redactSecrets(cause, depth + 1) : redactSecrets(String(cause));
+  }
+  return serialized;
+}
+
 /**
  * Recursively redact values whose key looks secret-shaped (api_key, token,
  * password, secret, authorization, ...), and run redactSecretText over every
@@ -144,9 +187,7 @@ export function redactSecrets(value: unknown, depth = 0): unknown {
   if (value == null) return value;
   if (typeof value === "string") return redactSecretText(value);
   if (typeof value !== "object") return value;
-  if (value instanceof Error) {
-    return { name: value.name, message: redactSecretText(value.message) };
-  }
+  if (isErrorLike(value)) return serializeError(value, depth);
   // These have no useful own-enumerable-property representation --
   // Object.entries(new Date()) is [], so falling through to the generic
   // object branch below would silently collapse them to {}.

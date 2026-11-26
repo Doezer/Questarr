@@ -2,6 +2,9 @@ import { test, expect } from "@playwright/test";
 import { apiSend } from "./helpers";
 
 test.describe("Setup wizard (1.7.0)", () => {
+  // Both tests read and write the one global wizard state, so they cannot run side by side.
+  test.describe.configure({ mode: "serial" });
+
   test.afterEach(async ({ page }) => {
     await page.goto("/");
     await apiSend(page, "PUT", "/api/system/setup-wizard", { state: "done" });

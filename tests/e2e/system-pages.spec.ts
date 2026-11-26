@@ -34,18 +34,18 @@ test.describe("System pages (1.7.0)", () => {
       .locator('[data-testid^="backup-"]')
       .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));
     await page.getByRole("button", { name: "Back up now" }).click();
-    // The new backup is the one that was not listed before: only that one is deleted below.
+    // The new backup is the manual one that was not listed before (a scheduled backup may land
+    // at the same time); only that one is deleted below.
+    const listedIds = () =>
+      page
+        .locator('[data-testid^="backup-"]')
+        .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid") ?? ""));
+    const newManual = async () =>
+      (await listedIds()).filter((id) => !existing.includes(id) && id.endsWith("_manual.zip"));
     await expect(async () => {
-      const ids = await page
-        .locator('[data-testid^="backup-"]')
-        .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));
-      expect(ids.filter((id) => !existing.includes(id))).toHaveLength(1);
+      expect(await newManual()).toHaveLength(1);
     }).toPass({ timeout: 30_000 });
-    const newId = (
-      await page
-        .locator('[data-testid^="backup-"]')
-        .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")))
-    ).find((id) => !existing.includes(id))!;
+    const newId = (await newManual())[0]!;
     const row = page.getByTestId(newId);
     await expect(row.getByRole("button", { name: /^Download backup/ })).toBeVisible();
     await expect(row.getByRole("button", { name: /^Restore backup/ })).toBeVisible();

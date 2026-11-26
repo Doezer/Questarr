@@ -161,7 +161,7 @@ const USERNAME_ESCAPED_VALUE_RE = new RegExp(
   "gi"
 );
 const USERNAME_FIELD_RE = new RegExp(
-  String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|(?![{[])(?:[^"',\s&}{\\]|\\\\|\\(?!["']))+)`,
+  String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|(?!(?<=:\s*)[{[])(?:[^"',\s&}{\\]|\\\\|\\(?!["']))+)`,
   "gi"
 );
 

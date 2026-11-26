@@ -20,11 +20,25 @@ test.describe("System pages (1.7.0)", () => {
   test("Backups creates a backup, lists it, offers download and deletes it", async ({ page }) => {
     await page.goto("/system/backups");
     await expect(page.getByRole("heading", { name: "Backups" })).toBeVisible();
+    const existing = await page
+      .locator('[data-testid^="backup-"]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));
     await page.getByRole("button", { name: "Back up now" }).click();
-    const list = page.getByRole("list", { name: "Saved backups" });
-    await expect(list.getByRole("listitem").first()).toBeVisible({ timeout: 30_000 });
-    await expect(list.getByRole("button", { name: /^Download backup/ }).first()).toBeVisible();
-    await expect(list.getByRole("button", { name: /^Restore backup/ }).first()).toBeVisible();
+    // The new backup is the one that was not listed before: only that one is deleted below.
+    await expect(async () => {
+      const ids = await page
+        .locator('[data-testid^="backup-"]')
+        .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")));
+      expect(ids.filter((id) => !existing.includes(id))).toHaveLength(1);
+    }).toPass({ timeout: 30_000 });
+    const newId = (
+      await page
+        .locator('[data-testid^="backup-"]')
+        .evaluateAll((els) => els.map((el) => el.getAttribute("data-testid")))
+    ).find((id) => !existing.includes(id))!;
+    const row = page.getByTestId(newId);
+    await expect(row.getByRole("button", { name: /^Download backup/ })).toBeVisible();
+    await expect(row.getByRole("button", { name: /^Restore backup/ })).toBeVisible();
 
     await page.getByLabel("Include journal screenshots").click();
     await page.getByRole("button", { name: "Save schedule" }).click();
@@ -33,16 +47,14 @@ test.describe("System pages (1.7.0)", () => {
     await page.getByLabel("Include journal screenshots").click();
     await page.getByRole("button", { name: "Save schedule" }).click();
 
-    const before = await list.getByRole("listitem").count();
-    await list
+    await page
+      .getByTestId(newId)
       .getByRole("button", { name: /^Delete backup/ })
-      .first()
       .click();
     await page
       .getByRole("alertdialog")
       .getByRole("button", { name: /delete/i })
       .click();
-    if (before > 1) await expect(list.getByRole("listitem")).toHaveCount(before - 1);
-    else await expect(page.getByText("No backup yet")).toBeVisible();
+    await expect(page.getByTestId(newId)).toHaveCount(0);
   });
 });

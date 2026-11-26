@@ -51,7 +51,12 @@ test.describe("System pages (1.7.0)", () => {
     await expect(row.getByRole("button", { name: /^Restore backup/ })).toBeVisible();
 
     await page.getByLabel("Include journal screenshots").click();
+    const saved = page.waitForResponse(
+      (r) =>
+        r.url().includes("/api/system/backups/settings") && r.request().method() === "PUT" && r.ok()
+    );
     await page.getByRole("button", { name: "Save schedule" }).click();
+    await saved;
     await page.reload();
     await expect(page.getByLabel("Include journal screenshots")).toBeChecked();
     await page.getByLabel("Include journal screenshots").click();

@@ -37,7 +37,7 @@ test.describe("Setup wizard (1.7.0)", () => {
     await expect(page.getByRole("region", { name: "Setup wizard" })).toHaveCount(0);
   });
 
-  test("an install that predates it can dismiss the prompt, and rerun it from Settings", async ({
+  test("rejects an invalid state and can be rerun from Settings once finished", async ({
     page,
   }) => {
     await page.goto("/");

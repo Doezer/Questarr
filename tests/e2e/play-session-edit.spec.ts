@@ -40,6 +40,27 @@ test.describe("Play session editing (1.7.0)", () => {
     }
     await playtime.getByRole("button", { name: "Merge sessions" }).click();
     await expect(playtime.getByText("1 session")).toBeVisible();
+    await expect(playtime.getByTestId("text-playtime-total")).toHaveText("3h");
+
+    // Edit the merged session so that it stops two hours after it started.
+    await playtime.getByRole("button", { name: /^Edit the 3h/ }).click();
+    const edit = page.getByRole("dialog", { name: "Edit session" });
+    // Set both ends to whole minutes, so the length is exactly two hours.
+    const started = await edit.getByLabel("Started").inputValue();
+    const [datePart, timePart] = started.split("T") as [string, string];
+    const [y, mo, d] = datePart.split("-").map(Number) as [number, number, number];
+    const [h, mi] = timePart.split(":").map(Number) as [number, number];
+    const at = (extraMinutes: number) =>
+      new Date(Date.UTC(y, mo - 1, d, h, mi + extraMinutes)).toISOString().slice(0, 16);
+    await edit.getByLabel("Started").fill(at(1));
+    await edit.getByLabel("Stopped").fill(at(121));
+    await expect(edit.getByText("Length: 2h")).toBeVisible();
+    await edit.getByRole("button", { name: "Save" }).click();
+    await expect(playtime.getByTestId("text-playtime-total")).toHaveText("2h");
+    await page.reload();
+    await expect(
+      page.getByTestId("section-playtime").getByTestId("text-playtime-total")
+    ).toHaveText("2h");
 
     // Sessions more than 30 minutes apart cannot be merged.
     const far = await apiSend(page, "POST", base, { startedAt: hoursAgo(10), durationMinutes: 30 });
@@ -52,10 +73,10 @@ test.describe("Play session editing (1.7.0)", () => {
 
     // The API refuses a merge of fewer than two sessions and an unknown session.
     const refused = await apiSend(page, "POST", `${base}/merge`, { sessionIds: [] });
-    expect(refused.ok()).toBe(false);
+    expect(refused.status()).toBe(400);
     const missing = await apiSend(page, "PATCH", `${base}/00000000-0000-0000-0000-000000000000`, {
       startedAt: hoursAgo(1),
     });
-    expect([400, 404]).toContain(missing.status());
+    expect(missing.status()).toBe(404);
   });
 });

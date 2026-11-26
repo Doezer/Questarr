@@ -1,7 +1,19 @@
 import { test, expect } from "@playwright/test";
-import { openSettingsSection } from "./helpers";
+import { apiSend, openSettingsSection } from "./helpers";
 
 test.describe("Import settings for upgrades and add-ons (1.7.0)", () => {
+  // Both options start from their defaults, and a failed run never leaves them changed.
+  const resetDefaults = async (page: import("@playwright/test").Page) => {
+    await page.goto("/");
+    const reset = await apiSend(page, "PATCH", "/api/imports/config", {
+      addonSubfolders: false,
+      upgradeReplaceMode: "off",
+    });
+    expect(reset.ok()).toBe(true);
+  };
+  test.beforeEach(async ({ page }) => resetDefaults(page));
+  test.afterEach(async ({ page }) => resetDefaults(page));
+
   test("saves the add-on subfolder switch and the previous-version choice, and keeps them after a reload", async ({
     page,
   }) => {

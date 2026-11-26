@@ -171,6 +171,12 @@ describe("scrubPii usernames", () => {
     expect(scrubPii(line)).toBe(line);
   });
 
+  it("masks a domain-qualified username entirely", () => {
+    expect(scrubPii(String.raw`user username=ACME\alice next=1`)).toBe(
+      "user username=[user] next=1"
+    );
+  });
+
   it("is idempotent", () => {
     const once = scrubPii('{"username":"jdupont","ip":"10.0.0.2"}');
     expect(scrubPii(once)).toBe(once);
@@ -190,6 +196,10 @@ describe("scrubPii IP classes", () => {
     ["fe80::1", "[ip:lan]"],
     ["fd12:3456:789a::1", "[ip:lan]"],
     ["2001:db8::1", "[ip:public]"],
+    ["0:0:0:0:0:0:0:1", "[ip:loopback]"],
+    ["0:0:0:0:0:0:0:0", "[ip:lan]"],
+    ["fc::1", "[ip:public]"],
+    ["fe8::1", "[ip:public]"],
   ])("classifies %s", (ip, expected) => {
     expect(scrubPii(`connect ${ip} failed`)).toBe(`connect ${expected} failed`);
   });

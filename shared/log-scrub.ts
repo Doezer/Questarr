@@ -161,7 +161,7 @@ const USERNAME_ESCAPED_VALUE_RE = new RegExp(
   "gi"
 );
 const USERNAME_FIELD_RE = new RegExp(
-  String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|[^"',\s&}{[\\]+)`,
+  String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|(?:[^"',\s&}{[\\]|\\(?!["']))+)`,
   "gi"
 );
 
@@ -292,8 +292,31 @@ function classifyIpv4(value: string): IpClass {
 }
 
 function classifyIpv6(value: string): IpClass {
-  const lower = value.toLowerCase();
-  if (lower === "::1") return "loopback";
-  if (lower === "::" || /^f[cd]/.test(lower) || /^fe[89ab]/.test(lower)) return "lan";
+  const groups = expandIpv6(value);
+  if (!groups) return "public";
+  const [first = 0] = groups;
+  const isZeroPrefix = groups.slice(0, 7).every((group) => group === 0);
+  if (isZeroPrefix && groups[7] === 1) return "loopback";
+  if (isZeroPrefix && groups[7] === 0) return "lan"; // unspecified address
+  if ((first & 0xfe00) === 0xfc00) return "lan"; // fc00::/7 unique local
+  if ((first & 0xffc0) === 0xfe80) return "lan"; // fe80::/10 link-local
   return "public";
+}
+
+/** Expands a validated IPv6 address (compressed or not) into its 8 numeric groups. */
+function expandIpv6(value: string): number[] | null {
+  const [head = "", tail, extra] = value.split("::");
+  if (extra !== undefined) return null;
+  const toGroups = (part: string) =>
+    part === "" ? [] : part.split(":").map((g) => parseInt(g, 16));
+  const headGroups = toGroups(head);
+  const tailGroups = tail === undefined ? [] : toGroups(tail);
+  const missing = 8 - headGroups.length - tailGroups.length;
+  if (tail === undefined ? missing !== 0 : missing < 0) return null;
+  const groups = [
+    ...headGroups,
+    ...new Array<number>(tail === undefined ? 0 : missing).fill(0),
+    ...tailGroups,
+  ];
+  return groups.length === 8 && groups.every((g) => Number.isInteger(g)) ? groups : null;
 }

@@ -68,10 +68,14 @@ mkdir -p "${OLD}"
 
 shopt -s dotglob nullglob
 
+phase=backup
+
 rollback() {
-  for f in "${APP_DIR}"/*; do
-    case "${f##*/}" in data | .env) ;; *) rm -rf "${f}" ;; esac
-  done
+  if [ "${phase}" = install ]; then
+    for f in "${APP_DIR}"/*; do
+      case "${f##*/}" in data | .env) ;; *) rm -rf "${f}" ;; esac
+    done
+  fi
   for f in "${OLD}"/*; do mv "${f}" "${APP_DIR}/" || true; done
   rmdir "${OLD}" 2>/dev/null || true
   if [ -f "${PLIST}" ]; then
@@ -83,6 +87,7 @@ rollback() {
 for f in "${APP_DIR}"/*; do
   case "${f##*/}" in data | .env) ;; *) mv "${f}" "${OLD}/" || rollback ;; esac
 done
+phase=install
 for f in "${STAGE}"/*; do
   mv "${f}" "${APP_DIR}/" || rollback
 done

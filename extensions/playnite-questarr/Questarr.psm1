@@ -699,9 +699,13 @@ function New-QuestarrSyncWork {
             # after it closed, keyed on the extension's own stop times
             # (Playnite stamps LastActivity at launch only, so a session
             # longer than the window would slip a LastActivity-keyed hold).
+            # LastActivity stays as a backstop for the short gap before the hook
+            # has written the stop time (sessions under the window).
+            $holdWindow = [DateTime]::UtcNow.AddMinutes(-15)
             $recentStop = $recentStops[$game.Id.ToString()]
             if ([bool]$game.IsRunning -or
-                ($null -ne $recentStop -and $recentStop.ToUniversalTime() -gt [DateTime]::UtcNow.AddMinutes(-15))) {
+                ($null -ne $recentStop -and $recentStop.ToUniversalTime() -gt $holdWindow) -or
+                ($null -ne $game.LastActivity -and $game.LastActivity.ToUniversalTime() -gt $holdWindow)) {
                 $heldTotals += 1
                 continue
             }
@@ -801,7 +805,10 @@ function Read-QuestarrRecentStopsFile {
         $map = @{}
         foreach ($p in $raw.PSObject.Properties) {
             try {
-                $map[$p.Name] = [DateTime]::Parse([string]$p.Value, [Globalization.CultureInfo]::InvariantCulture)
+                $map[$p.Name] = [DateTime]::Parse(
+                    [string]$p.Value,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
             }
             catch {
                 # A value that is not a timestamp is debris; ignore it.
@@ -828,7 +835,8 @@ function Write-QuestarrRecentStopsFile {
     $cutoff = [DateTime]::UtcNow.AddMinutes(-15)
     $keep = @{}
     foreach ($k in $Map.Keys) {
-        if ($Map[$k] -gt $cutoff) { $keep[$k] = $Map[$k].ToUniversalTime().ToString("o") }
+        $stopUtc = ([DateTime]$Map[$k]).ToUniversalTime()
+        if ($stopUtc -gt $cutoff) { $keep[$k] = $stopUtc.ToString("o") }
     }
     $path = Join-Path $DataDir "recent-stops.json"
     $temp = "$path.tmp"
@@ -1288,7 +1296,15 @@ function Invoke-QuestarrSyncCore {
                     $size = 500
                     for ($offset = 0; $offset -lt $store.entries.Count; $offset += $size) {
                         $take = [Math]::Min($size, $store.entries.Count - $offset)
-                        $batch = @($store.entries.GetRange($offset, $take))
+                        $batch = @($store.entries.GetRange($offset, $take) | ForEach-Object {
+                            $gid = $gameIds[[string]$_.externalId]
+                            if ($gid) {
+                                $copy = $_.Clone()
+                                $copy.gameId = $gid
+                                $copy
+                            }
+                            else { $_ }
+                        })
                         $response = Invoke-QuestarrApi -Config $Config -Path "/play-time-totals" -Method "Post" -Body @{
                             games = $batch
                         } -TimeoutSec 300
@@ -1619,6 +1635,27 @@ function OnGameStopped {
     }
     $script:PlayStarts.Remove($key)
 
+    # Persist the stop time FIRST (before the session is queued), so the totals
+    # hold-back has it as early as possible. It relies on it because Playnite only
+    # stamps LastActivity when a game starts, so the window must be keyed on
+    # a timestamp the extension writes itself.
+    try {
+        $mutex = Get-QuestarrQueueMutex
+        $hadLock = Wait-QuestarrQueueMutex $mutex
+        if ($hadLock) {
+            try {
+                $stops = Read-QuestarrRecentStopsFile -DataDir $CurrentExtensionDataPath
+                $stops[$key] = [DateTime]::UtcNow
+                Write-QuestarrRecentStopsFile -DataDir $CurrentExtensionDataPath -Map $stops
+            }
+            finally { $mutex.ReleaseMutex() }
+        }
+        $mutex.Dispose()
+    }
+    catch {
+        $__logger.Error("Questarr: could not record the stop time: $($_.Exception.Message)")
+    }
+
     if ($null -ne $startedAt -and -not [string]::IsNullOrWhiteSpace($game.Name)) {
         # Quickly closed launches are noise, and the server caps a session at 24 hours.
         $seconds = ($endedAt - $startedAt).TotalSeconds
@@ -1645,26 +1682,6 @@ function OnGameStopped {
                 return
             }
         }
-    }
-
-    # Persist the stop time the totals hold-back relies on: Playnite only
-    # stamps LastActivity when a game starts, so the window must be keyed on
-    # a timestamp the extension writes itself.
-    try {
-        $mutex = Get-QuestarrQueueMutex
-        $hadLock = Wait-QuestarrQueueMutex $mutex
-        if ($hadLock) {
-            try {
-                $stops = Read-QuestarrRecentStopsFile -DataDir $CurrentExtensionDataPath
-                $stops[$key] = [DateTime]::UtcNow
-                Write-QuestarrRecentStopsFile -DataDir $CurrentExtensionDataPath -Map $stops
-            }
-            finally { $mutex.ReleaseMutex() }
-        }
-        $mutex.Dispose()
-    }
-    catch {
-        $__logger.Error("Questarr: could not record the stop time: $($_.Exception.Message)")
     }
 
     try {

@@ -258,6 +258,22 @@ describe("error-telemetry", () => {
     }
   });
 
+  it("still reports a different error even when the log window is unchanged", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-26T10:00:00Z"));
+      storageMock.getAllUsers.mockResolvedValue([userOne]);
+      storageMock.getUserSettings.mockResolvedValue(makeSettings());
+
+      await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
+      vi.setSystemTime(new Date("2026-11-26T10:45:00Z"));
+      await reportServerError(new Error("different crash"), { source: "uncaughtException" });
+      expect(storageMock.addNotification).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("skips users who disabled the errorDetected notification", async () => {
     storageMock.getAllUsers.mockResolvedValue([userOne]);
     storageMock.getUserSettings.mockResolvedValue(

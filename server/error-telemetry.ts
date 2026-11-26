@@ -32,6 +32,7 @@ import { summarizeErrors } from "../shared/log-summary.js";
 import {
   buildReportEnvelope,
   findDuplicateReport,
+  hashText,
   rememberReport,
   type ReportEnvelope,
   type SentRecord,
@@ -328,7 +329,16 @@ export async function reportServerError(err: unknown, context: ErrorContext): Pr
       context: describeTrigger(context),
     });
     const now = Date.now();
-    if (findDuplicateReport(envelope.signature, recentSignatures, now, SAME_PROBLEM_COOLDOWN_MS)) {
+    // The same-problem key includes the triggering error itself: the log window
+    // alone can be dominated by older warnings (or be empty when server.log is
+    // unreadable), which would otherwise hide a genuinely different crash.
+    const dedupKey = hashText(
+      `${context.source}|${err instanceof Error ? err.name : ""}|${errorMessage}\n${envelope.signature}`
+    );
+    if (
+      diagnostics.lines.length > 0 &&
+      findDuplicateReport(dedupKey, recentSignatures, now, SAME_PROBLEM_COOLDOWN_MS)
+    ) {
       telemetryLogger.info(
         { signature: envelope.signature },
         "Skipping error report: the same problem was already reported recently"
@@ -336,7 +346,7 @@ export async function reportServerError(err: unknown, context: ErrorContext): Pr
       return;
     }
     recentSignatures = rememberReport(
-      { signature: envelope.signature, sentAt: now },
+      { signature: dedupKey, sentAt: now },
       recentSignatures,
       SAME_PROBLEM_COOLDOWN_MS
     );

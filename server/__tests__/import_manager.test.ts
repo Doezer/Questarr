@@ -10,6 +10,7 @@ const { fsMock, downloadersMock } = vi.hoisted(() => ({
     pathExists: vi.fn().mockResolvedValue(true),
     stat: vi.fn().mockResolvedValue({ isDirectory: () => false }),
     readdir: vi.fn().mockResolvedValue([]),
+    lstat: vi.fn().mockRejectedValue(new Error("ENOENT")),
   },
   downloadersMock: {
     removeDownload: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
@@ -29,6 +30,7 @@ import {
   ImportInProgressError,
   IncompleteScanError,
 } from "../services/ImportManager.js";
+import { PCImportStrategy } from "../services/ImportStrategies.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 describe("ImportManager", () => {
@@ -392,6 +394,205 @@ describe("ImportManager", () => {
       { status: "owned" },
       { preserveCurated: true }
     );
+  });
+
+  it("confirmImport: a confirmed update keeps the game's own library entry, not its subfolder", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My.Game.Update.v1.2-RUNE",
+      category: "update",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "owned",
+      platforms: [6],
+      libraryPath: "/safe/root/PC/My Game",
+    });
+    storage.getImportConfig.mockResolvedValue({
+      ...baseConfig,
+      libraryRoot: "/safe/root",
+      addonSubfolders: true,
+      sortExtras: true,
+    });
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    const executeSpy = vi
+      .spyOn(PCImportStrategy.prototype, "executeImport")
+      .mockResolvedValue({ success: true, destDir: "/safe/root/PC/My Game/update" } as never);
+    fsMock.stat.mockResolvedValueOnce({ isDirectory: () => true });
+    await manager.confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/source-folder",
+      proposedPath: "/safe/root/PC/My Game/update",
+      needsReview: false,
+      transferMode: "move",
+    });
+
+    expect(executeSpy).toHaveBeenCalled();
+    const review = executeSpy.mock.calls[0]![0];
+    expect(review.addonGameFolder).toBe("/safe/root/PC/My Game");
+    executeSpy.mockRestore();
+  });
+
+  it("confirmImport: a single-file archive update unpacks into update/, not update/<name>/", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My.Game.Update.v1.2-RUNE",
+      category: "update",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "owned",
+      platforms: [6],
+      libraryPath: "/safe/root/PC/My Game",
+    });
+    storage.getImportConfig.mockResolvedValue({
+      ...baseConfig,
+      libraryRoot: "/safe/root",
+      addonSubfolders: true,
+      autoUnpack: true,
+    });
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+    const resolution = { alreadyExtracted: false, isDirectorySource: false };
+    vi.spyOn(manager as never, "resolveArchive").mockResolvedValue(resolution as never);
+    const transferSpy = vi
+      .spyOn(manager as never, "transferWithUnpack")
+      .mockResolvedValue({ success: true, destDir: "/safe/root/PC/My Game/update" } as never);
+    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+      strategy: "pc",
+      originalPath: "/downloads/Update.zip",
+      proposedPath: "/safe/root/PC/My Game/update",
+      addonGameFolder: "/safe/root/PC/My Game",
+      needsReview: false,
+    } as never);
+    fsMock.stat.mockResolvedValueOnce({ isDirectory: () => false });
+    await manager.confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/Update.zip",
+      proposedPath: "/safe/root/PC/My Game/update/Update.zip",
+      needsReview: false,
+      transferMode: "move",
+      unpack: true,
+    } as never);
+
+    const plan = (transferSpy.mock.calls[0] as unknown[])[0] as {
+      proposedPath: string;
+      addonGameFolder?: string;
+    };
+    expect(plan.addonGameFolder).toBe("/safe/root/PC/My Game");
+    expect(plan.proposedPath).toBe("/safe/root/PC/My Game/update");
+
+    // A destination the user chose inside the game folder is kept as confirmed
+    fsMock.stat.mockResolvedValueOnce({ isDirectory: () => false });
+    transferSpy.mockClear();
+    await manager.confirmImport("dl-1", {
+      strategy: "pc",
+      originalPath: "/downloads/Update.zip",
+      proposedPath: "/safe/root/PC/My Game/update-v2/Update.zip",
+      needsReview: false,
+      transferMode: "move",
+      unpack: true,
+    } as never);
+    const custom = (transferSpy.mock.calls[0] as unknown[])[0] as { proposedPath: string };
+    expect(custom.proposedPath).toBe("/safe/root/PC/My Game/update-v2/Update");
+    planSpy.mockRestore();
+    transferSpy.mockRestore();
+  });
+
+  it("an add-on is not extracted through a linked folder below its game folder", async () => {
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+    const check = (plan: unknown) =>
+      (
+        manager as unknown as {
+          assertAddonDestinationIsFolder(p: unknown): Promise<void>;
+        }
+      ).assertAddonDestinationIsFolder(plan);
+    const plan = {
+      addonGameFolder: "/safe/root/PC/My Game",
+      proposedPath: "/safe/root/PC/My Game/update-v2/Update",
+    };
+    // update-v2 is a link to elsewhere: Update does not exist yet
+    fsMock.lstat.mockImplementation(async (p: string) => {
+      if (p.endsWith("update-v2")) return { isDirectory: () => false };
+      throw new Error("ENOENT");
+    });
+    await expect(check(plan)).rejects.toThrow("link or a file");
+    // plain folders, or nothing created yet, are fine
+    fsMock.lstat.mockImplementation(async () => ({ isDirectory: () => true }));
+    await expect(check(plan)).resolves.toBeUndefined();
+    fsMock.lstat.mockRejectedValue(new Error("ENOENT"));
+    await expect(check(plan)).resolves.toBeUndefined();
+  });
+
+  it("confirmImport: an add-on whose game moved while waiting for the lock is confirmed again", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My.Game.Update.v1.2-RUNE",
+      category: "update",
+    });
+    const base = {
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "owned",
+      platforms: [6],
+    };
+    storage.getGame
+      .mockResolvedValueOnce({ ...base, libraryPath: "/safe/root/PC/My Game" })
+      .mockResolvedValue({ ...base, libraryPath: "/safe/root/PC/My Game (2)" });
+    storage.getImportConfig.mockResolvedValue({
+      ...baseConfig,
+      libraryRoot: "/safe/root",
+      addonSubfolders: true,
+    });
+    fsMock.stat.mockResolvedValueOnce({ isDirectory: () => true });
+    const executeSpy = vi.spyOn(PCImportStrategy.prototype, "executeImport");
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await expect(
+      manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/source-folder",
+        proposedPath: "/safe/root/PC/My Game/update",
+        needsReview: false,
+        transferMode: "move",
+      })
+    ).rejects.toThrow("confirm it again");
+    expect(executeSpy).not.toHaveBeenCalled();
+    executeSpy.mockRestore();
   });
 
   it("records the release's version on the game once the import is finalized", async () => {

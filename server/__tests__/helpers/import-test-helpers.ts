@@ -69,6 +69,7 @@ export function makeImportConfig(overrides: Partial<ImportConfig> = {}): ImportC
     sortExtras: false,
     upgradeReplaceMode: "off",
     folderForSingleFiles: false,
+    addonSubfolders: false,
     ...overrides,
   };
 }

@@ -367,13 +367,12 @@ interface Planned extends SteamImportCandidate {
   total: number;
 }
 
-/** Work out what an import would add. Nothing is written. */
-async function planSteamImport(userId: string): Promise<{ planned: Planned[]; skipped: number }> {
-  const user = await storage.getUser(userId);
-  if (!config.steam.isConfigured || !user?.steamId64) throw new SteamPlaytimeUnavailableError();
-  let totals;
+/** Reads Steam's play time per app. Failures are reported without the API key. */
+async function fetchSteamTotals(
+  steamId64: string
+): Promise<Awaited<ReturnType<typeof steamService.getOwnedPlaytimesDetailed>>> {
   try {
-    totals = await steamService.getOwnedPlaytimesDetailed(config.steam.apiKey!, user.steamId64);
+    return await steamService.getOwnedPlaytimesDetailed(config.steam.apiKey!, steamId64);
   } catch (error) {
     // Do not log the error: Steam request URLs contain the API key.
     const message =
@@ -382,17 +381,29 @@ async function planSteamImport(userId: string): Promise<{ planned: Planned[]; sk
         : "Could not read your Steam play time. Check the API key and make Game details public.";
     throw new SteamPlaytimeUpstreamError(message, { cause: error });
   }
+}
+
+function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const list = groups.get(key(item)) ?? [];
+    list.push(item);
+    groups.set(key(item), list);
+  }
+  return groups;
+}
+
+/** Work out what an import would add. Nothing is written. */
+async function planSteamImport(userId: string): Promise<{ planned: Planned[]; skipped: number }> {
+  const user = await storage.getUser(userId);
+  if (!config.steam.isConfigured || !user?.steamId64) throw new SteamPlaytimeUnavailableError();
+  const totals = await fetchSteamTotals(user.steamId64);
   const [games, runningTimer, sessions] = await Promise.all([
     storage.getUserGames(userId, true),
     storage.getRunningPlaySession(userId),
     storage.getUserPlaySessions(userId),
   ]);
-  const byGame = new Map<string, typeof sessions>();
-  for (const session of sessions) {
-    const list = byGame.get(session.gameId) ?? [];
-    list.push(session);
-    byGame.set(session.gameId, list);
-  }
+  const byGame = groupBy(sessions, (session) => session.gameId);
   const planned: Planned[] = [];
   let skipped = 0;
   for (const game of games) {

@@ -67,6 +67,7 @@ const importConfigPatchSchema = z
     sortExtras: z.boolean().optional(),
     upgradeReplaceMode: upgradeReplaceModeSchema.optional(),
     folderForSingleFiles: z.boolean().optional(),
+    addonSubfolders: z.boolean().optional(),
   })
   .strict();
 
@@ -380,6 +381,7 @@ importRouter.patch("/config", async (req, res) => {
       sortExtras: newConfig.sortExtras,
       upgradeReplaceMode: newConfig.upgradeReplaceMode,
       folderForSingleFiles: newConfig.folderForSingleFiles,
+      addonSubfolders: newConfig.addonSubfolders,
     };
 
     const existing = await storage.getUserSettings(userId);

@@ -88,6 +88,20 @@ export class RssService {
     }
   }
 
+  /**
+   * A feed switched to link extraction later: fill in the items it already holds.
+   * (GUIDs are looked up across feeds: never fill in another feed's item.)
+   */
+  private async backfillLinks(
+    feed: RssFeed,
+    existing: { id: number | string; feedId: string; links?: unknown },
+    item: unknown
+  ): Promise<void> {
+    if (!feed.extractLinks || existing.feedId !== feed.id || existing.links != null) return;
+    const links = await extractItemLinks(item as Record<string, unknown>, feed.url);
+    if (links) await storage.updateRssFeedItem(String(existing.id), { links });
+  }
+
   private async fetchFeed(feed: RssFeed) {
     rssLogger.debug(`Fetching feed: ${feed.name} (${feed.url})`);
 
@@ -111,12 +125,7 @@ export class RssService {
       // 2. Check if exists
       const existing = await storage.getRssFeedItemByGuid(normalized.guid);
       if (existing) {
-        // A feed switched to link extraction later: fill in the items it already holds.
-        // (GUIDs are looked up across feeds: never fill in another feed's item.)
-        if (feed.extractLinks && existing.feedId === feed.id && existing.links == null) {
-          const links = await extractItemLinks(item as Record<string, unknown>, feed.url);
-          if (links) await storage.updateRssFeedItem(String(existing.id), { links });
-        }
+        await this.backfillLinks(feed, existing, item);
         continue;
       }
 

@@ -50,8 +50,8 @@ if ! mkdir "${LOCK}" 2>/dev/null; then
   mv "${LOCK}" "${STALE}" 2>/dev/null && rm -rf "${STALE}"
   mkdir "${LOCK}" 2>/dev/null || die "Another install.sh run is in progress."
 fi
-echo "$$" >"${LOCK}/pid"
 trap 'rm -rf "${LOCK}"' EXIT
+echo "$$" >"${LOCK}/pid"
 
 STAGE="${APP_DIR}.staging"
 rm -rf "${STAGE}"

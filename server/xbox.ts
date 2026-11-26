@@ -90,6 +90,35 @@ export async function verifyXboxKey(apiKey: string): Promise<{
   throw new XboxRequestError("OpenXBL did not say which account the key belongs to.");
 }
 
+type RawXboxTitle = NonNullable<AchievementsResponse["titles"]>[number];
+
+function lacksAchievementCounts(t: RawXboxTitle): boolean {
+  return (
+    typeof t.achievement?.totalAchievements !== "number" ||
+    typeof t.achievement.currentAchievements !== "number"
+  );
+}
+
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** One played title as the library sees it, or null when it has no achievements to track. */
+function toXboxTitle(t: RawXboxTitle): XboxTitle | null {
+  const total = t.achievement?.totalAchievements ?? 0;
+  if (t.titleId === undefined || !t.name || total <= 0) return null;
+  return {
+    titleId: String(t.titleId),
+    title: t.name,
+    devices: t.devices ?? [],
+    total,
+    unlocked: Math.min(t.achievement?.currentAchievements ?? 0, total),
+    lastPlayedAt: parseDate(t.titleHistory?.lastTimePlayed),
+  };
+}
+
 /** Every title the account has played, with its achievement counts (titles without any are left out). */
 export async function fetchXboxTitles(apiKey: string): Promise<XboxTitle[]> {
   const titles: XboxTitle[] = [];
@@ -100,29 +129,12 @@ export async function fetchXboxTitles(apiKey: string): Promise<XboxTitle[]> {
     const rawTitles = data.titles ?? [];
     // Titles that come without achievement counts mean the answer is not shaped as expected: report
     // it instead of reading it as "no progress", which would erase the stored progress.
-    if (
-      rawTitles.some(
-        (t) =>
-          typeof t.achievement?.totalAchievements !== "number" ||
-          typeof t.achievement.currentAchievements !== "number"
-      )
-    ) {
+    if (rawTitles.some(lacksAchievementCounts)) {
       throw new XboxRequestError("OpenXBL sent an unreadable answer.");
     }
     for (const t of rawTitles) {
-      const total = t.achievement?.totalAchievements ?? 0;
-      if (t.titleId === undefined || !t.name || total <= 0) continue;
-      const played = t.titleHistory?.lastTimePlayed
-        ? new Date(t.titleHistory.lastTimePlayed)
-        : null;
-      titles.push({
-        titleId: String(t.titleId),
-        title: t.name,
-        devices: t.devices ?? [],
-        total,
-        unlocked: Math.min(t.achievement?.currentAchievements ?? 0, total),
-        lastPlayedAt: played && !Number.isNaN(played.getTime()) ? played : null,
-      });
+      const title = toXboxTitle(t);
+      if (title) titles.push(title);
     }
     token = data.pagingInfo?.continuationToken;
     if (!token) break;

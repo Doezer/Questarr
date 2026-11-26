@@ -730,6 +730,51 @@ export async function reorganizeBySortExtras(destDir: string): Promise<void> {
   }
 }
 
+/**
+ * An update goes next to the base game already in the library, whatever the new release's own
+ * name says (a "{Title} {Version}" pattern would otherwise start a new folder).
+ */
+async function resolveAddonGameFolder(
+  game: Game,
+  targetRoot: string,
+  platformDir: string | undefined,
+  cleanTitle: string
+): Promise<string> {
+  const fallback = path.join(targetRoot, platformDir ?? "PC", cleanTitle);
+  if (!game.libraryPath) return fallback;
+  const existing = path.resolve(game.libraryPath);
+  const relativeToRoot = path.relative(targetRoot, existing);
+  const insideLibrary =
+    relativeToRoot !== "" && !relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot);
+  if (!insideLibrary) return fallback;
+  const stat = await fs.stat(existing).catch(() => undefined);
+  return stat?.isDirectory() ? existing : fallback;
+}
+
+interface PcDestinationParts {
+  addonSubfolder: string | undefined;
+  isDirectorySource: boolean;
+  gameFolder: string;
+  sourcePath: string;
+  wrapInFolder: boolean;
+  targetRoot: string;
+  platformDir: string | undefined;
+  cleanTitle: string;
+  ext: string;
+}
+
+function computePcDestination(p: PcDestinationParts): string {
+  if (p.addonSubfolder) {
+    // A folder (or an archive to unpack) fills the subfolder; a single file keeps its name.
+    return p.isDirectorySource
+      ? path.join(p.gameFolder, p.addonSubfolder)
+      : path.join(p.gameFolder, p.addonSubfolder, path.basename(p.sourcePath));
+  }
+  return p.wrapInFolder
+    ? path.join(p.gameFolder, p.cleanTitle + p.ext)
+    : path.join(p.targetRoot, p.platformDir ?? "PC", p.cleanTitle + p.ext);
+}
+
 export class PCImportStrategy implements ImportStrategy {
   // Local filesystem roots a source path is allowed to live under, derived from
   // configured path mappings (see PathMappingService.getConfiguredRoots). Left empty
@@ -770,30 +815,21 @@ export class PCImportStrategy implements ImportStrategy {
     );
     // An update goes next to the base game already in the library, whatever the new release's
     // own name says (a "{Title} {Version}" pattern would otherwise start a new folder).
-    let gameFolder = path.join(targetRoot, platformDir ?? "PC", cleanTitle);
-    if (addonSubfolder && game.libraryPath) {
-      const existing = path.resolve(game.libraryPath);
-      const relativeToRoot = path.relative(targetRoot, existing);
-      const insideLibrary =
-        relativeToRoot !== "" &&
-        !relativeToRoot.startsWith("..") &&
-        !path.isAbsolute(relativeToRoot);
-      if (insideLibrary && (await fs.stat(existing).catch(() => undefined))?.isDirectory()) {
-        gameFolder = existing;
-      }
-    }
+    const gameFolder = addonSubfolder
+      ? await resolveAddonGameFolder(game, targetRoot, platformDir, cleanTitle)
+      : path.join(targetRoot, platformDir ?? "PC", cleanTitle);
     const isDirectorySource = stats.isDirectory() || !!options?.treatAsDirectory;
-    let destination: string;
-    if (addonSubfolder) {
-      // A folder (or an archive to unpack) fills the subfolder; a single file keeps its name.
-      destination = isDirectorySource
-        ? path.join(gameFolder, addonSubfolder)
-        : path.join(gameFolder, addonSubfolder, path.basename(sourcePath));
-    } else {
-      destination = wrapInFolder
-        ? path.join(gameFolder, cleanTitle + ext)
-        : path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);
-    }
+    const destination = computePcDestination({
+      addonSubfolder,
+      isDirectorySource,
+      gameFolder,
+      sourcePath,
+      wrapInFolder,
+      targetRoot,
+      platformDir,
+      cleanTitle,
+      ext,
+    });
 
     // sanitizeFsName strips filesystem-illegal characters but not ".." segments, so a
     // game title alone doesn't guarantee destination stays under targetRoot. Verify

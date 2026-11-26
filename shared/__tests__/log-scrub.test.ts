@@ -171,6 +171,10 @@ describe("scrubPii usernames", () => {
     expect(scrubPii(line)).toBe(line);
   });
 
+  it("masks brackets inside an unquoted username", () => {
+    expect(scrubPii("login username=alice[smith] next=1")).toBe("login username=[user] next=1");
+  });
+
   it("masks a domain-qualified username entirely", () => {
     expect(scrubPii(String.raw`user username=ACME\alice next=1`)).toBe(
       "user username=[user] next=1"

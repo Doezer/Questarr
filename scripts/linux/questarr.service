@@ -1,0 +1,28 @@
+[Unit]
+Description=Questarr, game library manager
+Documentation=https://github.com/Doezer/Questarr
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=questarr
+Group=questarr
+WorkingDirectory=/opt/questarr
+EnvironmentFile=/opt/questarr/.env
+ExecStart=/opt/questarr/node/bin/node /opt/questarr/dist/server/index.js
+Restart=on-failure
+RestartSec=10
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/opt/questarr/data
+
+[Install]
+WantedBy=multi-user.target

@@ -216,3 +216,21 @@ Remaining gaps (next targets if the loop restarts with higher targets):
     (about 240), server/storage.ts (about 190), GameDownloadDialog.tsx and
     GameDetailsModal.tsx (about 100 each).
 ```
+
+### E2E pass for 1.7.0 (2026-11-26)
+
+```
+Baseline: 60 Playwright tests, all green on main @ 6314e34 (no flaky or broken spec found).
+After:    69 tests, all green (two workers, local run).
+Added specs (tests/e2e):
+  - setup-wizard.spec.ts            wizard prompt, step navigation, skip, state API validation, rerun from Settings
+  - system-pages.spec.ts            Diagnostics checks, System Tasks list, Backups create/list/schedule/delete
+  - play-session-edit.spec.ts       split and merge from the Playtime section, 30-minute merge gap, invalid input
+  - webhooks.spec.ts                add a webhook, secret shown once and never listed, delete
+  - import-upgrade-settings.spec.ts add-on subfolder switch and previous-version choice persist across reload
+  - auto-upgrade-settings.spec.ts   "Updates for Owned Games" policy and the Download Rules it unlocks
+  - helpers.ts                      new apiSend() for CSRF-protected API calls
+Not covered yet (next candidates): restoring a backup, webhook test delivery (needs an
+  external listener), the Playnite play-status routes, RomM "Fix misplaced folders",
+  Real-Debrid, recommendations (needs IGDB), classification cache clearing.
+```

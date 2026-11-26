@@ -57,6 +57,8 @@ export interface WizardStepDef {
   when: (answers: WizardAnswers) => boolean;
   /** Questions and summary are never skipped as "already configured". */
   alwaysShown: boolean;
+  /** The wizard revision that introduced this step (see `WIZARD_REVISION`). */
+  since: number;
 }
 
 const always = () => true;
@@ -67,9 +69,10 @@ function step(
   title: string,
   summary: string,
   when: WizardStepDef["when"],
-  alwaysShown = false
+  alwaysShown = false,
+  since = 1
 ): WizardStepDef {
-  return { id, title, summary, when, alwaysShown };
+  return { id, title, summary, when, alwaysShown, since };
 }
 
 const hasDownload = (a: WizardAnswers) => a.download;
@@ -84,13 +87,31 @@ export const WIZARD_STEPS: readonly WizardStepDef[] = [
   step("import", "Library folder and import", "Where finished downloads end up", hasDownload),
   step("steam", "Steam", "Import your library, playtime and achievements", plays("pc")),
   step("retroachievements", "RetroAchievements", "Track retro achievements", plays("retro")),
-  step("xbox", "Xbox achievements", "Track Xbox achievements", plays("xbox")),
-  step("psn", "PlayStation trophies", "Track PlayStation trophies", plays("playstation")),
+  step("xbox", "Xbox achievements", "Track Xbox achievements", plays("xbox"), false, 2),
+  step("psn", "PlayStation trophies", "Track PlayStation trophies", plays("playstation"), false, 2),
   step("nexusmods", "NexusMods", "Find mods for your PC games", plays("pc")),
   step("notifications", "Notifications", "Get alerts outside the app", (a) => a.notifications),
   step("privacy", "Quests and diagnostics", "Backlog quests and error reporting", always, true),
   step("summary", "All set", "What was configured", always, true),
 ];
+
+/**
+ * Bumped whenever a step is added: a step's `since` is the revision that introduced it. Finishing
+ * or dismissing the wizard records the revision the user has seen, so the prompt can come back
+ * when later releases add steps.
+ */
+export const WIZARD_REVISION = Math.max(...WIZARD_STEPS.map((s) => s.since));
+
+/** The revision of installs that finished the wizard before revisions were recorded. */
+export const INITIAL_WIZARD_REVISION = 1;
+
+/** Steps added after the revision the user last saw, optionally limited to what can be shown. */
+export function wizardStepsSince(
+  seenRevision: number,
+  canRender: (id: WizardStepId) => boolean = () => true
+): WizardStepDef[] {
+  return WIZARD_STEPS.filter((s) => s.since > seenRevision && canRender(s.id));
+}
 
 /**
  * The steps to walk through, in order. With `onlyUnconfigured`, a step whose settings are already

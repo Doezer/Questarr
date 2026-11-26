@@ -212,6 +212,68 @@ describe("error-telemetry", () => {
     expect(body.logs).toContain("[email]");
   });
 
+  it("puts a summary header and triage metadata on the auto-sent report", async () => {
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
+    storageMock.getUserSettings.mockResolvedValue(makeSettings({ telemetryEnabled: true }));
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: "1234", issueNumber: 42 }),
+    });
+
+    await reportServerError(new Error("boom"), {
+      source: "expressErrorHandler",
+      method: "GET",
+      path: "/api/games",
+      requestId: "ab12cd34",
+    });
+
+    const [, requestInit] = safeFetchMock.mock.calls[0];
+    const body = JSON.parse(requestInit.body as string);
+    expect(body.title).toMatch(/^Error report v/);
+    expect(body.labels).toEqual(expect.arrayContaining(["trigger:auto", "platform:server"]));
+    expect(body.signature).toMatch(/^[0-9a-f]{8}$/);
+    expect(body.logs).toContain("=== QUESTARR SUPPORT REPORT ===");
+    expect(body.logs).toContain("=== ERROR SUMMARY");
+    expect(body.logs).toContain("expressErrorHandler (GET /api/games) [request ab12cd34]");
+  });
+
+  it("does not report the same problem again after the global cooldown", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-26T10:00:00Z"));
+      storageMock.getAllUsers.mockResolvedValue([userOne]);
+      storageMock.getUserSettings.mockResolvedValue(makeSettings());
+
+      await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
+      vi.setSystemTime(new Date("2026-11-26T10:45:00Z"));
+      await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
+      expect(storageMock.addNotification).toHaveBeenCalledTimes(1);
+
+      vi.setSystemTime(new Date("2026-11-26T17:00:00Z"));
+      await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
+      expect(storageMock.addNotification).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still reports a different error even when the log window is unchanged", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-26T10:00:00Z"));
+      storageMock.getAllUsers.mockResolvedValue([userOne]);
+      storageMock.getUserSettings.mockResolvedValue(makeSettings());
+
+      await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
+      vi.setSystemTime(new Date("2026-11-26T10:45:00Z"));
+      await reportServerError(new Error("different crash"), { source: "expressErrorHandler" });
+      expect(storageMock.addNotification).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("skips users who disabled the errorDetected notification", async () => {
     storageMock.getAllUsers.mockResolvedValue([userOne]);
     storageMock.getUserSettings.mockResolvedValue(

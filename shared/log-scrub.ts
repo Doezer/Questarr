@@ -102,6 +102,9 @@ const IPV4_RE = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
 /** IPv6 candidates are validated after matching to avoid an overly complex regex */
 const IPV6_RE = /(?<![A-Fa-f0-9:])[A-Fa-f0-9:]{2,}(?![A-Fa-f0-9:])/g;
 
+/** IPv4-mapped IPv6 (`::ffff:192.168.1.5`, what `req.ip` gives on a dual-stack listener) */
+const IPV4_MAPPED_RE = /(?<![A-Fa-f0-9:])::ffff:((?:\d{1,3}\.){3}\d{1,3})(?![\d.])/gi;
+
 /** RFC-4122 UUID */
 const UUID_RE = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
 
@@ -123,10 +126,13 @@ const WINDOWS_USERS_SEGMENT = String.raw`\Users`;
  */
 export function scrubPii(text: string): string {
   return redactSecretText(
-    scrubEmailAddresses(text)
+    scrubUsernames(scrubEmailAddresses(text))
       .replace(JWT_RE, "[jwt]") // before email — JWTs contain dots
-      .replace(IPV6_RE, (match) => (isIpv6(match) ? "[ip]" : match))
-      .replace(IPV4_RE, (match) => (isIpv4(match) ? "[ip]" : match))
+      .replace(IPV4_MAPPED_RE, (match, v4: string) =>
+        isIpv4(v4) ? `[ip:${classifyIpv4(v4)}]` : match
+      )
+      .replace(IPV6_RE, (match) => (isIpv6(match) ? `[ip:${classifyIpv6(match)}]` : match))
+      .replace(IPV4_RE, (match) => (isIpv4(match) ? `[ip:${classifyIpv4(match)}]` : match))
       .replace(UUID_RE, "[uuid]")
       .replace(HOME_PATH_RE, (_match, _username: string) => {
         const prefix = _match.startsWith("/")
@@ -136,6 +142,59 @@ export function scrubPii(text: string): string {
         return `${prefix}${sep}[user]`;
       })
   );
+}
+
+/**
+ * Identity fields: the submitted login name (`Failed login attempt`), downloader / indexer
+ * account names. Not secrets for the server's own log, but personal data once a log leaves the
+ * instance. Handles JSON (`"username":"x"`), escaped JSON inside a message
+ * (`{\\"username\\":\\"x\\"}`) and plain `username=x` / `username: x` text.
+ */
+const USERNAME_KEY = String.raw`(?:user[_-]?name|login|account[_-]?name)`;
+const USERNAME_ESCAPED_RE = new RegExp(
+  String.raw`(\\["'])(${USERNAME_KEY})\1(\s*[:=]\s*)${escapedValue(4)}`,
+  "gi"
+);
+/** Unquoted key, escaped-quoted value (`username=\\"bob smith\\"` inside a message). */
+const USERNAME_ESCAPED_VALUE_RE = new RegExp(
+  String.raw`(\b${USERNAME_KEY}\b\s*[:=]\s*)${escapedValue(2)}`,
+  "gi"
+);
+/**
+ * Bare (unquoted) username values. Inside a JSON log line a backslash followed by `n`, `r` or
+ * `t` is an encoded line break or tab, which ends the value; in plain text (`ACME\nancy`) it is
+ * part of the name. An apostrophe is allowed inside a value (`O'Connor`) but not as its first
+ * character, where it would open a quoted value.
+ */
+function usernameFieldRe(jsonLine: boolean): RegExp {
+  const lone = jsonLine ? String.raw`\\(?![nrt"'])` : String.raw`\\(?!["'])`;
+  return new RegExp(
+    String.raw`(["']?)\b(${USERNAME_KEY})\1(\s*[:=]\s*)(?:(["'])(?:\\.|(?!\4)[^\\])*\4|(?!(?<=:\s*)[{[])(?:[^"',\s&}{\\]|\\\\|${lone})(?:[^"\s,&}{\\]|\\\\|${lone})*)`,
+    "gi"
+  );
+}
+const USERNAME_FIELD_RE = usernameFieldRe(false);
+const USERNAME_FIELD_JSON_RE = usernameFieldRe(true);
+const JSON_LINE_RE = /^\s*\{.*\}\s*$/;
+
+function maskUsernameField(line: string, jsonLine: boolean): string {
+  return line.replace(
+    jsonLine ? USERNAME_FIELD_JSON_RE : USERNAME_FIELD_RE,
+    (_m, quote: string, key: string, sep: string) =>
+      quote ? `${quote}${key}${quote}${sep}"[user]"` : `${key}=[user]`
+  );
+}
+
+function scrubUsernames(text: string): string {
+  return text
+    .replace(
+      USERNAME_ESCAPED_RE,
+      (_m, quote: string, key: string, sep: string) => `${quote}${key}${quote}${sep}\\"[user]\\"`
+    )
+    .replace(USERNAME_ESCAPED_VALUE_RE, (_m, prefix: string) => `${prefix}\\"[user]\\"`)
+    .split("\n")
+    .map((line) => maskUsernameField(line, JSON_LINE_RE.test(line)))
+    .join("\n");
 }
 
 function scrubEmailAddresses(text: string): string {
@@ -231,4 +290,53 @@ function isIpv6(value: string): boolean {
   if (compressedGroups.length === 1 && groups.length !== 8) return false;
 
   return groups.every((group) => group === "" || /^[0-9a-fA-F]{1,4}$/.test(group));
+}
+
+export type IpClass = "loopback" | "lan" | "public";
+
+/** Loopback, private (RFC 1918), link-local, CGNAT and unspecified ranges are not public. */
+function classifyIpv4(value: string): IpClass {
+  const [a = 0, b = 0] = value.split(".").map(Number);
+  if (a === 127) return "loopback";
+  if (
+    a === 0 ||
+    a === 10 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    (a === 100 && b >= 64 && b <= 127)
+  ) {
+    return "lan";
+  }
+  return "public";
+}
+
+function classifyIpv6(value: string): IpClass {
+  const groups = expandIpv6(value);
+  if (!groups) return "public";
+  const [first = 0] = groups;
+  const isZeroPrefix = groups.slice(0, 7).every((group) => group === 0);
+  if (isZeroPrefix && groups[7] === 1) return "loopback";
+  if (isZeroPrefix && groups[7] === 0) return "lan"; // unspecified address
+  if ((first & 0xfe00) === 0xfc00) return "lan"; // fc00::/7 unique local
+  if ((first & 0xffc0) === 0xfe80) return "lan"; // fe80::/10 link-local
+  return "public";
+}
+
+/** Expands a validated IPv6 address (compressed or not) into its 8 numeric groups. */
+function expandIpv6(value: string): number[] | null {
+  const [head = "", tail, extra] = value.split("::");
+  if (extra !== undefined) return null;
+  const toGroups = (part: string) =>
+    part === "" ? [] : part.split(":").map((g) => parseInt(g, 16));
+  const headGroups = toGroups(head);
+  const tailGroups = tail === undefined ? [] : toGroups(tail);
+  const missing = 8 - headGroups.length - tailGroups.length;
+  if (tail === undefined ? missing !== 0 : missing < 0) return null;
+  const groups = [
+    ...headGroups,
+    ...new Array<number>(tail === undefined ? 0 : missing).fill(0),
+    ...tailGroups,
+  ];
+  return groups.length === 8 && groups.every((g) => Number.isInteger(g)) ? groups : null;
 }

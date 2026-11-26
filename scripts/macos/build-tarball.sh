@@ -40,7 +40,7 @@ cp -R dist migrations migrations-pg shared node_modules package.json "${PKG}/"
 mkdir -p "${PKG}/node/bin"
 cp "$(node -p process.execPath)" "${PKG}/node/bin/node"
 cp .env.example "${PKG}/.env.example"
-cp scripts/macos/install.sh scripts/macos/uninstall.sh scripts/macos/app.questarr.plist "${PKG}/"
+cp scripts/macos/install.sh scripts/macos/uninstall.sh "${PKG}/"
 chmod 0755 "${PKG}/install.sh" "${PKG}/uninstall.sh"
 echo "${VERSION}" >"${PKG}/VERSION"
 

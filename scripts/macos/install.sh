@@ -25,6 +25,10 @@ die() {
   exit 1
 }
 
+xml_escape() {
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
 [ "$(uname -s)" = "Darwin" ] || die "This installer is for macOS."
 [ "$(id -u)" -ne 0 ] || die "Run this installer as your normal user, not with sudo."
 [ -x "${SRC}/node/bin/node" ] && [ -f "${SRC}/dist/server/index.js" ] || die "Run this script from the extracted questarr/ directory."
@@ -35,12 +39,18 @@ esac
 
 xattr -dr com.apple.quarantine "${SRC}" 2>/dev/null || true
 
+STAGE="${APP_DIR}.staging"
+rm -rf "${STAGE}"
+mkdir -p "${STAGE}" "${LOG_DIR}" "${HOME}/Library/LaunchAgents"
+cp -R "${SRC}/dist" "${SRC}/migrations" "${SRC}/migrations-pg" "${SRC}/shared" \
+  "${SRC}/node_modules" "${SRC}/node" "${SRC}/package.json" "${SRC}/VERSION" "${SRC}/.env.example" "${STAGE}/"
+
 launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 
-mkdir -p "${APP_DIR}" "${LOG_DIR}" "${HOME}/Library/LaunchAgents"
+mkdir -p "${APP_DIR}"
 find "${APP_DIR}" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec rm -rf {} +
-cp -R "${SRC}/dist" "${SRC}/migrations" "${SRC}/migrations-pg" "${SRC}/shared" \
-  "${SRC}/node_modules" "${SRC}/node" "${SRC}/package.json" "${SRC}/VERSION" "${SRC}/.env.example" "${APP_DIR}/"
+find "${STAGE}" -mindepth 1 -maxdepth 1 -exec mv {} "${APP_DIR}/" \;
+rmdir "${STAGE}"
 mkdir -p "${APP_DIR}/data"
 
 if [ ! -f "${APP_DIR}/.env" ]; then
@@ -53,8 +63,48 @@ ENVEOF
   chmod 0600 "${APP_DIR}/.env"
 fi
 
-sed -e "s|__APP_DIR__|${APP_DIR}|g" -e "s|__LOG_DIR__|${LOG_DIR}|g" "${SRC}/app.questarr.plist" >"${PLIST}"
-launchctl bootstrap "gui/$(id -u)" "${PLIST}"
+XML_APP_DIR="$(xml_escape "${APP_DIR}")"
+XML_LOG_DIR="$(xml_escape "${LOG_DIR}")"
+cat >"${PLIST}" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${XML_APP_DIR}/node/bin/node</string>
+    <string>${XML_APP_DIR}/dist/server/index.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${XML_APP_DIR}</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>${XML_LOG_DIR}/questarr.log</string>
+  <key>StandardErrorPath</key>
+  <string>${XML_LOG_DIR}/questarr.log</string>
+</dict>
+</plist>
+PLISTEOF
+
+started=0
+for _ in 1 2 3 4 5; do
+  if launchctl bootstrap "gui/$(id -u)" "${PLIST}" 2>/dev/null; then
+    started=1
+    break
+  fi
+  sleep 1
+done
+[ "${started}" -eq 1 ] || die "Could not start the launchd agent. Try: launchctl bootstrap gui/$(id -u) \"${PLIST}\""
 
 PORT="$(sed -n 's/^PORT=//p' "${APP_DIR}/.env" | tail -n1)"
 PORT="${PORT:-5000}"

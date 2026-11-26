@@ -66,9 +66,13 @@ OLD="${APP_DIR}.old"
 rm -rf "${OLD}"
 mkdir -p "${OLD}"
 
+shopt -s dotglob nullglob
+
 rollback() {
-  find "${APP_DIR}" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec rm -rf {} + 2>/dev/null || true
-  find "${OLD}" -mindepth 1 -maxdepth 1 -exec mv {} "${APP_DIR}/" \; 2>/dev/null || true
+  for f in "${APP_DIR}"/*; do
+    case "${f##*/}" in data | .env) ;; *) rm -rf "${f}" ;; esac
+  done
+  for f in "${OLD}"/*; do mv "${f}" "${APP_DIR}/" || true; done
   rmdir "${OLD}" 2>/dev/null || true
   if [ -f "${PLIST}" ]; then
     launchctl bootstrap "gui/$(id -u)" "${PLIST}" 2>/dev/null || true
@@ -76,8 +80,12 @@ rollback() {
   die "Upgrade failed; the previous installation was restored."
 }
 
-find "${APP_DIR}" -mindepth 1 -maxdepth 1 ! -name data ! -name .env -exec mv {} "${OLD}/" \; || rollback
-find "${STAGE}" -mindepth 1 -maxdepth 1 -exec mv {} "${APP_DIR}/" \; || rollback
+for f in "${APP_DIR}"/*; do
+  case "${f##*/}" in data | .env) ;; *) mv "${f}" "${OLD}/" || rollback ;; esac
+done
+for f in "${STAGE}"/*; do
+  mv "${f}" "${APP_DIR}/" || rollback
+done
 rm -rf "${OLD}"
 rmdir "${STAGE}"
 mkdir -p "${APP_DIR}/data"

@@ -155,6 +155,27 @@ export async function verifyPsnToken(npsso: string): Promise<string> {
   return summary.accountId;
 }
 
+type RawTrophyTitle = NonNullable<TrophyTitlesResponse["trophyTitles"]>[number];
+
+/** One trophy set as the library sees it, or null when it has no trophy to track. */
+function toPsnTrophyTitle(t: RawTrophyTitle): PsnTrophyTitle | null {
+  const total = sumTrophies(t.definedTrophies);
+  if (!t.npCommunicationId || !t.trophyTitleName || total === 0) return null;
+  const updated = t.lastUpdatedDateTime ? new Date(t.lastUpdatedDateTime) : null;
+  return {
+    id: t.npCommunicationId,
+    // Some older sets are named "<game> Trophies".
+    title: t.trophyTitleName.replace(/\s+(?:trophies|trophy set)$/i, ""),
+    platforms: (t.trophyTitlePlatform ?? "")
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean),
+    total,
+    unlocked: Math.min(sumTrophies(t.earnedTrophies), total),
+    lastUpdatedAt: updated && !Number.isNaN(updated.getTime()) ? updated : null,
+  };
+}
+
 /** Every trophy set the account has earned at least one trophy in (sets with no trophy are listed too). */
 export async function fetchPsnTrophyTitles(npsso: string): Promise<PsnTrophyTitle[]> {
   const accessToken = await getAccessToken(npsso);
@@ -172,21 +193,8 @@ export async function fetchPsnTrophyTitles(npsso: string): Promise<PsnTrophyTitl
       throw new PsnRequestError("PlayStation sent an unreadable answer.");
     }
     for (const t of results) {
-      const total = sumTrophies(t.definedTrophies);
-      if (!t.npCommunicationId || !t.trophyTitleName || total === 0) continue;
-      const updated = t.lastUpdatedDateTime ? new Date(t.lastUpdatedDateTime) : null;
-      titles.push({
-        id: t.npCommunicationId,
-        // Some older sets are named "<game> Trophies".
-        title: t.trophyTitleName.replace(/\s+(?:trophies|trophy set)$/i, ""),
-        platforms: (t.trophyTitlePlatform ?? "")
-          .split(",")
-          .map((p) => p.trim())
-          .filter(Boolean),
-        total,
-        unlocked: Math.min(sumTrophies(t.earnedTrophies), total),
-        lastUpdatedAt: updated && !Number.isNaN(updated.getTime()) ? updated : null,
-      });
+      const title = toPsnTrophyTitle(t);
+      if (title) titles.push(title);
     }
     if (data.nextOffset === undefined || results.length === 0) break;
     offset = data.nextOffset;

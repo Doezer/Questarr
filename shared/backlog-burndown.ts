@@ -84,28 +84,32 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-export function computeBacklogBurndown(
-  games: readonly BacklogGameInput[],
-  events: readonly BacklogEventInput[],
-  sessions: readonly BacklogSessionInput[],
-  now: Date,
-  zone: PlayStatsZone = 0
-): BacklogBurndown {
-  const toDay = localDayNumber(zone);
-  const today = toDay(now);
-  const gameById = new Map(games.map((g) => [g.id, g]));
+type StatusHistory = Map<string, { day: number; status: string }[]>;
+type PlayedTotals = Map<string, { day: number; total: number }[]>;
 
-  // Per game: its status changes in order, as [local day, status].
-  const history = new Map<string, { day: number; status: string }[]>();
+/** Per game: its status changes in order, as [local day, status]. */
+function buildHistory(
+  events: readonly BacklogEventInput[],
+  gameById: ReadonlyMap<string, BacklogGameInput>,
+  toDay: (d: Date) => number
+): StatusHistory {
+  const history: StatusHistory = new Map();
   for (const event of [...events].sort((a, b) => a.at.getTime() - b.at.getTime())) {
     if (!gameById.has(event.gameId)) continue;
     const list = history.get(event.gameId) ?? [];
     list.push({ day: toDay(event.at), status: event.status });
     history.set(event.gameId, list);
   }
+  return history;
+}
 
-  // Per game: finished sessions by local day, oldest first, with running totals for lookups.
-  const played = new Map<string, { day: number; total: number }[]>();
+/** Per game: finished sessions by local day, oldest first, with running totals for lookups. */
+function buildPlayed(
+  sessions: readonly BacklogSessionInput[],
+  toDay: (d: Date) => number,
+  today: number
+): { played: PlayedTotals; recentMinutes: number } {
+  const played: PlayedTotals = new Map();
   let recentMinutes = 0;
   for (const session of [...sessions].sort(
     (a, b) => a.startedAt.getTime() - b.startedAt.getTime()
@@ -121,6 +125,65 @@ export function computeBacklogBurndown(
       recentMinutes += minutes;
     }
   }
+  return { played, recentMinutes };
+}
+
+/** The weekly and monthly spans the burndown is drawn over, oldest first. */
+function buildSpans(today: number): { weekSpans: Span[]; monthSpans: Span[] } {
+  const weekSpans: Span[] = [];
+  const thisWeek = weekStartOfDay(today);
+  for (let i = BURNDOWN_WEEKS - 1; i >= 0; i--) {
+    const start = thisWeek - i * 7;
+    weekSpans.push({ start, end: Math.min(start + 6, today) });
+  }
+  const monthSpans: Span[] = [];
+  const thisMonth = new Date(monthStartOfDay(today) * 86_400_000);
+  for (let i = BURNDOWN_MONTHS - 1; i >= 0; i--) {
+    const start = Date.UTC(thisMonth.getUTCFullYear(), thisMonth.getUTCMonth() - i, 1) / 86_400_000;
+    const next =
+      Date.UTC(thisMonth.getUTCFullYear(), thisMonth.getUTCMonth() - i + 1, 1) / 86_400_000;
+    monthSpans.push({ start, end: Math.min(next - 1, today) });
+  }
+  return { weekSpans, monthSpans };
+}
+
+/** Games added to the backlog and games completed within a span, from one game's history. */
+function countTransitions(
+  list: { day: number; status: string }[],
+  span: Span
+): { added: number; completed: number } {
+  let added = 0;
+  let completed = 0;
+  let previous: string | null = null;
+  for (const entry of list) {
+    if (entry.day >= span.start && entry.day <= span.end) {
+      if (inBacklog(entry.status) && (previous === null || !inBacklog(previous))) added++;
+      if (entry.status === "completed" && previous !== "completed") completed++;
+    }
+    previous = entry.status;
+  }
+  return { added, completed };
+}
+
+/** The day the backlog would be cleared at the recent pace, or null when it never would. */
+function projectClearedOn(remaining: number, hoursPerDay: number, today: number): string | null {
+  if (remaining <= 0 || hoursPerDay <= 0) return null;
+  const days = Math.ceil(remaining / hoursPerDay);
+  return days <= MAX_PROJECTION_DAYS ? formatDayNumber(today + days) : null;
+}
+
+export function computeBacklogBurndown(
+  games: readonly BacklogGameInput[],
+  events: readonly BacklogEventInput[],
+  sessions: readonly BacklogSessionInput[],
+  now: Date,
+  zone: PlayStatsZone = 0
+): BacklogBurndown {
+  const toDay = localDayNumber(zone);
+  const today = toDay(now);
+  const gameById = new Map(games.map((g) => [g.id, g]));
+  const history = buildHistory(events, gameById, toDay);
+  const { played, recentMinutes } = buildPlayed(sessions, toDay, today);
 
   const playedBy = (gameId: string, day: number): number => {
     const list = played.get(gameId);
@@ -155,20 +218,14 @@ export function computeBacklogBurndown(
       let completed = 0;
       let remaining = 0;
       for (const game of games) {
-        const list = history.get(game.id) ?? [];
         const status = statusOn(game.id, span.end);
         if (status !== null && inBacklog(status)) {
           backlog++;
           remaining += remainingFor(game, span.end) ?? 0;
         }
-        let previous: string | null = null;
-        for (const entry of list) {
-          if (entry.day >= span.start && entry.day <= span.end) {
-            if (inBacklog(entry.status) && (previous === null || !inBacklog(previous))) added++;
-            if (entry.status === "completed" && previous !== "completed") completed++;
-          }
-          previous = entry.status;
-        }
+        const counts = countTransitions(history.get(game.id) ?? [], span);
+        added += counts.added;
+        completed += counts.completed;
       }
       return {
         start: formatDayNumber(span.start),
@@ -179,20 +236,7 @@ export function computeBacklogBurndown(
       };
     });
 
-  const weekSpans: Span[] = [];
-  const thisWeek = weekStartOfDay(today);
-  for (let i = BURNDOWN_WEEKS - 1; i >= 0; i--) {
-    const start = thisWeek - i * 7;
-    weekSpans.push({ start, end: Math.min(start + 6, today) });
-  }
-  const monthSpans: Span[] = [];
-  const thisMonth = new Date(monthStartOfDay(today) * 86_400_000);
-  for (let i = BURNDOWN_MONTHS - 1; i >= 0; i--) {
-    const start = Date.UTC(thisMonth.getUTCFullYear(), thisMonth.getUTCMonth() - i, 1) / 86_400_000;
-    const next =
-      Date.UTC(thisMonth.getUTCFullYear(), thisMonth.getUTCMonth() - i + 1, 1) / 86_400_000;
-    monthSpans.push({ start, end: Math.min(next - 1, today) });
-  }
+  const { weekSpans, monthSpans } = buildSpans(today);
 
   // Today's figures come from the games themselves, which are always right, not from the history.
   let backlog = 0;
@@ -207,11 +251,7 @@ export function computeBacklogBurndown(
   }
 
   const hoursPerDay = recentMinutes / 60 / PACE_DAYS;
-  let clearedOn: string | null = null;
-  if (remaining > 0 && hoursPerDay > 0) {
-    const days = Math.ceil(remaining / hoursPerDay);
-    if (days <= MAX_PROJECTION_DAYS) clearedOn = formatDayNumber(today + days);
-  }
+  const clearedOn = projectClearedOn(remaining, hoursPerDay, today);
 
   return {
     current: { backlog, remainingHours: round1(remaining), withoutEstimate },

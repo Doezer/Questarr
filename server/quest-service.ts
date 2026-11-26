@@ -29,6 +29,62 @@ export interface QuestsResponse {
 
 const HISTORY_LIMIT = 30;
 
+interface QuestSyncContext {
+  userId: string;
+  games: Awaited<ReturnType<typeof storage.getUserGames>>;
+  eventInputs: { gameId: string; status: string; at: Date }[];
+  sessionInputs: { gameId: string; startedAt: Date }[];
+  zone: PlayStatsZone;
+  today: number;
+  now: Date;
+}
+
+/** Brings one quest up to date: its progress, and whether it was completed or missed. */
+async function syncQuest(quest: Quest, ctx: QuestSyncContext): Promise<Quest> {
+  if (quest.status !== "active") return quest;
+  const { userId, games, eventInputs, sessionInputs, zone, today, now } = ctx;
+  const period = quest.period as QuestPeriod;
+  const progress = Math.min(
+    quest.target,
+    questProgress(
+      {
+        kind: quest.kind as QuestKind,
+        period,
+        periodStart: quest.periodStart,
+        gameId: quest.gameId,
+      },
+      games,
+      eventInputs,
+      sessionInputs,
+      zone
+    )
+  );
+  const ended = today >= periodFromStart(period, quest.periodStart).endDay;
+  let status = "active";
+  if (progress >= quest.target) status = "completed";
+  else if (ended) status = "missed";
+  if (progress === quest.progress && status === quest.status) return quest;
+
+  const completedAt = status === "completed" ? now : null;
+  const changed = await storage.updateQuest(quest.id, { progress, status, completedAt });
+  if (!changed) {
+    // Another sync already settled this quest; show what is stored.
+    const stored = (await storage.getUserQuests(userId)).find((q) => q.id === quest.id);
+    return stored ?? quest;
+  }
+  if (status === "completed") {
+    const notification = await storage.addNotification({
+      userId,
+      type: "success",
+      title: "Quest completed",
+      message: `You completed a ${quest.period === "week" ? "weekly" : "monthly"} backlog quest.`,
+      link: "/stats",
+    });
+    notifyUser("notification", notification, userId);
+  }
+  return { ...quest, progress, status, completedAt };
+}
+
 /**
  * Makes sure the current week and month have their quests, brings the open ones up to date
  * (completed, or missed once their period is over) and returns what the quest card shows.
@@ -71,51 +127,9 @@ export async function syncQuests(
 
   const synced: Quest[] = [];
   for (const quest of all) {
-    if (quest.status !== "active") {
-      synced.push(quest);
-      continue;
-    }
-    const period = quest.period as QuestPeriod;
-    const progress = Math.min(
-      quest.target,
-      questProgress(
-        {
-          kind: quest.kind as QuestKind,
-          period,
-          periodStart: quest.periodStart,
-          gameId: quest.gameId,
-        },
-        games,
-        eventInputs,
-        sessionInputs,
-        zone
-      )
+    synced.push(
+      await syncQuest(quest, { userId, games, eventInputs, sessionInputs, zone, today, now })
     );
-    const ended = today >= periodFromStart(period, quest.periodStart).endDay;
-    const status = progress >= quest.target ? "completed" : ended ? "missed" : "active";
-    if (progress === quest.progress && status === quest.status) {
-      synced.push(quest);
-      continue;
-    }
-    const completedAt = status === "completed" ? now : null;
-    const changed = await storage.updateQuest(quest.id, { progress, status, completedAt });
-    if (changed && status === "completed") {
-      const notification = await storage.addNotification({
-        userId,
-        type: "success",
-        title: "Quest completed",
-        message: `You completed a ${quest.period === "week" ? "weekly" : "monthly"} backlog quest.`,
-        link: "/stats",
-      });
-      notifyUser("notification", notification, userId);
-    }
-    if (changed) {
-      synced.push({ ...quest, progress, status, completedAt });
-    } else {
-      // Another sync already settled this quest; show what is stored.
-      const stored = (await storage.getUserQuests(userId)).find((q) => q.id === quest.id);
-      synced.push(stored ?? quest);
-    }
   }
 
   const currentStarts = new Set(periods.map((p) => `${p.period}:${p.start}`));

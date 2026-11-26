@@ -311,6 +311,51 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
     expect(results).toHaveLength(0);
   });
 
+  it("folds accents in the upstream query so pokémon/pokemon/Pokemon behave the same", async () => {
+    process.env.IGDB_CLIENT_ID = "test-client-id";
+    process.env.IGDB_CLIENT_SECRET = "test-client-secret";
+    const auth = {
+      ok: true,
+      json: async () => ({ access_token: "t", expires_in: 3600, token_type: "bearer" }),
+    };
+    const hit = {
+      ok: true,
+      json: async () => [
+        { id: 7, name: "Pokémon Red", platforms: [], genres: [], screenshots: [] },
+      ],
+    };
+    fetchMock.mockResolvedValueOnce(auth).mockResolvedValue(hit);
+    const { igdbClient, foldDiacritics } = await import("../igdb.js");
+
+    expect(foldDiacritics("Pokémon")).toBe("Pokemon");
+    const results = await igdbClient.searchGames("pokémon", 20);
+
+    const bodies = fetchMock.mock.calls
+      .filter((c) => typeof c[0] === "string" && c[0].includes("api.igdb.com/v4/games"))
+      .map((c) => String((c[1] as { body?: string }).body));
+    expect(bodies[0]).toContain('search "pokemon"');
+    expect(bodies[0]).not.toContain("é");
+    // Displayed title keeps its accent
+    expect(results[0]?.name).toBe("Pokémon Red");
+  });
+
+  it("also tries the accented spelling verbatim when the query has accents", async () => {
+    process.env.IGDB_CLIENT_ID = "test-client-id";
+    process.env.IGDB_CLIENT_SECRET = "test-client-secret";
+    const auth = {
+      ok: true,
+      json: async () => ({ access_token: "t", expires_in: 3600, token_type: "bearer" }),
+    };
+    fetchMock.mockResolvedValueOnce(auth).mockResolvedValue({ ok: true, json: async () => [] });
+    const { igdbClient } = await import("../igdb.js");
+    await igdbClient.searchGames("Pokémon", 20);
+    const bodies = fetchMock.mock.calls
+      .filter((c) => typeof c[0] === "string" && c[0].includes("api.igdb.com/v4/games"))
+      .map((c) => String((c[1] as { body?: string }).body));
+    expect(bodies.some((b) => b.includes('name ~ *"Pokémon"*'))).toBe(true);
+    expect(bodies.some((b) => b.includes('name ~ *"Pokemon"*'))).toBe(true);
+  });
+
   it("should return null for getGameById when not found", async () => {
     // Mock environment
     process.env.IGDB_CLIENT_ID = "test-client-id";

@@ -39,6 +39,19 @@ esac
 
 xattr -dr com.apple.quarantine "${SRC}" 2>/dev/null || true
 
+LOCK="${APP_DIR}.lock"
+mkdir -p "$(dirname "${APP_DIR}")"
+if ! mkdir "${LOCK}" 2>/dev/null; then
+  OWNER="$(cat "${LOCK}/pid" 2>/dev/null || true)"
+  if [ -n "${OWNER}" ] && kill -0 "${OWNER}" 2>/dev/null; then
+    die "Another install.sh run is in progress (pid ${OWNER}). Wait for it to finish."
+  fi
+  rm -rf "${LOCK}"
+  mkdir "${LOCK}" 2>/dev/null || die "Another install.sh run is in progress."
+fi
+echo "$$" >"${LOCK}/pid"
+trap 'rm -rf "${LOCK}"' EXIT
+
 STAGE="${APP_DIR}.staging"
 rm -rf "${STAGE}"
 mkdir -p "${STAGE}" "${LOG_DIR}" "${HOME}/Library/LaunchAgents"

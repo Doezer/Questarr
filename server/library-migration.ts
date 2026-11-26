@@ -60,6 +60,7 @@ export interface PlatformMigrationResult {
   action: "rename" | "merge";
   success: boolean;
   error?: string;
+  warning?: string;
   gamesUpdated?: number;
   filesUpdated?: number;
 }
@@ -105,10 +106,13 @@ export function findPlatformFolderRenames(
     // this matters for Linux libraries and is handled with a temporary name on
     // Windows where both paths otherwise resolve to the same directory.
     const target = directoryNames.find((name) => name === newName);
+    const targetAlreadyProposed = proposals.some(
+      (proposal) => proposal.newName.toLowerCase() === newName.toLowerCase()
+    );
     proposals.push({
       oldName: actualOldName,
       newName,
-      merge: target !== undefined && target !== actualOldName,
+      merge: (target !== undefined && target !== actualOldName) || targetAlreadyProposed,
     });
     seenOld.add(actualOldName.toLowerCase());
   }
@@ -232,23 +236,66 @@ async function applyStoredPathChanges(
   };
 }
 
-async function listRelativeFiles(root: string): Promise<string[]> {
-  const files: string[] = [];
-  const walk = async (current: string): Promise<void> => {
-    for (const entry of await fs.readdir(current, { withFileTypes: true })) {
-      const entryPath = path.join(current, entry.name);
-      if (entry.isDirectory()) await walk(entryPath);
-      else files.push(path.relative(root, entryPath));
-    }
-  };
-  await walk(root);
-  return files;
+async function restoreMovedFiles(
+  source: string,
+  target: string,
+  relativeFiles: readonly string[]
+): Promise<void> {
+  for (const relative of [...relativeFiles].reverse()) {
+    const movedPath = path.join(target, relative);
+    if (!(await fsExtra.pathExists(movedPath))) continue;
+    const originalPath = path.join(source, relative);
+    await fs.mkdir(path.dirname(originalPath), { recursive: true });
+    await fs.rename(movedPath, originalPath);
+  }
 }
 
-async function removeCopiedFiles(target: string, relativeFiles: readonly string[]): Promise<void> {
-  for (const relative of relativeFiles) {
-    await fsExtra.remove(path.join(target, relative));
+/** Moves merge entries on the library filesystem and restores them if a move fails. */
+async function moveMergeFiles(source: string, target: string): Promise<string[]> {
+  const moved: string[] = [];
+  const walk = async (current: string): Promise<void> => {
+    for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+      const sourcePath = path.join(current, entry.name);
+      const relative = path.relative(source, sourcePath);
+      const targetPath = path.join(target, relative);
+      if (entry.isDirectory()) {
+        await fs.mkdir(targetPath, { recursive: true });
+        await walk(sourcePath);
+      } else {
+        await fs.mkdir(path.dirname(targetPath), { recursive: true });
+        await fs.rename(sourcePath, targetPath);
+        moved.push(relative);
+      }
+    }
+  };
+
+  try {
+    await walk(source);
+    return moved;
+  } catch (error) {
+    try {
+      await restoreMovedFiles(source, target, moved);
+    } catch (restoreError) {
+      throw new Error(
+        `${error instanceof Error ? error.message : error}; merge rollback failed: ${
+          restoreError instanceof Error ? restoreError.message : restoreError
+        }`
+      );
+    }
+    throw error;
   }
+}
+
+/** Removes empty source directories only; files that appeared concurrently are preserved. */
+async function removeEmptyDirectories(root: string): Promise<void> {
+  const walk = async (current: string): Promise<void> => {
+    for (const entry of await fs.readdir(current, { withFileTypes: true })) {
+      if (entry.isDirectory()) await walk(path.join(current, entry.name));
+    }
+    if (current !== root) await fs.rmdir(current);
+  };
+  await walk(root);
+  await fs.rmdir(root);
 }
 
 type RollbackFilesystem = () => Promise<void>;
@@ -305,6 +352,7 @@ export async function applyPlatformFolderRenames(
       let rollbackFilesystem: RollbackFilesystem | undefined;
       let storedChanges: StoredPathChange[] = [];
       let storedPathsApplied = false;
+      let warning: string | undefined;
       try {
         if (!isSafeChildName(item.oldName) || !isSafeChildName(item.newName)) {
           throw new Error("Folder names must be immediate children of the library root");
@@ -324,11 +372,8 @@ export async function applyPlatformFolderRenames(
 
         if (proposal.merge) {
           await assertMergeHasNoConflicts(oldPath, newPath);
-          const relativeFiles = await listRelativeFiles(oldPath);
-          rollbackFilesystem = async () => {
-            await removeCopiedFiles(newPath, relativeFiles);
-          };
-          await fsExtra.copy(oldPath, newPath, { overwrite: false, errorOnExist: true });
+          const movedFiles = await moveMergeFiles(oldPath, newPath);
+          rollbackFilesystem = () => restoreMovedFiles(oldPath, newPath, movedFiles);
         } else {
           await renameFolder(oldPath, newPath);
           rollbackFilesystem = async () => {
@@ -341,34 +386,39 @@ export async function applyPlatformFolderRenames(
         const counts = await applyStoredPathChanges(storage, storedChanges);
         storedPathsApplied = true;
         if (proposal.merge) {
-          // A recursive remove can partially delete the source before throwing. Move the
-          // source aside atomically instead; cleanup failure leaves a recoverable duplicate.
-          const recoveryPath = path.join(
-            resolvedRoot,
-            `.questarr-migration-recovery-${randomUUID()}`
-          );
-          await renameFolder(oldPath, recoveryPath);
-          await fsExtra.remove(recoveryPath).catch(() => undefined);
+          try {
+            await removeEmptyDirectories(oldPath);
+          } catch (cleanupError) {
+            // Preserve files written to the source while the migration was running.
+            warning = `Migration succeeded, but the old folder still contains files: ${
+              cleanupError instanceof Error ? cleanupError.message : cleanupError
+            }`;
+          }
         }
         results.push({
           oldName: proposal.oldName,
           newName: proposal.newName,
           action: proposal.merge ? "merge" : "rename",
           success: true,
+          ...(warning ? { warning } : {}),
           ...counts,
         });
       } catch (error) {
         let message = error instanceof Error ? error.message : String(error);
+        let storedPathRestoreSucceeded = !storedPathsApplied;
         if (storedPathsApplied) {
           try {
             await restoreStoredPathChanges(storage, storedChanges);
+            storedPathRestoreSucceeded = true;
           } catch (restoreError) {
             message += `; database rollback failed: ${
               restoreError instanceof Error ? restoreError.message : restoreError
             }`;
           }
         }
-        if (rollbackFilesystem) {
+        // If database rollback fails, leave the filesystem at the new paths so
+        // rows and files remain aligned and recoverable for an operator.
+        if (rollbackFilesystem && storedPathRestoreSucceeded) {
           try {
             await rollbackFilesystem();
           } catch (rollbackError) {

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { Game } from "../../shared/schema.js";
-import { applyPlatformFolderRenames } from "../library-migration.js";
+import { applyPlatformFolderRenames, findPlatformFolderRenames } from "../library-migration.js";
 
 const tempRoots: string[] = [];
 
@@ -60,6 +60,13 @@ afterEach(async () => {
 });
 
 describe("library migration", () => {
+  it("plans aliases for the same platform as a rename followed by a merge", () => {
+    expect(findPlatformFolderRenames(["PS Vita", "PSVita"])).toEqual([
+      { oldName: "PS Vita", newName: "psvita", merge: false },
+      { oldName: "PSVita", newName: "psvita", merge: true },
+    ]);
+  });
+
   it("renames a platform folder and rewrites tracked paths", async () => {
     const root = await makeRoot();
     const oldPath = path.join(root, "PC");

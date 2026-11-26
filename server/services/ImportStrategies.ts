@@ -932,7 +932,7 @@ export class PCImportStrategy implements ImportStrategy {
           sourceFile,
           destinationFile,
           transferMode,
-          review.proposedPath
+          sourceIsDirectory ? review.proposedPath : path.dirname(review.proposedPath)
         );
         filesPlaced.push(destinationFile);
         placedFileCategories.push(entry);

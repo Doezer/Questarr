@@ -9,7 +9,7 @@ import {
 } from "../library-migration.js";
 import { routesLogger } from "../logger.js";
 import { sensitiveEndpointLimiter } from "../middleware.js";
-import { createDatabaseBackup, DatabaseBackupUnsupportedError } from "../database-backup.js";
+import { createDatabaseBackup } from "../database-backup.js";
 import { dialect } from "../db.js";
 
 export const libraryMigrationRouter = Router();
@@ -64,14 +64,20 @@ libraryMigrationRouter.post("/apply", sensitiveEndpointLimiter, async (req, res)
       return res.status(400).json({ error: "Enable RomM platform folders before migrating" });
     }
 
-    if (renames.length > 0) {
+    if (renames.length > 0 && dialect === "sqlite") {
       const backupPath = await createDatabaseBackup("sqlite-pre-migration");
       routesLogger.info({ backupPath }, "Database backed up before library migration");
+    } else if (renames.length > 0) {
+      routesLogger.warn(
+        { dialect },
+        "Skipping automatic database backup before library migration; create a database backup first"
+      );
     }
 
-    const userId = res.locals.userId as string;
-    const config = await storage.getImportConfig(userId);
-    const games = await storage.getUserGames(userId, true);
+    const config = await storage.getImportConfig(res.locals.userId as string);
+    // The library root is shared by users, so every tracked path under a renamed
+    // platform folder must be updated, not only the requesting user's games.
+    const games = await storage.getAllGames();
     const results = await applyPlatformFolderRenames(
       config.libraryRoot,
       renames as PlatformFolderRename[],
@@ -80,9 +86,6 @@ libraryMigrationRouter.post("/apply", sensitiveEndpointLimiter, async (req, res)
     );
     return res.json({ results });
   } catch (error) {
-    if (error instanceof DatabaseBackupUnsupportedError) {
-      return res.status(501).json({ error: error.message });
-    }
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.issues.map((issue) => issue.message).join(", ") });
     }

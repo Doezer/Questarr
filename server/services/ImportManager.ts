@@ -11,7 +11,6 @@ import {
   PCImportStrategy,
   TransferMode,
   resolveLibraryLeafName,
-  gatherFiles,
   reorganizeBySortExtras,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
@@ -805,7 +804,13 @@ export class ImportManager {
     // Sorting after the remaining-files transfer (not before) so a categorized loose
     // file doesn't land at destDir's root, outside this pass's reach.
     const reorganizedPaths = sortExtras ? await reorganizeBySortExtras(destDir) : new Map();
-    const filesPlaced = await gatherFiles(destDir, { skipExtractStaging: true });
+    const filesPlaced = Array.from(
+      new Set(
+        [...extractedFiles, ...(remainingResult?.filesPlaced ?? [])].map(
+          (filePath) => reorganizedPaths.get(filePath) ?? filePath
+        )
+      )
+    );
 
     return {
       destDir,
@@ -890,7 +895,13 @@ export class ImportManager {
     }
 
     const reorganizedPaths = sortExtras ? await reorganizeBySortExtras(destDir) : new Map();
-    const filesPlaced = await gatherFiles(destDir, { skipExtractStaging: true });
+    const filesPlaced = Array.from(
+      new Set(
+        [...extractedFiles, ...(remainingResult?.filesPlaced ?? [])].map(
+          (filePath) => reorganizedPaths.get(filePath) ?? filePath
+        )
+      )
+    );
 
     return {
       destDir,
@@ -1495,9 +1506,19 @@ export class ImportManager {
       const existingFile = existingByPath.get(resolvedPath);
       if (existingFile) {
         const contentId =
-          (explicitContentMatches ? selected?.igdbContentId : undefined) ??
-          (suggestion && suggestionMatchesSelected ? suggestion.id : undefined);
-        if (contentId != null && existingFile.igdbContentId !== contentId) {
+          (explicitContentMatches &&
+          selectedContent != null &&
+          contentSuggestionMatchesFile(selectedContent.category, existingFile.category)
+            ? selected?.igdbContentId
+            : undefined) ??
+          (suggestion &&
+          suggestionMatchesSelected &&
+          contentSuggestionMatchesFile(suggestion.category, existingFile.category)
+            ? suggestion.id
+            : undefined);
+        // Never overwrite a user association read from storage; inferred links are
+        // only a fallback for rows that are still unlinked.
+        if (contentId != null && existingFile.igdbContentId == null) {
           await this.storage.updateGameFileContentId(existingFile.id, contentId);
         }
         continue;

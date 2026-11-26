@@ -3332,7 +3332,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             files.push({ name: entry.name, path: canonicalFile, category, size: stat.size });
           }
         };
-        const scanStat = await fs.promises.stat(scanRoot);
+        let scanStat: Awaited<ReturnType<typeof fs.promises.stat>>;
+        try {
+          scanStat = await fs.promises.stat(scanRoot);
+        } catch (error) {
+          if (isExpectedFsError(error)) return res.json({ files: [], truncated: false });
+          throw error;
+        }
         if (scanStat.isFile()) {
           const name = path.basename(scanRoot);
           files.push({
@@ -3472,16 +3478,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   const getContentItemsForGame = async (
-    game: Game
+    game: Game,
+    userId: string
   ): Promise<{ items: ContentItem[]; videos: ContentVideo[] }> => {
     const byId = new Map<number, ContentItem>();
     const videos: ContentVideo[] = [];
+    const filterFlags = await getContentFilterFlags(userId);
     for (const item of game.expansions ?? []) {
       if (!Number.isInteger(item.id) || item.id <= 0) continue;
+      if (isContentFiltered(item, filterFlags)) continue;
       const cachedIgdbCategory =
         item.igdbCategory ??
         item.gameType ??
-        (item.category === "update" ? 14 : item.category === "packs" ? 13 : 2);
+        (item.category === "update"
+          ? 14
+          : item.category === "packs"
+            ? 13
+            : item.category === "extra"
+              ? 5
+              : 2);
       byId.set(item.id, {
         id: item.id,
         name: item.name,
@@ -3522,6 +3537,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ];
       for (const { item, fallbackCategory } of liveGroups) {
         if (!Number.isInteger(item.id) || item.id <= 0) continue;
+        if (isContentFiltered(igdbClient.contentFlags(item), filterFlags)) {
+          byId.delete(item.id);
+          continue;
+        }
         const cached = byId.get(item.id);
         const igdbCategory =
           item.category ?? item.game_type ?? cached?.igdbCategory ?? fallbackCategory;
@@ -3582,7 +3601,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // A file linked to a specific IGDB item belongs only to that item. In
         // particular, a generic update must never become the file for an IGDB
         // expansion merely because both happen to use the same broad category.
-        const { items: contentItems, videos: liveVideos } = await getContentItemsForGame(game);
+        const { items: contentItems, videos: liveVideos } = await getContentItemsForGame(
+          game,
+          userId
+        );
         const knownContentIds = new Set(contentItems.map((item) => item.id));
         const isKnownLinkedFile = (file: (typeof gameFiles)[number]) => {
           if (file.igdbContentId == null || !knownContentIds.has(file.igdbContentId)) {
@@ -3626,7 +3648,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               aggregatedRating: item.aggregatedRating ?? null,
               igdbCategory: item.igdbCategory,
               gameId: relatedGamesByIgdbId.get(item.id)?.id,
-              present: files.length > 0 || relatedGamesByIgdbId.has(item.id),
+              // `present` describes files on disk. `gameId` separately indicates
+              // that the related content is already in this user's library.
+              present: files.length > 0,
               files,
             };
           }),
@@ -3687,7 +3711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const igdbContentId =
           req.body.igdbContentId == null ? null : Number(req.body.igdbContentId);
         if (igdbContentId != null) {
-          const { items: contentItems } = await getContentItemsForGame(game);
+          const { items: contentItems } = await getContentItemsForGame(game, req.user!.id);
           const matched = contentItems.find((item) => item.id === igdbContentId);
           if (!matched) {
             return res.status(400).json({ error: "IGDB content does not belong to this game" });
@@ -3814,7 +3838,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!game) return;
 
         if (body.igdbContentId != null) {
-          const { items: contentItems } = await getContentItemsForGame(game);
+          const { items: contentItems } = await getContentItemsForGame(game, req.user!.id);
           if (!contentItems.some((item) => item.id === body.igdbContentId)) {
             return res.status(400).json({ error: "IGDB content does not belong to this game" });
           }
@@ -3880,8 +3904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               roots.some((root) => {
                 const relative = path.relative(path.resolve(root), sourcePath);
                 return (
-                  relative !== "" &&
-                  !relative.startsWith(`..${path.sep}`) &&
+                  (relative === "" || !relative.startsWith(`..${path.sep}`)) &&
                   !path.isAbsolute(relative)
                 );
               })
@@ -3925,20 +3948,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           throw new Error("That destination file is already tracked");
         }
 
-        const gameFile = existingSource
-          ? ((await storage.updateGameFilePath(existingSource.id, result.newPath)) ??
-            existingSource)
-          : await storage.addGameFile({
-              gameId: game.id,
-              originalName,
-              storedName: originalName,
-              category,
-              filePath: result.newPath,
-              fileSize: result.fileSize,
-              downloadId: matchedDownloadId,
-              ...(body.igdbContentId != null ? { igdbContentId: body.igdbContentId } : {}),
-            });
-        createdGameFileId = existingSource ? null : gameFile.id;
+        const reuseSourceRecord = existingSource != null && result.modeUsed === "move";
+        const gameFile =
+          reuseSourceRecord && existingSource
+            ? ((await storage.updateGameFilePath(existingSource.id, result.newPath)) ??
+              existingSource)
+            : await storage.addGameFile({
+                gameId: game.id,
+                originalName,
+                storedName: originalName,
+                category,
+                filePath: result.newPath,
+                fileSize: result.fileSize,
+                downloadId: matchedDownloadId,
+                ...(body.igdbContentId != null ? { igdbContentId: body.igdbContentId } : {}),
+              });
+        createdGameFileId = reuseSourceRecord ? null : gameFile.id;
         await storage.updateGameFileCategory(gameFile.id, category);
         if (
           existingSource &&
@@ -4084,7 +4109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
         if (parsed.igdbContentId != null) {
-          const { items: contentItems } = await getContentItemsForGame(game);
+          const { items: contentItems } = await getContentItemsForGame(game, req.user!.id);
           const matched = contentItems.find((item) => item.id === parsed.igdbContentId);
           if (!matched) {
             return res.status(400).json({ error: "IGDB content does not belong to this game" });

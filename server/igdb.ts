@@ -17,7 +17,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, videos.name, videos.video_id, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.category, expansions.game_type, expansions.url, game_modes.name";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, videos.name, videos.video_id, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.category, expansions.game_type, expansions.url, expansions.themes.name, expansions.age_ratings.category, expansions.age_ratings.rating, game_modes.name";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -121,6 +121,8 @@ export interface IGDBGame {
     category?: number;
     game_type?: number;
     url?: string;
+    themes?: IGDBGame["themes"] | undefined;
+    age_ratings?: IGDBGame["age_ratings"] | undefined;
   }>;
 }
 
@@ -1764,6 +1766,8 @@ class IGDBClient {
           category: mapIGDBGameType(expansion.game_type),
           gameType: expansion.game_type,
           ...(expansion.category != null ? { igdbCategory: expansion.category } : {}),
+          isAdultContent: hasEroticTheme(expansion),
+          isAgeRestricted: hasAdultAgeRating(expansion),
           igdbUrl: expansion.url,
         })) ?? [],
     };

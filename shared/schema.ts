@@ -233,6 +233,8 @@ export type GameExpansion = {
   /** IGDB's specific content category (for example 2 = Expansion, 4 = Standalone). */
   igdbCategory?: number | undefined;
   igdbUrl?: string | undefined;
+  isAdultContent?: boolean | undefined;
+  isAgeRestricted?: boolean | undefined;
 };
 
 export const systemConfig = sqliteTable("system_config", {

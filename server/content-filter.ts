@@ -16,7 +16,10 @@ export async function getContentFilterFlags(userId: string): Promise<ContentFilt
 }
 
 export function isContentFiltered(
-  game: { isAdultContent?: boolean; isAgeRestricted?: boolean },
+  game: {
+    isAdultContent?: boolean | undefined;
+    isAgeRestricted?: boolean | undefined;
+  },
   flags: ContentFilterFlags
 ): boolean {
   return (
@@ -27,6 +30,10 @@ export function isContentFiltered(
 
 export function excludeFilteredContent<T>(games: T[], flags: ContentFilterFlags): T[] {
   return games.filter(
-    (g) => !isContentFiltered(g as { isAdultContent?: boolean; isAgeRestricted?: boolean }, flags)
+    (g) =>
+      !isContentFiltered(
+        g as { isAdultContent?: boolean | undefined; isAgeRestricted?: boolean | undefined },
+        flags
+      )
   );
 }

@@ -455,6 +455,47 @@ describe("Game file routes", () => {
       expect(response.body.videos).toEqual([{ videoId: "abc123XYZ", name: "Trailer" }]);
     });
 
+    it("filters adult cached and live IGDB content using the user's default settings", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue(
+        makeGame({
+          igdbId: 42,
+          expansions: [
+            {
+              id: 2001,
+              name: "Cached Adult Expansion",
+              category: "dlc",
+              isAdultContent: true,
+            },
+          ],
+        }) as unknown as Awaited<ReturnType<typeof storage.getGame>>
+      );
+      vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+      vi.mocked(igdbClient.getGameEditions).mockResolvedValue({
+        base: {
+          id: 42,
+          name: "Test Game",
+          expansions: [
+            {
+              id: 2002,
+              name: "Live Adult Expansion",
+              isAdultContent: true,
+            },
+          ],
+        },
+        editions: [],
+      });
+
+      const response = await request(app).get(`/api/games/${gameId}/content`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.slots).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ igdbId: 2001 }),
+          expect.objectContaining({ igdbId: 2002 }),
+        ])
+      );
+    });
+
     it("does not assign a generic update to an unrelated IGDB expansion", async () => {
       const expansionId = 2001;
       vi.mocked(storage.getGame).mockResolvedValue(

@@ -9,7 +9,16 @@
 
 import { SUPPORT_WORKER_URL, GITHUB_ISSUES_URL } from "./support-config";
 import { apiFetch } from "./queryClient";
-import { scrubPii } from "@shared/log-scrub";
+import { scrubPii, scrubLogLines } from "@shared/log-scrub";
+import { summarizeErrors } from "@shared/log-summary";
+import {
+  buildReportEnvelope,
+  cleanNote,
+  findDuplicateReport,
+  rememberReport,
+  reportSignature,
+  type SentRecord,
+} from "@shared/support-report";
 
 export { scrubPii, scrubLogLines } from "@shared/log-scrub";
 
@@ -27,6 +36,12 @@ export interface SendLogsPayload {
    * it's forwarded so a future worker update can use it (e.g. for labeling).
    */
   reportType?: "telemetry-auto" | "telemetry-prompted";
+  /** Triage metadata (title signature, labels, dedup signature). The worker may ignore it. */
+  title?: string;
+  labels?: string[];
+  signature?: string;
+  /** Scrubbed free text from "What were you doing?". Also repeated at the top of `logs`. */
+  note?: string;
 }
 
 export interface SendLogsSuccess {
@@ -113,6 +128,83 @@ export async function fetchDiagnosticsReport(): Promise<string> {
 /** Places the diagnostics block (when available) ahead of the scrubbed logs. */
 export function withDiagnostics(diagnostics: string, logs: string): string {
   return diagnostics ? `${diagnostics}\n\n${logs}` : logs;
+}
+
+// ── Report preparation and duplicate suppression ──────────────────────────────
+
+const SENT_REPORTS_KEY = "questarr.sentSupportReports";
+
+export function loadSentReports(): SentRecord[] {
+  try {
+    const raw = localStorage.getItem(SENT_REPORTS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (entry): entry is SentRecord =>
+            Boolean(entry) &&
+            typeof entry.signature === "string" &&
+            typeof entry.sentAt === "number"
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Remembers a successful submission so an identical one is flagged for an hour. */
+export function recordSentReport(signature: string, code: string, now: number): void {
+  try {
+    localStorage.setItem(
+      SENT_REPORTS_KEY,
+      JSON.stringify(rememberReport({ signature, sentAt: now, code }, loadSentReports()))
+    );
+  } catch {
+    // Storage can be unavailable (private window): duplicate detection is best effort.
+  }
+}
+
+/** The submission of the same problem in the last hour, if any. */
+export function findRecentDuplicate(logLines: string[], now: number): SentRecord | undefined {
+  const signature = reportSignature(summarizeErrors(logLines), logLines);
+  return findDuplicateReport(signature, loadSentReports(), now);
+}
+
+export interface PreparedReport {
+  logs: string;
+  title: string;
+  labels: string[];
+  signature: string;
+  note: string;
+}
+
+/**
+ * Builds the text and triage metadata for a manual submission: a summary of the
+ * warnings and errors plus the user's note on top, then the diagnostics block,
+ * then the scrubbed logs.
+ */
+export function prepareReport(options: {
+  logLines: string[];
+  diagnostics: string;
+  note: string;
+  appVersion: string;
+  platform: string;
+}): PreparedReport {
+  const envelope = buildReportEnvelope({
+    trigger: "manual",
+    appVersion: options.appVersion,
+    platform: options.platform,
+    groups: summarizeErrors(options.logLines),
+    tail: options.logLines,
+    note: options.note,
+  });
+  const body = withDiagnostics(options.diagnostics, scrubLogLines(options.logLines));
+  return {
+    logs: `${envelope.header}\n\n${body}`,
+    title: envelope.title,
+    labels: envelope.labels,
+    signature: envelope.signature,
+    note: cleanNote(options.note),
+  };
 }
 
 // ── GitHub issue URL builder ──────────────────────────────────────────────────

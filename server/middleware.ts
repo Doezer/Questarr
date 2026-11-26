@@ -774,25 +774,33 @@ export const sanitizeUnmatchedSearchData = [
   body("query").isString().trim().isLength({ min: 1, max: 200 }).withMessage("query is required"),
 ];
 
+/** Correlation id assigned by the first middleware in `createApp` (absent outside it). */
+function requestIdOf(res: Response): string | undefined {
+  const id = (res.locals as Record<string, unknown> | undefined)?.requestId;
+  return typeof id === "string" ? id : undefined;
+}
+
 // 🛡️ Sentinel: Global error handler middleware
 // Standardizes error responses and prevents leakage of sensitive details in production
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
   const status = err.status || err.statusCode || 500;
+  const requestId = requestIdOf(res);
 
   // Log the error using our logger instead of relying on default express handler logging
   // Use error level for 5xx, warn/info for client errors
   if (status >= 500) {
-    expressLogger.error({ err, path: req.path, method: req.method }, "Request error");
+    expressLogger.error({ err, requestId, path: req.path, method: req.method }, "Request error");
     // Fire-and-forget: detect + report unhandled server errors for the automatic
     // error-telemetry pipeline. Never let this delay or fail the response.
     void reportServerError(err, {
       source: "expressErrorHandler",
       path: req.path,
       method: req.method,
+      ...(requestId ? { requestId } : {}),
     });
   } else {
-    expressLogger.warn({ err, path: req.path, method: req.method }, "Request error");
+    expressLogger.warn({ err, requestId, path: req.path, method: req.method }, "Request error");
   }
 
   // Determine the error message to show to the client

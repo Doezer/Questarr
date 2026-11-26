@@ -92,4 +92,56 @@ describe("redactSecrets", () => {
     const set = new Set(["plain text", "Bearer sekrettoken123"]);
     expect(redactSecrets(set)).toEqual(["plain text", "Bearer [redacted]"]);
   });
+  describe("error serialization", () => {
+    it("keeps code, errno, syscall, status and the cause chain", () => {
+      const cause = Object.assign(new Error("connect ECONNREFUSED"), {
+        code: "ECONNREFUSED",
+        errno: -111,
+        syscall: "connect",
+      });
+      const error = new TypeError("fetch failed", { cause });
+      expect(redactSecrets({ error })).toEqual({
+        error: {
+          name: "TypeError",
+          message: "fetch failed",
+          cause: {
+            name: "Error",
+            message: "connect ECONNREFUSED",
+            code: "ECONNREFUSED",
+            errno: -111,
+            syscall: "connect",
+          },
+        },
+      });
+      expect(redactSecrets(Object.assign(new Error("nope"), { status: 401 }))).toEqual({
+        name: "Error",
+        message: "nope",
+        status: 401,
+      });
+    });
+
+    it("serializes error-shaped objects that do not extend Error", () => {
+      const lookalike = {
+        name: "AbortError",
+        message: "aborted",
+        stack: "AbortError: aborted\n at x",
+      };
+      expect(redactSecrets({ err: lookalike })).toEqual({
+        err: { name: "AbortError", message: "aborted" },
+      });
+    });
+
+    it("redacts secrets inside messages and causes and never emits the stack", () => {
+      const error = new Error("login failed", { cause: new Error("token=abc123 rejected") });
+      const result = JSON.stringify(redactSecrets(error));
+      expect(result).not.toContain("abc123");
+      expect(result).not.toContain("stack");
+    });
+
+    it("does not recurse forever on a circular cause", () => {
+      const error = new Error("loop");
+      (error as { cause?: unknown }).cause = error;
+      expect(() => redactSecrets(error)).not.toThrow();
+    });
+  });
 });

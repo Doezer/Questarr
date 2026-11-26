@@ -14,6 +14,8 @@ const routes: Record<string, unknown> = {
   "/api/downloaders": [],
   "/api/settings/steam": { apiKeyConfigured: false },
   "/api/retroachievements": { available: false },
+  "/api/xbox-achievements": { available: false },
+  "/api/psn-achievements": { available: false },
   "/api/settings/nexusmods": { configured: false },
   "/api/settings/apprise": { configured: false },
   "/api/auth/me": { steamId64: null },

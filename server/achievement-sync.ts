@@ -195,7 +195,11 @@ export function withCommitLock<T>(
 export async function syncAchievements(
   provider: AchievementProvider,
   userId: string,
-  { force = false, now = new Date() }: { force?: boolean; now?: Date } = {}
+  {
+    force = false,
+    now = new Date(),
+    requireEnabled = false,
+  }: { force?: boolean; now?: Date; requireEnabled?: boolean } = {}
 ): Promise<AchievementsResult> {
   const lock = `${provider.id}:${userId}`;
   if (running.has(lock)) throw new AchievementsBusyError();
@@ -208,6 +212,8 @@ export async function syncAchievements(
     const snapshot = await withCommitLock(provider, userId, async () => {
       if (!(await provider.isAvailable(userId))) throw new AchievementsUnavailableError();
       const state = await readState(provider, userId);
+      // Turned off after the caller looked: nothing is fetched or written.
+      if (requireEnabled && !state.enabled) return null;
       if (
         !force &&
         state.lastSyncAt &&
@@ -322,7 +328,7 @@ export async function runScheduledAchievementsSync(provider: AchievementProvider
   for (const userId of await provider.scheduledUserIds()) {
     try {
       if (!(await readState(provider, userId)).enabled) continue;
-      await syncAchievements(provider, userId);
+      await syncAchievements(provider, userId, { requireEnabled: true });
     } catch (error) {
       if (error instanceof AchievementsBusyError) continue;
       routesLogger.warn({ userId }, `${provider.label} achievements sync failed`);

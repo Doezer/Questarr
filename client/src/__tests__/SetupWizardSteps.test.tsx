@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { getQueryFn } from "@/lib/queryClient";
 import SetupWizardPage from "@/pages/setup-wizard";
 import SetupWizardPrompt from "@/components/SetupWizardPrompt";
+import { STEP_RENDERERS } from "@/components/setup-wizard/steps";
+import { WIZARD_STEPS } from "@shared/setup-wizard";
 
 const navigate = vi.fn();
 let location = "/setup-wizard";
@@ -12,11 +14,18 @@ vi.mock("@/components/PlatformsSettings", () => ({
   default: () => <div>Platforms card</div>,
 }));
 vi.mock("@/components/ImportSettings", () => ({ default: () => <div>Import card</div> }));
+vi.mock("@/components/XboxAchievementsSync", () => ({
+  XboxAchievementsSync: () => <div>Xbox card</div>,
+}));
+vi.mock("@/components/PsnAchievementsSync", () => ({
+  PsnAchievementsSync: () => <div>PlayStation card</div>,
+}));
 vi.mock("@/components/RetroAchievementsSync", () => ({
   RetroAchievementsSync: () => <div>RetroAchievements card</div>,
 }));
 
 let wizardState = "pending";
+let seenRevision: number | undefined;
 let routes: Record<string, unknown> = {};
 const calls: { method: string; path: string; body?: unknown }[] = [];
 
@@ -27,6 +36,8 @@ function baseRoutes(): Record<string, unknown> {
     "/api/downloaders": [],
     "/api/settings/steam": { apiKeyConfigured: false },
     "/api/retroachievements": { available: false },
+    "/api/xbox-achievements": { available: false },
+    "/api/psn-achievements": { available: false },
     "/api/settings/nexusmods": { configured: false },
     "/api/settings/apprise": { configured: false },
     "/api/auth/me": { steamId64: null },
@@ -46,6 +57,7 @@ beforeEach(() => {
   calls.length = 0;
   location = "/setup-wizard";
   wizardState = "pending";
+  seenRevision = undefined;
   routes = baseRoutes();
   vi.stubGlobal(
     "fetch",
@@ -55,7 +67,7 @@ beforeEach(() => {
       calls.push({ method, path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
       const body =
         path === "/api/system/setup-wizard"
-          ? { state: method === "PUT" ? "done" : wizardState }
+          ? { state: method === "PUT" ? "done" : wizardState, seenRevision }
           : routes[path];
       return new Response(JSON.stringify(body ?? {}), {
         status: 200,
@@ -187,6 +199,21 @@ describe("setup wizard steps", () => {
     expect(screen.getByRole("link", { name: /open notification settings/i })).toBeTruthy();
   });
 
+  it("offers the Xbox and PlayStation steps for those platforms", async () => {
+    wrap(<SetupWizardPage />);
+    await screen.findByText("About your setup");
+    fireEvent.click(screen.getByLabelText(/^Xbox/));
+    fireEvent.click(screen.getByLabelText(/^PlayStation/));
+    next();
+    await screen.findByLabelText("Client ID");
+    next();
+    await screen.findByText("Platforms card");
+    next();
+    await screen.findByText("Xbox card");
+    next();
+    await screen.findByText("PlayStation card");
+  });
+
   it("skips configured services for an install that predates the wizard", async () => {
     wizardState = "never";
     routes["/api/config"] = { igdb: { configured: true } };
@@ -221,6 +248,16 @@ describe("setup wizard load failure", () => {
   });
 });
 
+describe("STEP_RENDERERS", () => {
+  it("has a screen for every step except the question and summary pages", () => {
+    // The prompt announces new steps without importing the screens, so none may be missing.
+    const missing = WIZARD_STEPS.filter(
+      (s) => s.id !== "questions" && s.id !== "summary" && !(s.id in STEP_RENDERERS)
+    ).map((s) => s.id);
+    expect(missing).toEqual([]);
+  });
+});
+
 describe("SetupWizardPrompt", () => {
   it("is offered to an install that predates the wizard and can be dismissed", async () => {
     wizardState = "never";
@@ -240,8 +277,21 @@ describe("SetupWizardPrompt", () => {
     );
   });
 
-  it("stays hidden once done, and on the wizard itself", async () => {
+  it("comes back once done when a later release added a step it can show", async () => {
     wizardState = "done";
+    seenRevision = 1;
+    location = "/";
+    wrap(<SetupWizardPrompt />);
+    expect(
+      await screen.findByText(/new in questarr: xbox achievements, playstation trophies/i)
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /open wizard/i }));
+    expect(navigate).toHaveBeenCalledWith("/setup-wizard");
+  });
+
+  it("stays hidden once done and up to date, and on the wizard itself", async () => {
+    wizardState = "done";
+    seenRevision = 2;
     location = "/";
     const { container, unmount } = wrap(<SetupWizardPrompt />);
     await waitFor(() => expect(calls.length).toBeGreaterThan(0));

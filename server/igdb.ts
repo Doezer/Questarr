@@ -229,6 +229,17 @@ function sanitizeIgdbInput(input: string): string {
     .slice(0, 100); // Limit length to prevent abuse
 }
 
+/**
+ * Strip diacritics ("Pokémon" -> "Pokemon") so searches match regardless of accents.
+ * Only used for matching; displayed IGDB titles are never altered.
+ */
+export function foldDiacritics(input: string): string {
+  return input
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .normalize("NFC");
+}
+
 // Retry configuration for rate-limited requests
 const MAX_RETRY_ATTEMPTS = 3;
 const BASE_RETRY_DELAY_MS = 1000;
@@ -681,16 +692,25 @@ class IGDBClient {
     const headroomMultiplier = hasLocalFilter ? 5 : 2;
     const requestLimit = Math.min(limit * headroomMultiplier, MAX_LIMIT);
 
-    const exactNameCondition = `name ~= "${sanitizedQuery}"`;
-    const partialNameCondition = `name ~ *"${sanitizedQuery}"*`;
+    // Search on the accent-folded query so "pokémon" and "pokemon" behave identically;
+    // IGDB name matching (~) is case-insensitive but not accent-insensitive.
+    const foldedQuery = foldDiacritics(sanitizedQuery) || sanitizedQuery;
+    const hasAccents = foldedQuery !== sanitizedQuery;
+    const exactNameCondition = `name ~= "${foldedQuery}"`;
+    // When the user typed accents, also match the accented spelling verbatim, since IGDB
+    // titles such as "Pokémon" only match `~` with the accent present. Folded into the
+    // existing partial approach so the attempt budget (and word fallback) is unchanged.
+    const partialNameCondition = hasAccents
+      ? `(name ~ *"${foldedQuery}"* | name ~ *"${sanitizedQuery}"*)`
+      : `name ~ *"${foldedQuery}"*`;
 
     // Try multiple search approaches to maximize results
     const searchApproaches = [
       // Approach 1: Full text search without category filter
-      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters()}limit ${requestLimit};`,
+      `search "${foldedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters()}limit ${requestLimit};`,
 
       // Approach 2: Full text search with category filter
-      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters(["category = 0"])}limit ${requestLimit};`,
+      `search "${foldedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters(["category = 0"])}limit ${requestLimit};`,
 
       // Approach 3: Case-insensitive name matching without category
       `fields ${IGDB_GAME_FIELDS}; ${withFilters([exactNameCondition])}limit ${requestLimit};`,
@@ -751,7 +771,7 @@ class IGDBClient {
     }
 
     // If no full-phrase results, try individual words without category filter
-    const words = sanitizedQuery
+    const words = foldedQuery
       .toLowerCase()
       .split(" ")
       .filter((word) => word.length > 2);
@@ -793,7 +813,7 @@ class IGDBClient {
         // Filter to prefer games containing multiple query words
         const filteredResults = wordResults.filter(
           (game: IGDBGame) =>
-            words.filter((w) => game.name.toLowerCase().includes(w)).length >=
+            words.filter((w) => foldDiacritics(game.name).toLowerCase().includes(w)).length >=
             Math.min(2, words.length)
         );
 

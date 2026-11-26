@@ -13,6 +13,7 @@ vi.mock("../storage.js", () => ({
 }));
 
 import { setupWizardRouter } from "../routes/setup-wizard.js";
+import { INITIAL_WIZARD_REVISION, WIZARD_REVISION } from "../../shared/setup-wizard.js";
 
 const app = express();
 app.use(express.json());
@@ -24,7 +25,11 @@ describe("setup wizard state routes", () => {
   it("reports `never` for an install that predates the wizard", async () => {
     const res = await request(app).get("/api/system/setup-wizard");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ state: "never" });
+    expect(res.body).toEqual({
+      state: "never",
+      seenRevision: INITIAL_WIZARD_REVISION,
+      currentRevision: WIZARD_REVISION,
+    });
   });
 
   it("stores and returns `done`, and can be reset to `pending`", async () => {
@@ -32,6 +37,17 @@ describe("setup wizard state routes", () => {
     expect((await request(app).get("/api/system/setup-wizard")).body.state).toBe("done");
     await request(app).put("/api/system/setup-wizard").send({ state: "pending" }).expect(200);
     expect((await request(app).get("/api/system/setup-wizard")).body.state).toBe("pending");
+  });
+
+  it("records the current revision when the wizard is finished, not when it is reset", async () => {
+    await request(app).put("/api/system/setup-wizard").send({ state: "pending" }).expect(200);
+    expect((await request(app).get("/api/system/setup-wizard")).body.seenRevision).toBe(
+      INITIAL_WIZARD_REVISION
+    );
+    await request(app).put("/api/system/setup-wizard").send({ state: "done" }).expect(200);
+    expect((await request(app).get("/api/system/setup-wizard")).body.seenRevision).toBe(
+      WIZARD_REVISION
+    );
   });
 
   it("rejects an unknown state", async () => {

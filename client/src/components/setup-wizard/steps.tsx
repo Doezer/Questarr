@@ -14,6 +14,8 @@ import { IgdbHelpPopover, IgdbTestConnectionButton } from "@/components/IgdbCred
 import PlatformsSettings from "@/components/PlatformsSettings";
 import ImportSettings from "@/components/ImportSettings";
 import { RetroAchievementsSync } from "@/components/RetroAchievementsSync";
+import { XboxAchievementsSync } from "@/components/XboxAchievementsSync";
+import { PsnAchievementsSync } from "@/components/PsnAchievementsSync";
 import {
   WIZARD_PLATFORMS,
   type WizardAnswers,
@@ -475,6 +477,30 @@ export function RetroAchievementsStep() {
   );
 }
 
+// --- Xbox and PlayStation ----------------------------------------------------------
+
+export function XboxStep() {
+  return (
+    <StepSection>
+      <p className="text-sm text-muted-foreground">
+        Add an OpenXBL key to follow your Xbox achievements next to your games.
+      </p>
+      <XboxAchievementsSync />
+    </StepSection>
+  );
+}
+
+export function PsnStep() {
+  return (
+    <StepSection>
+      <p className="text-sm text-muted-foreground">
+        Add your PlayStation NPSSO token to follow your trophies next to your games.
+      </p>
+      <PsnAchievementsSync />
+    </StepSection>
+  );
+}
+
 // --- NexusMods ---------------------------------------------------------------------
 
 export function NexusModsStep({ status }: Readonly<StepProps>) {
@@ -541,6 +567,8 @@ export const STEP_RENDERERS: Partial<Record<WizardStepId, StepRenderer>> = {
   import: () => <ImportStep />,
   steam: (p) => <SteamStep {...p} />,
   retroachievements: () => <RetroAchievementsStep />,
+  xbox: () => <XboxStep />,
+  psn: () => <PsnStep />,
   nexusmods: (p) => <NexusModsStep {...p} />,
   notifications: (p) => <NotificationsStep {...p} />,
   privacy: () => <PrivacyStep />,

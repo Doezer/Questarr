@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { seedGame, uniqueId } from "./helpers";
+import { apiSend, seedGame, uniqueId } from "./helpers";
 
 test.describe("Play time journey", () => {
   // Inherits authenticated state from 'setup' project
@@ -60,5 +60,8 @@ test.describe("Play time journey", () => {
     await expect(stats.getByRole("listitem").filter({ hasText: title })).toContainText(
       "1h 30m / ~10h"
     );
+
+    // Most played ranks the whole library: remove this game so a re-run starts clean.
+    expect((await apiSend(page, "DELETE", `/api/games/${game.id}`)).ok()).toBe(true);
   });
 });

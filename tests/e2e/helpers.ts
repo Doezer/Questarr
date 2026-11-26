@@ -80,3 +80,15 @@ export async function openSettingsSection(page: Page, title: string): Promise<vo
   }
   await page.waitForURL((url) => url.pathname === path);
 }
+
+/** Send a state-changing API request with the double-submit CSRF header the browser client sends. */
+export async function apiSend(
+  page: Page,
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+  url: string,
+  data?: unknown
+) {
+  const cookies = await page.context().cookies();
+  const csrf = cookies.find((c) => c.name === "questarr_csrf")?.value ?? "";
+  return page.request.fetch(url, { method, headers: { "X-CSRF-Token": csrf }, data });
+}

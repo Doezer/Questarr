@@ -488,12 +488,9 @@ describe("Game file routes", () => {
       const response = await request(app).get(`/api/games/${gameId}/content`);
 
       expect(response.status).toBe(200);
-      expect(response.body.slots).not.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ igdbId: 2001 }),
-          expect.objectContaining({ igdbId: 2002 }),
-        ])
-      );
+      const igdbIds = response.body.slots.map((slot: { igdbId?: number }) => slot.igdbId);
+      expect(igdbIds).not.toContain(2001);
+      expect(igdbIds).not.toContain(2002);
     });
 
     it("does not assign a generic update to an unrelated IGDB expansion", async () => {

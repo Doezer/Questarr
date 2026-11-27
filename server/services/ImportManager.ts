@@ -807,7 +807,7 @@ export class ImportManager {
     const filesPlaced = Array.from(
       new Set(
         [...extractedFiles, ...(remainingResult?.filesPlaced ?? [])].map(
-          (filePath) => reorganizedPaths.get(filePath) ?? filePath
+          (filePath) => reorganizedPaths.get(path.resolve(filePath)) ?? filePath
         )
       )
     );
@@ -898,7 +898,7 @@ export class ImportManager {
     const filesPlaced = Array.from(
       new Set(
         [...extractedFiles, ...(remainingResult?.filesPlaced ?? [])].map(
-          (filePath) => reorganizedPaths.get(filePath) ?? filePath
+          (filePath) => reorganizedPaths.get(path.resolve(filePath)) ?? filePath
         )
       )
     );
@@ -1506,18 +1506,14 @@ export class ImportManager {
       const existingFile = existingByPath.get(resolvedPath);
       if (existingFile) {
         const contentId =
-          (explicitContentMatches &&
+          explicitContentMatches &&
           selectedContent != null &&
           contentSuggestionMatchesFile(selectedContent.category, existingFile.category)
             ? selected?.igdbContentId
-            : undefined) ??
-          (suggestion &&
-          suggestionMatchesSelected &&
-          contentSuggestionMatchesFile(suggestion.category, existingFile.category)
-            ? suggestion.id
-            : undefined);
-        // Never overwrite a user association read from storage; inferred links are
-        // only a fallback for rows that are still unlinked.
+            : undefined;
+        // Never overwrite a user association read from storage. A title-based
+        // suggestion applies only to a row created by this transfer, not older
+        // files found in a shared destination folder.
         if (contentId != null && existingFile.igdbContentId == null) {
           await this.storage.updateGameFileContentId(existingFile.id, contentId);
         }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import fsExtra from "fs-extra";
 import type { Game } from "../../shared/schema.js";
 import { applyPlatformFolderRenames, findPlatformFolderRenames } from "../library-migration.js";
 
@@ -165,6 +166,91 @@ describe("library migration", () => {
     expect(await exists(path.join(targetPath, "Game", "game.nsp"))).toBe(false);
     expect(await exists(existingTargetFile)).toBe(true);
   });
+
+  it("preserves a destination created after merge preflight and restores earlier moves", async () => {
+    const root = await makeRoot();
+    const oldPath = path.join(root, "PC");
+    const targetPath = path.join(root, "win");
+    const oldGamePath = path.join(oldPath, "Game");
+    const firstSource = path.join(oldGamePath, "a.nsp");
+    const secondSource = path.join(oldGamePath, "z.nsp");
+    await fs.mkdir(oldGamePath, { recursive: true });
+    await fs.mkdir(targetPath, { recursive: true });
+    await fs.writeFile(firstSource, "first source");
+    await fs.writeFile(secondSource, "second source");
+
+    let preflightChecks = 0;
+    let collisionPath = "";
+    const realPathExists = fsExtra.pathExists.bind(fsExtra);
+    const pathExistsSpy = vi.spyOn(fsExtra, "pathExists").mockImplementation(async (target) => {
+      const existsBeforeCheck = await realPathExists(target);
+      const targetPathString = String(target);
+      if (
+        !existsBeforeCheck &&
+        path.resolve(targetPathString).startsWith(path.resolve(targetPath) + path.sep) &&
+        path.extname(targetPathString) === ".nsp"
+      ) {
+        preflightChecks += 1;
+        if (preflightChecks === 2) {
+          collisionPath = targetPathString;
+          await fs.mkdir(path.dirname(collisionPath), { recursive: true });
+          await fs.writeFile(collisionPath, "concurrent file");
+        }
+      }
+      return existsBeforeCheck;
+    });
+
+    try {
+      const storage = makeStorage({ id: "game-1", libraryPath: oldGamePath } as Game, []);
+      const results = await applyPlatformFolderRenames(
+        root,
+        [{ oldName: "PC", newName: "win", merge: true }],
+        storage as never,
+        [{ id: "game-1", libraryPath: oldGamePath } as Game]
+      );
+
+      expect(results[0]).toMatchObject({ success: false });
+      expect(results[0]?.error).toMatch(/target already contains/i);
+      expect(await fs.readFile(firstSource, "utf8")).toBe("first source");
+      expect(await fs.readFile(secondSource, "utf8")).toBe("second source");
+      expect(await fs.readFile(collisionPath, "utf8")).toBe("concurrent file");
+    } finally {
+      pathExistsSpy.mockRestore();
+    }
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "restores a dangling symlink when merge rollback restores its target first",
+    async () => {
+      const root = await makeRoot();
+      const oldPath = path.join(root, "PC");
+      const targetPath = path.join(root, "win");
+      const oldGamePath = path.join(oldPath, "Game");
+      const linkPath = path.join(oldGamePath, "a-link");
+      const payloadPath = path.join(oldGamePath, "z-payload");
+      await fs.mkdir(oldGamePath, { recursive: true });
+      await fs.symlink("z-payload", linkPath);
+      await fs.writeFile(payloadPath, "payload");
+
+      const game = { id: "game-1", libraryPath: oldGamePath } as Game;
+      const storage = makeStorage(game, []);
+      storage.updateLibraryPathsBatch.mockRejectedValueOnce(new Error("database write failed"));
+
+      const results = await applyPlatformFolderRenames(
+        root,
+        [{ oldName: "PC", newName: "win", merge: true }],
+        storage as never,
+        [game]
+      );
+
+      expect(results[0]).toMatchObject({ success: false, error: "database write failed" });
+      expect(await fs.readFile(payloadPath, "utf8")).toBe("payload");
+      const linkStats = await fs.lstat(linkPath);
+      expect(linkStats.isSymbolicLink()).toBe(true);
+      expect(await fs.readlink(linkPath)).toBe("z-payload");
+      expect(await fs.lstat(path.join(targetPath, "Game", "a-link")).catch(() => null)).toBeNull();
+    }
+  );
 
   it("rejects a stale proposal without changing disk or records", async () => {
     const root = await makeRoot();

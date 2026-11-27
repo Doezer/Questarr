@@ -301,6 +301,46 @@ describe("GameDownloadDialog", () => {
     );
   });
 
+  it("shows unclassified releases in a named Content slot and keeps that slot category on download", async () => {
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({ title: "Example Game Frozen Lands", guid: "frozen-lands" }),
+      ]),
+    });
+    const slotGame = { ...mockGame, title: "Frozen Lands" };
+    queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <GameDownloadDialog
+            game={slotGame}
+            open={true}
+            onOpenChange={mockOnOpenChange}
+            contentCategory="dlc"
+            contentOnly={true}
+          />
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+
+    const downloadButton = await screen.findByRole("button", {
+      name: "Download Example Game Frozen Lands",
+    });
+    fireEvent.click(downloadButton);
+
+    await waitFor(() => {
+      const request = vi
+        .mocked(globalThis.fetch)
+        .mock.calls.find(([url]) => getRequestUrl(url) === "/api/downloads");
+      expect(request).toBeDefined();
+      expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({
+        title: "Example Game Frozen Lands",
+        releaseCategory: "dlc",
+      });
+    });
+  });
+
   it.each([false, true])(
     "links release titles to their indexer source when mobile is %s",
     async (isMobile) => {

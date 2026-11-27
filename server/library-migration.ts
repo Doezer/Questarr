@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import fsExtra from "fs-extra";
@@ -243,11 +244,61 @@ async function restoreMovedFiles(
 ): Promise<void> {
   for (const relative of [...relativeFiles].reverse()) {
     const movedPath = path.join(target, relative);
-    if (!(await fsExtra.pathExists(movedPath))) continue;
+    try {
+      await fs.lstat(movedPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
     const originalPath = path.join(source, relative);
     await fs.mkdir(path.dirname(originalPath), { recursive: true });
-    await fs.rename(movedPath, originalPath);
+    await moveEntryWithoutReplacing(movedPath, originalPath);
   }
+}
+
+/** Moves one filesystem entry without replacing a destination created concurrently. */
+async function moveEntryWithoutReplacing(source: string, target: string): Promise<void> {
+  const sourceStats = await fs.lstat(source);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+
+  if (sourceStats.isSymbolicLink()) {
+    const linkTarget = await fs.readlink(source);
+    const followedStats = await fs.stat(source).catch(() => undefined);
+    const linkType = followedStats?.isDirectory() ? "junction" : "file";
+    await fs.symlink(linkTarget, target, linkType);
+  } else {
+    // link() creates the destination atomically and fails with EEXIST rather
+    // than replacing a file that appeared after the merge preflight. The source
+    // and target are both under the same library root, as required by the
+    // previous rename-based migration as well.
+    try {
+      await fs.link(source, target);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EEXIST") {
+        throw new Error(`Target already contains ${target}`);
+      }
+      if (!["EXDEV", "EPERM", "EOPNOTSUPP", "ENOTSUP", "EMLINK"].includes(code ?? "")) {
+        throw error;
+      }
+      // COPYFILE_EXCL provides the same no-overwrite creation guarantee on
+      // filesystems that reject hard links. Node cleans up a partial copy if
+      // the copy itself fails; never remove the path ourselves on error because
+      // it may now belong to a concurrent writer.
+      try {
+        await fs.copyFile(source, target, fsConstants.COPYFILE_EXCL);
+      } catch (copyError) {
+        if ((copyError as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new Error(`Target already contains ${target}`);
+        }
+        throw copyError;
+      }
+    }
+  }
+
+  // If unlinking fails, leave both entries in place. The merge will fail and
+  // roll back earlier moves without risking deletion of either copy.
+  await fs.unlink(source);
 }
 
 /** Moves merge entries on the library filesystem and restores them if a move fails. */
@@ -263,7 +314,7 @@ async function moveMergeFiles(source: string, target: string): Promise<string[]>
         await walk(sourcePath);
       } else {
         await fs.mkdir(path.dirname(targetPath), { recursive: true });
-        await fs.rename(sourcePath, targetPath);
+        await moveEntryWithoutReplacing(sourcePath, targetPath);
         moved.push(relative);
       }
     }

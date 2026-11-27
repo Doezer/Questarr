@@ -48,6 +48,8 @@ function makeStorage() {
     updateGameDownloadStatus: vi.fn().mockResolvedValue(undefined),
     updateGameStatus: vi.fn().mockResolvedValue(undefined),
     getDownloadsByGameId: vi.fn().mockResolvedValue([]),
+    getGameFiles: vi.fn().mockResolvedValue([]),
+    addGameFile: vi.fn(async (file: Record<string, unknown>) => ({ id: "gf-1", ...file })),
     updateGame: vi.fn().mockResolvedValue(undefined),
     addNotification: vi.fn().mockResolvedValue(undefined),
   };
@@ -427,6 +429,32 @@ describe("ImportManager archive extraction (library-side)", () => {
     expect(await fs.pathExists(path.join(destDir, "game.exe"))).toBe(true);
     expect(await fs.pathExists(path.join(destDir, "update", "Game Update v1.nsp"))).toBe(true);
     expect(await fs.pathExists(path.join(destDir, "Game Update v1.nsp"))).toBe(false);
+  });
+
+  it("records sorted extracted files when the configured library root is relative", async () => {
+    const sourcePath = path.join(downloadsRoot, "game.zip");
+    await fs.ensureDir(downloadsRoot);
+    await fs.writeFile(sourcePath, "zip-bytes");
+
+    const { archiveService } = makeArchiveService({
+      extractResult: { "Game Update v1.nsp": "update-bytes" },
+    });
+    const storage = makeStorage();
+    const relativeLibraryRoot = path.relative(process.cwd(), libraryRoot);
+    const manager = createManager(archiveService, storage, {
+      transferMode: "move",
+      libraryRoot: relativeLibraryRoot,
+      sortExtras: true,
+    });
+
+    await manager.processImport("dl-1", sourcePath);
+
+    expect(storage.addGameFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: path.join(libraryRoot, "PC", "My Game", "update", "Game Update v1.nsp"),
+        category: "update",
+      })
+    );
   });
 
   it("keeps an explicit IGDB association on files produced by archive extraction", async () => {

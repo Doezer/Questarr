@@ -545,7 +545,29 @@ async function assignFilesToGame(
  * files under the game's own library target. Existing records are preserved and
  * only missing paths are added.
  */
+const gameFileBackfillQueues = new Map<string, Promise<void>>();
+
 export async function backfillGameFilesForGame(
+  game: Pick<Game, "id" | "libraryPath">,
+  libraryRoot: string
+): Promise<number> {
+  if (!game.libraryPath) return 0;
+
+  const previous = gameFileBackfillQueues.get(game.id) ?? Promise.resolve();
+  const current = previous.then(() => backfillGameFilesForGameUnlocked(game, libraryRoot));
+  const settled = current.then(
+    () => undefined,
+    () => undefined
+  );
+  gameFileBackfillQueues.set(game.id, settled);
+  try {
+    return await current;
+  } finally {
+    if (gameFileBackfillQueues.get(game.id) === settled) gameFileBackfillQueues.delete(game.id);
+  }
+}
+
+async function backfillGameFilesForGameUnlocked(
   game: Pick<Game, "id" | "libraryPath">,
   libraryRoot: string
 ): Promise<number> {

@@ -35,7 +35,7 @@ const UPDATE_PATTERNS = [/\bupdate\b/i, /\bpatch\b/i, /\bhotfix\b/i, /\bcrackfix
 const PACKS_PATTERNS = [/\bpack\b/i, /\badd-?on\b/i];
 
 const DLC_PATTERNS = [
-  /\bDLC\b/i,
+  /(?:^|[\W_])DLC(?:$|[\W_])/i,
   /\bdownloadable content\b/i,
   /\bexpansion\b/i,
   /\bseason pass\b/i,

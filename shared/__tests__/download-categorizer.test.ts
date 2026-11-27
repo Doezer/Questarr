@@ -62,6 +62,13 @@ describe("download-categorizer", () => {
       expect(result.confidence).toBe(0.85);
     });
 
+    it("treats underscores as separators around DLC markers", () => {
+      expect(categorizeDownload("Game_DLC_v5.0")).toMatchObject({
+        category: "dlc",
+        confidence: 0.85,
+      });
+    });
+
     it("detects DLC via 'expansion' keyword", () => {
       const result = categorizeDownload("Game.Expansion.Pack-GROUP");
       expect(result.category).toBe("dlc");

@@ -103,6 +103,70 @@ describe("library-scanner isIgnoredFile", () => {
 });
 
 describe("backfillGameFilesForGame", () => {
+  it("serializes overlapping backfills for the same game", async () => {
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-backfill-"));
+    const libraryRoot = path.join(tmpDir, "library");
+    const gameDir = path.join(libraryRoot, "PC", "Test Game");
+    await fs.promises.mkdir(gameDir, { recursive: true });
+    await fs.promises.writeFile(path.join(gameDir, "game.iso"), "game");
+    const { storage } = await import("../storage.js");
+
+    try {
+      const records: GameFile[] = [];
+      let startFirstRead!: () => void;
+      let releaseFirstRead!: () => void;
+      let startSecondRead!: () => void;
+      const firstReadStarted = new Promise<void>((resolve) => {
+        startFirstRead = resolve;
+      });
+      const firstReadGate = new Promise<void>((resolve) => {
+        releaseFirstRead = resolve;
+      });
+      const secondReadStarted = new Promise<void>((resolve) => {
+        startSecondRead = resolve;
+      });
+      let readCount = 0;
+
+      vi.mocked(storage.getGameFiles).mockImplementation(async () => {
+        readCount += 1;
+        const snapshot = [...records];
+        if (readCount === 1) {
+          startFirstRead();
+          await firstReadGate;
+        } else if (readCount === 2) {
+          startSecondRead();
+        }
+        return snapshot;
+      });
+      vi.mocked(storage.addGameFilesBatch).mockImplementation(async (files) => {
+        const created = files.map(
+          (file, index) => ({ ...file, id: `gf-${records.length + index + 1}` }) as GameFile
+        );
+        records.push(...created);
+        return created;
+      });
+
+      const game = { id: "g-backfill-queue", libraryPath: gameDir };
+      const first = backfillGameFilesForGame(game, libraryRoot);
+      await firstReadStarted;
+      const second = backfillGameFilesForGame(game, libraryRoot);
+      const overlap = await Promise.race([
+        secondReadStarted.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 100)),
+      ]);
+      releaseFirstRead();
+
+      await expect(Promise.all([first, second])).resolves.toEqual([1, 0]);
+      expect(overlap).toBe(false);
+      expect(storage.addGameFilesBatch).toHaveBeenCalledTimes(1);
+      expect(records).toHaveLength(1);
+    } finally {
+      vi.mocked(storage.getGameFiles).mockReset().mockResolvedValue([]);
+      vi.mocked(storage.addGameFilesBatch).mockReset().mockResolvedValue([]);
+      await fs.promises.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it.skipIf(process.platform === "win32")(
     "does not duplicate a file tracked through a symlink path",
     async () => {

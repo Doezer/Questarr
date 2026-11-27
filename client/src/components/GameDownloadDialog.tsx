@@ -80,6 +80,7 @@ import {
   downloadRulesSchema,
 } from "@shared/schema";
 import {
+  categorizeDownload,
   getCategoryLabel,
   groupDownloadsByCategory,
   type DownloadCategory,
@@ -517,8 +518,30 @@ export default function GameDownloadDialog({
   // Categorize downloads
   const categorizedDownloads = useMemo(() => {
     if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [], packs: [] };
-    return groupDownloadsByCategory(searchResults.items);
-  }, [searchResults?.items]);
+    const categorized = groupDownloadsByCategory(searchResults.items);
+    if (!contentOnly || !contentCategory) return categorized;
+
+    // A Content-tab search is already scoped to a specific IGDB slot label. Keep
+    // otherwise-unclassified releases visible in that slot instead of hiding them
+    // because their release title lacks a category marker. Confident main-game
+    // classifications remain excluded.
+    const unclassified = searchResults.items.filter((item) => {
+      const result = categorizeDownload(
+        item.title,
+        item.aiReleaseType,
+        item.aiReleaseTypeConfidence
+      );
+      return result.category === "main" && result.confidence === 0.5;
+    });
+    if (unclassified.length === 0) return categorized;
+
+    const unclassifiedItems = new Set(unclassified);
+    return {
+      ...categorized,
+      main: categorized.main.filter((item) => !unclassifiedItems.has(item)),
+      [contentCategory]: [...categorized[contentCategory], ...unclassified],
+    };
+  }, [searchResults?.items, contentOnly, contentCategory]);
 
   // Distinct indexer names actually present in the current results, regardless of
   // whether they're still in the user's enabled-indexers list. Used to decide when
@@ -738,11 +761,14 @@ export default function GameDownloadDialog({
           title: download.title,
           gameId,
           downloadType: isUsenetItem(download) ? "usenet" : "torrent",
-          releaseCategory: inferReleaseCategory(
-            download.title,
-            download.aiReleaseType,
-            download.aiReleaseTypeConfidence
-          ),
+          releaseCategory:
+            contentOnly && contentCategory
+              ? contentCategory
+              : inferReleaseCategory(
+                  download.title,
+                  download.aiReleaseType,
+                  download.aiReleaseTypeConfidence
+                ),
         });
         results.push(await response.json());
       }

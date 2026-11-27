@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, Loader2, Search, Upload } from "lucide-react";
+import { Check, Loader2, Search, Upload, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { FileBrowser } from "./FileBrowser";
 import type { Game, ImportConfig, ImportTransferMode } from "@shared/schema";
+import { normalizeTitle } from "@shared/title-utils";
 
 interface ScannedFile {
   name: string;
@@ -282,6 +283,36 @@ export default function ManualImportModal({
 
   const filteredGames = useMemo(() => userGames.filter((item) => !item.hidden), [userGames]);
 
+  const selectGame = (index: number, selectedGame: Game) => {
+    updateAssignment(index, {
+      gameId: selectedGame.id,
+      gameTitle: selectedGame.title,
+    });
+  };
+
+  useEffect(() => {
+    if (!open || game || filteredGames.length === 0) return;
+
+    setAssignments((current) => {
+      let changed = false;
+      const next = current.map((assignment) => {
+        const normalizedQuery = normalizeTitle(assignment.gameTitle);
+        if (assignment.gameId || !normalizedQuery) return assignment;
+
+        const exactMatches = filteredGames.filter(
+          (item) => normalizeTitle(item.title) === normalizedQuery
+        );
+        const exactMatch = exactMatches.length === 1 ? exactMatches[0] : undefined;
+        if (!exactMatch) return assignment;
+
+        changed = true;
+        return { ...assignment, gameId: exactMatch.id, gameTitle: exactMatch.title };
+      });
+
+      return changed ? next : current;
+    });
+  }, [filteredGames, game, open]);
+
   return (
     <Dialog
       open={open}
@@ -386,6 +417,22 @@ export default function ManualImportModal({
                               {game.title}
                             </span>
                           </div>
+                        ) : assignment.gameId ? (
+                          <div className="flex h-9 items-center gap-2 rounded-md border border-emerald-600/30 bg-emerald-600/10 px-3 text-sm">
+                            <Check className="h-4 w-4 shrink-0 text-emerald-600" />
+                            <span className="min-w-0 flex-1 truncate" title={assignment.gameTitle}>
+                              {assignment.gameTitle}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateAssignment(index, { gameId: "", gameTitle: "" })}
+                              className="rounded-sm p-1 text-muted-foreground hover:bg-background hover:text-foreground"
+                              aria-label={`Clear game assignment for ${assignment.file.name}`}
+                              title="Choose a different game"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
                         ) : (
                           <div className="relative">
                             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -393,21 +440,33 @@ export default function ManualImportModal({
                               value={assignment.gameTitle}
                               placeholder="Search your games…"
                               className="pl-8"
+                              autoComplete="off"
+                              aria-label={`Search library games for ${assignment.file.name}`}
                               onChange={(event) => {
                                 const value = event.target.value;
-                                updateAssignment(index, {
-                                  gameTitle: value,
-                                  gameId: "",
-                                });
+                                const normalized = normalizeTitle(value);
+                                const exactMatches = normalized
+                                  ? filteredGames.filter(
+                                      (item) => normalizeTitle(item.title) === normalized
+                                    )
+                                  : [];
+                                const exactMatch =
+                                  exactMatches.length === 1 ? exactMatches[0] : undefined;
+
+                                if (exactMatch) {
+                                  selectGame(index, exactMatch);
+                                } else {
+                                  updateAssignment(index, { gameTitle: value, gameId: "" });
+                                }
                               }}
                             />
-                            {assignment.gameTitle.trim() && !assignment.gameId && (
+                            {normalizeTitle(assignment.gameTitle) && (
                               <div className="absolute z-10 mt-1 max-h-40 w-full overflow-auto rounded-md border bg-popover p-1 shadow-md">
                                 {filteredGames
                                   .filter((item) =>
-                                    item.title
-                                      .toLowerCase()
-                                      .includes(assignment.gameTitle.trim().toLowerCase())
+                                    normalizeTitle(item.title).includes(
+                                      normalizeTitle(assignment.gameTitle)
+                                    )
                                   )
                                   .slice(0, 8)
                                   .map((item) => (
@@ -415,16 +474,21 @@ export default function ManualImportModal({
                                       key={item.id}
                                       type="button"
                                       className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
-                                      onClick={() =>
-                                        updateAssignment(index, {
-                                          gameId: item.id,
-                                          gameTitle: item.title,
-                                        })
-                                      }
+                                      onClick={() => selectGame(index, item)}
                                     >
                                       {item.title}
                                     </button>
                                   ))}
+                                {filteredGames.every(
+                                  (item) =>
+                                    !normalizeTitle(item.title).includes(
+                                      normalizeTitle(assignment.gameTitle)
+                                    )
+                                ) && (
+                                  <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                                    No matching games in your library.
+                                  </p>
+                                )}
                               </div>
                             )}
                           </div>

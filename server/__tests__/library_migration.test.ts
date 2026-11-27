@@ -229,6 +229,7 @@ describe("library migration", () => {
       const linkPath = path.join(oldGamePath, "a-link");
       const payloadPath = path.join(oldGamePath, "z-payload");
       await fs.mkdir(oldGamePath, { recursive: true });
+      await fs.mkdir(targetPath, { recursive: true });
       await fs.symlink("z-payload", linkPath);
       await fs.writeFile(payloadPath, "payload");
 

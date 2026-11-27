@@ -51,6 +51,7 @@ function makeStorage() {
     getGameFiles: vi.fn().mockResolvedValue([]),
     addGameFile: vi.fn(async (file: Record<string, unknown>) => ({ id: "gf-1", ...file })),
     updateGame: vi.fn().mockResolvedValue(undefined),
+    setGameLibraryPathIfUnset: vi.fn(async (id: string, libraryPath: string) => ({ id, libraryPath })),
     addNotification: vi.fn().mockResolvedValue(undefined),
   };
 }

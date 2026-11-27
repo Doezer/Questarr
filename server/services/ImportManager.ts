@@ -49,6 +49,11 @@ import {
   type UpgradeReplacement,
 } from "./upgrade-replace.js";
 import { igdbClient, type IGDBContentRef } from "../igdb.js";
+import {
+  igdbCategoryForStoredCategory,
+  igdbContentSlotCategory,
+  resolveIgdbContentSlotCategory,
+} from "../../shared/igdb-content.js";
 
 export type ImportContentSuggestion = {
   id: number;
@@ -97,15 +102,6 @@ async function isWithinPath(candidatePath: string, rootPath: string): Promise<bo
   const canonicalRoot = await canonicalize(resolvedRoot);
   const relative = path.relative(canonicalRoot, canonicalCandidate);
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-}
-
-function contentCategoryForIgdbCategory(
-  igdbCategory?: number
-): ImportContentSuggestion["category"] {
-  if (igdbCategory === 14) return "update";
-  if (igdbCategory === 13) return "packs";
-  if ([1, 2, 4, 6, 7].includes(igdbCategory ?? -1)) return "dlc";
-  return "extra";
 }
 
 function importedFileCategory(filePath: string): "main" | "dlc" | "update" | "extra" {
@@ -2115,13 +2111,11 @@ export class ImportManager {
     for (const item of game.expansions ?? []) {
       if (Number.isInteger(item.id) && item.id > 0) {
         const cachedIgdbCategory =
-          item.igdbCategory ??
-          item.gameType ??
-          (item.category === "update" ? 14 : item.category === "packs" ? 13 : 2);
+          item.igdbCategory ?? item.gameType ?? igdbCategoryForStoredCategory(item.category);
         items.set(item.id, {
           id: item.id,
           name: item.name,
-          category: contentCategoryForIgdbCategory(cachedIgdbCategory),
+          category: igdbContentSlotCategory(cachedIgdbCategory),
         });
       }
     }
@@ -2143,12 +2137,17 @@ export class ImportManager {
           ...editions.map((item) => ({ item, fallbackCategory: 10 })),
         ];
         for (const { item, fallbackCategory } of liveItems) {
-          if (Number.isInteger(item.id) && item.id > 0 && !items.has(item.id)) {
-            const igdbCategory = item.category ?? item.game_type ?? fallbackCategory;
+          if (Number.isInteger(item.id) && item.id > 0) {
+            const cached = items.get(item.id);
             items.set(item.id, {
               id: item.id,
-              name: item.name,
-              category: contentCategoryForIgdbCategory(igdbCategory),
+              name: item.name || cached?.name || "Unknown content",
+              category: resolveIgdbContentSlotCategory({
+                liveCategory: item.category,
+                liveGameType: item.game_type,
+                cachedCategory: cached?.category,
+                fallbackIgdbCategory: fallbackCategory,
+              }),
             });
           }
         }

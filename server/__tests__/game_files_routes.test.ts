@@ -649,6 +649,35 @@ describe("Game file routes", () => {
       ).toMatchObject({ present: true, files: [{ id: "gf-update" }] });
     });
 
+    it("keeps IGDB categories 6 and 7 in Extras", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue(
+        makeGame({ igdbId: 42, expansions: [] }) as unknown as Awaited<
+          ReturnType<typeof storage.getGame>
+        >
+      );
+      vi.mocked(igdbClient.getGameEditions).mockResolvedValue({
+        base: {
+          id: 42,
+          name: "Test Game",
+          expansions: [
+            { id: 6001, name: "Episode", game_type: 6 },
+            { id: 7001, name: "Season", game_type: 7 },
+          ],
+        },
+        editions: [],
+      });
+
+      const response = await request(app).get(`/api/games/${gameId}/content`);
+
+      expect(response.status).toBe(200);
+      expect(
+        response.body.slots.find((slot: { igdbId?: number }) => slot.igdbId === 6001)
+      ).toMatchObject({ category: "extra", igdbCategory: 6 });
+      expect(
+        response.body.slots.find((slot: { igdbId?: number }) => slot.igdbId === 7001)
+      ).toMatchObject({ category: "extra", igdbCategory: 7 });
+    });
+
     it("restores legacy IGDB content groups and linked library-game state", async () => {
       const expandedGameId = 4101;
       const parentGameId = 4201;

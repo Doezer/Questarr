@@ -1,5 +1,10 @@
 import { guardedIndexerSearch } from "./search-guard.js";
 import { isSameProwlarrUrl } from "../shared/prowlarr-url.js";
+import {
+  igdbCategoryForStoredCategory,
+  igdbContentSlotCategory,
+  resolveIgdbContentSlotCategory,
+} from "../shared/igdb-content.js";
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
@@ -3453,13 +3458,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
   type ContentVideo = { videoId: string; name: string };
 
-  const contentCategoryForIgdbCategory = (igdbCategory?: number): ContentItem["category"] => {
-    if (igdbCategory === 14) return "update";
-    if (igdbCategory === 13) return "packs";
-    if ([1, 2, 4, 6, 7].includes(igdbCategory ?? -1)) return "dlc";
-    return "extra";
-  };
-
   const contentCategoryMatchesFile = (
     contentCategory: ContentItem["category"],
     fileCategory: GameFileCategory
@@ -3488,20 +3486,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!Number.isInteger(item.id) || item.id <= 0) continue;
       if (isContentFiltered(item, filterFlags)) continue;
       const cachedIgdbCategory =
-        item.igdbCategory ??
-        item.gameType ??
-        (item.category === "update"
-          ? 14
-          : item.category === "packs"
-            ? 13
-            : item.category === "extra"
-              ? 5
-              : 2);
+        item.igdbCategory ?? item.gameType ?? igdbCategoryForStoredCategory(item.category);
       byId.set(item.id, {
         id: item.id,
         name: item.name,
         summary: null,
-        category: contentCategoryForIgdbCategory(cachedIgdbCategory),
+        category: igdbContentSlotCategory(cachedIgdbCategory),
         coverUrl: item.coverUrl || null,
         releaseDate: item.releaseDate || null,
         rating: null,
@@ -3544,6 +3534,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const cached = byId.get(item.id);
         const igdbCategory =
           item.category ?? item.game_type ?? cached?.igdbCategory ?? fallbackCategory;
+        const contentCategory = resolveIgdbContentSlotCategory({
+          liveCategory: item.category,
+          liveGameType: item.game_type,
+          cachedIgdbCategory: cached?.igdbCategory,
+          fallbackIgdbCategory: fallbackCategory,
+        });
         const liveCoverUrl = normalizeIgdbCoverUrl(item.cover?.url);
         const liveReleaseDate = item.first_release_date
           ? new Date(item.first_release_date * 1000).toISOString().slice(0, 10)
@@ -3552,7 +3548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: item.id,
           name: item.name || cached?.name || "Unknown content",
           summary: item.summary ?? cached?.summary ?? null,
-          category: contentCategoryForIgdbCategory(igdbCategory),
+          category: contentCategory,
           coverUrl: liveCoverUrl ?? cached?.coverUrl ?? null,
           releaseDate: liveReleaseDate ?? cached?.releaseDate ?? null,
           rating: item.rating ?? cached?.rating ?? null,

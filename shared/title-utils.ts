@@ -10,6 +10,8 @@
  */
 export function normalizeTitle(title: string): string {
   return title
+    .normalize("NFD")
+    .replaceAll(/[\u0300-\u036f]/g, "") // "Pokémon" -> "Pokemon", not "pok mon"
     .toLowerCase()
     .replaceAll(/[^a-z0-9\s]/g, " ") // Replace non-alphanumeric with space
     .replaceAll(/\s+/g, " ") // Multiple spaces to single space
@@ -290,25 +292,29 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
   // 2. Filter common stopwords
   // 3. Require at least one "meaningful" word (> 2 chars or specific) to avoid matching "Stalker 2" against "Witcher 2" (via "2")
 
-  const gameWords = normalizeTitle(gameTitle)
-    .split(" ")
-    .filter((w) => {
-      // Keep if it's a number (length 1 allowed) OR length > 1
-      if (w.length < 2 && isNaN(Number(w))) return false;
-      // Filter stopwords
-      if (TITLE_STOP_WORDS.has(w)) return false;
-      return true;
-    });
+  // Releases write "King's" as "Kings" or "King s", so try the apostrophe both dropped and
+  // spaced. Words must match whole: a substring check let "1-2-Switch" match "Super Mario
+  // Galaxy 2 (v1.2.0) [Switch]" ("1" inside "v1") and "Luigi's Mansion 3" match "Luigi 039s
+  // Mansion 2 HD" ("3" inside "039s").
+  return [(t: string) => t.replaceAll(/['\u2019]/g, ""), (t: string) => t].some((apostrophes) => {
+    const gameWords = normalizeTitle(apostrophes(gameTitle))
+      .split(" ")
+      .filter((w) => {
+        // Keep if it's a number (length 1 allowed) OR length > 1
+        if (w.length < 2 && isNaN(Number(w))) return false;
+        // Filter stopwords
+        if (TITLE_STOP_WORDS.has(w)) return false;
+        return true;
+      });
 
-  // Calculate meaningful words (longer than 2 chars)
-  // If we have NO meaningful words (e.g. "Stalker 2" -> ["2"] where stalker is lost due to spaces, or "It"),
-  // disable fallback to prevent false positives.
-  const meaningfulWords = gameWords.filter((w) => w.length > 2);
+    // Calculate meaningful words (longer than 2 chars)
+    // If we have NO meaningful words (e.g. "Stalker 2" -> ["2"] where stalker is lost due to spaces, or "It"),
+    // disable fallback to prevent false positives.
+    if (!gameWords.some((w) => w.length > 2)) return false;
 
-  if (meaningfulWords.length === 0) return false;
-
-  const normalizedRelease = releaseName.toLowerCase().replace(/[._-]/g, " ");
-  return gameWords.every((word) => normalizedRelease.includes(word));
+    const releaseWords = new Set(normalizeTitle(apostrophes(releaseName)).split(" "));
+    return gameWords.every((word) => releaseWords.has(word));
+  });
 }
 
 // Trailing edition words an indexer rarely carries in the release name ("... Game of the Year

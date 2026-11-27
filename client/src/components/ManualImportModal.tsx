@@ -299,10 +299,14 @@ export default function ManualImportModal({
         const normalizedQuery = normalizeTitle(assignment.gameTitle);
         if (assignment.gameId || !normalizedQuery) return assignment;
 
-        const exactMatches = filteredGames.filter(
-          (item) => normalizeTitle(item.title) === normalizedQuery
+        const prefixMatches = filteredGames.filter((item) =>
+          normalizeTitle(item.title).startsWith(normalizedQuery)
         );
-        const exactMatch = exactMatches.length === 1 ? exactMatches[0] : undefined;
+        const onlyPrefixMatch = prefixMatches.length === 1 ? prefixMatches[0] : undefined;
+        const exactMatch =
+          onlyPrefixMatch && normalizeTitle(onlyPrefixMatch.title) === normalizedQuery
+            ? onlyPrefixMatch
+            : undefined;
         if (!exactMatch) return assignment;
 
         changed = true;
@@ -445,13 +449,18 @@ export default function ManualImportModal({
                               onChange={(event) => {
                                 const value = event.target.value;
                                 const normalized = normalizeTitle(value);
-                                const exactMatches = normalized
-                                  ? filteredGames.filter(
-                                      (item) => normalizeTitle(item.title) === normalized
+                                const prefixMatches = normalized
+                                  ? filteredGames.filter((item) =>
+                                      normalizeTitle(item.title).startsWith(normalized)
                                     )
                                   : [];
+                                const onlyPrefixMatch =
+                                  prefixMatches.length === 1 ? prefixMatches[0] : undefined;
                                 const exactMatch =
-                                  exactMatches.length === 1 ? exactMatches[0] : undefined;
+                                  onlyPrefixMatch &&
+                                  normalizeTitle(onlyPrefixMatch.title) === normalized
+                                    ? onlyPrefixMatch
+                                    : undefined;
 
                                 if (exactMatch) {
                                   selectGame(index, exactMatch);

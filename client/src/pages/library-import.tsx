@@ -25,9 +25,11 @@ export default function LibraryImportPage() {
         <RootFolderDiscovery />
       </div>
 
-      <Suspense fallback={<div className="fixed inset-0 bg-background/80 backdrop-blur-sm" />}>
-        <ManualImportModal open={manualImportOpen} onOpenChange={setManualImportOpen} />
-      </Suspense>
+      {manualImportOpen && (
+        <Suspense fallback={<div className="fixed inset-0 bg-background/80 backdrop-blur-sm" />}>
+          <ManualImportModal open={manualImportOpen} onOpenChange={setManualImportOpen} />
+        </Suspense>
+      )}
     </div>
   );
 }

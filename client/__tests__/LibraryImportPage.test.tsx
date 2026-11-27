@@ -4,6 +4,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { describe, expect, it, vi } from "vitest";
 
+const { manualImportRenderSpy } = vi.hoisted(() => ({ manualImportRenderSpy: vi.fn() }));
+
 import LibraryImportPage from "../src/pages/library-import";
 
 vi.mock("@/components/RootFolderDiscovery", () => ({
@@ -11,8 +13,10 @@ vi.mock("@/components/RootFolderDiscovery", () => ({
 }));
 
 vi.mock("@/components/ManualImportModal", () => ({
-  default: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="manual-import-modal">Manual import modal</div> : null,
+  default: ({ open }: { open: boolean }) => {
+    manualImportRenderSpy(open);
+    return open ? <div data-testid="manual-import-modal">Manual import modal</div> : null;
+  },
 }));
 
 describe("Library Import page", () => {
@@ -20,6 +24,9 @@ describe("Library Import page", () => {
     render(<LibraryImportPage />);
 
     expect(screen.getByTestId("root-folder-discovery")).toBeInTheDocument();
+    await import("../src/components/ManualImportModal");
+    expect(manualImportRenderSpy).not.toHaveBeenCalled();
+
     fireEvent.click(screen.getByRole("button", { name: "Manual Import" }));
 
     expect(await screen.findByTestId("manual-import-modal")).toBeInTheDocument();

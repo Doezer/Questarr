@@ -75,6 +75,9 @@ import {
   BookOpen,
   ArrowUpCircle,
   Timer,
+  Unlink,
+  Upload,
+  Scan,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -108,6 +111,7 @@ import {
   resolveUpgradePolicy,
   type UpgradePolicy,
 } from "@shared/schema";
+import type { DownloadCategory } from "@shared/download-categorizer";
 import { resolveTargetPlatform } from "@shared/title-utils";
 import { type XrelGameStatus } from "@shared/xrel-types";
 import StatusBadge from "./StatusBadge";
@@ -120,6 +124,7 @@ import { carriesBaseGameVersion } from "@shared/version-utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 const AddDdlLinksDialog = lazy(() => import("./AddDdlLinksDialog"));
+const ManualImportModal = lazy(() => import("./ManualImportModal"));
 
 /** Derives the target-platform Select value, falling back to "default" for malformed or unsupported saved pairs. */
 function getTargetPlatformSelectValue(
@@ -144,6 +149,36 @@ interface GameDetailsProps {
 }
 
 type GameDownloadWithDownloader = GameDownload & { downloaderName: string | null };
+
+interface GameContentFile {
+  id: string;
+  originalName: string;
+  storedName: string;
+  downloadId: string | null;
+  fileSize: number | null;
+  igdbContentId: number | null;
+  createdAt: string | Date | null;
+}
+
+interface GameContentSlot {
+  category: string;
+  label: string;
+  summary?: string | null;
+  present: boolean;
+  files: GameContentFile[];
+  igdbId?: number | null;
+  coverUrl?: string | null;
+  releaseDate?: string | null;
+  rating?: number | null;
+  aggregatedRating?: number | null;
+  igdbCategory?: number | null;
+  gameId?: string | null;
+}
+
+interface GameContentResponse {
+  slots: GameContentSlot[];
+  videos?: Array<{ videoId: string; name: string }>;
+}
 
 type FileDeletionResult =
   | { deleted: true; path: string | null }
@@ -181,6 +216,85 @@ const EXPANSION_CATEGORY_LABELS: Record<string, string> = {
   extra: "Extra",
   packs: "Packs",
 };
+
+const IGDB_CATEGORY_LABELS: Record<number, string> = {
+  0: "Main Game",
+  1: "DLC",
+  2: "Expansion",
+  3: "Bundle",
+  4: "Standalone",
+  5: "Mod",
+  6: "Episode",
+  7: "Season",
+  8: "Remake",
+  9: "Remaster",
+  10: "Expanded Game",
+  11: "Port",
+  12: "Fork",
+  13: "Pack/Addon",
+  14: "Update",
+};
+
+const IGDB_CATEGORY_COLORS: Record<number, string> = {
+  0: "bg-slate-600/30 text-slate-300 border-slate-500/40",
+  1: "bg-blue-600/30 text-blue-300 border-blue-500/40",
+  2: "bg-purple-600/30 text-purple-300 border-purple-500/40",
+  3: "bg-teal-600/30 text-teal-300 border-teal-500/40",
+  4: "bg-violet-600/30 text-violet-300 border-violet-500/40",
+  5: "bg-pink-600/30 text-pink-300 border-pink-500/40",
+  6: "bg-amber-600/30 text-amber-300 border-amber-500/40",
+  7: "bg-orange-600/30 text-orange-300 border-orange-500/40",
+  8: "bg-indigo-600/30 text-indigo-300 border-indigo-500/40",
+  9: "bg-violet-600/30 text-violet-300 border-violet-500/40",
+  10: "bg-slate-600/30 text-slate-300 border-slate-500/40",
+  11: "bg-slate-600/30 text-slate-300 border-slate-500/40",
+  12: "bg-slate-600/30 text-slate-300 border-slate-500/40",
+  13: "bg-cyan-600/30 text-cyan-300 border-cyan-500/40",
+  14: "bg-red-600/30 text-red-300 border-red-500/40",
+};
+
+function formatContentDate(value: string | Date | null | undefined): string | null {
+  if (!value) return null;
+  const date =
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? new Date(`${value}T00:00:00`)
+      : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString();
+}
+
+function ContentSummary({ summary }: { summary: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (element) setClamped(element.scrollHeight > element.clientHeight);
+  }, [summary]);
+
+  return (
+    <div className="mt-3">
+      <p
+        ref={ref}
+        className={cn(
+          "text-xs leading-relaxed text-muted-foreground break-words [overflow-wrap:anywhere]",
+          !expanded && "line-clamp-2"
+        )}
+      >
+        {summary}
+      </p>
+      {clamped && (
+        <button
+          type="button"
+          className="mt-0.5 text-xs text-blue-400 hover:text-blue-300"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
 
 interface SectionProps {
   readonly id: string;
@@ -567,6 +681,12 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
     queryKey: ["/api/downloaders/enabled"],
   });
   const hasRealDebrid = enabledDownloaders?.some((d) => d.type === "realdebrid") ?? false;
+  const [downloadSearchGame, setDownloadSearchGame] = useState<Game | null>(null);
+  const [downloadContentCategory, setDownloadContentCategory] = useState<DownloadCategory>();
+  const [manualImportOpen, setManualImportOpen] = useState(false);
+  const [manualImportCategory, setManualImportCategory] = useState<DownloadCategory>();
+  const [manualImportContentId, setManualImportContentId] = useState<number>();
+  const [deleteContentFileId, setDeleteContentFileId] = useState<string | null>(null);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [targetPlatformValue, setTargetPlatformValue] = useState("default");
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
@@ -574,6 +694,9 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   const [deleteFiles, setDeleteFiles] = useState(true);
   const [activeSection, setActiveSection] = useState("overview");
   const [filesWanted, setFilesWanted] = useState(false);
+  const [scanResults, setScanResults] = useState<ScannedGameFile[]>([]);
+  const [scanTruncated, setScanTruncated] = useState(false);
+  const [scanningDisk, setScanningDisk] = useState(false);
   const filesRef = useRef<HTMLElement>(null);
   const open = true;
   const { toast } = useToast();
@@ -583,6 +706,9 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   useEffect(() => {
     setIsSummaryExpanded(false);
     setTargetPlatformValue(getTargetPlatformSelectValue(game));
+    setScanResults([]);
+    setScanTruncated(false);
+    setScanningDisk(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game.id]);
 
@@ -602,8 +728,6 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   }, [game.id]);
 
   const screenshots = game.screenshots ?? [];
-  const videos = game.videos ?? [];
-
   // Clear the selection if it falls outside the current screenshots list
   // (e.g. the list shrinks while the lightbox is open).
   useEffect(() => {
@@ -945,6 +1069,76 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
   });
 
   const {
+    data: gameContent,
+    isLoading: contentLoading,
+    isError: contentError,
+  } = useQuery<GameContentResponse>({
+    queryKey: [`/api/games/${game.id}/content`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game.id}/content`);
+      return res.json();
+    },
+    enabled: open && !isDiscoveryId(game.id),
+    staleTime: 60 * 1000,
+  });
+  const contentSlots = Array.isArray(gameContent?.slots) ? gameContent.slots : [];
+  const videos = gameContent?.videos ?? game.videos ?? [];
+
+  const unlinkContentMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      await apiRequest("PATCH", `/api/game-files/${fileId}/content`, { igdbContentId: null });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/content`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/files`] });
+      toast({ description: "File unlinked from IGDB content" });
+    },
+    onError: (error: Error) => {
+      toast({
+        description: error.message || "Failed to unlink file",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteContentFileMutation = useMutation({
+    mutationFn: async (fileId: string) => {
+      await apiRequest("DELETE", `/api/game-files/${fileId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/content`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/files`] });
+      setDeleteContentFileId(null);
+      toast({ description: "File record removed; the physical file was kept" });
+    },
+    onError: (error: Error) => {
+      toast({
+        description: error.message || "Failed to remove file record",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const removeContentGameMutation = useMutation({
+    mutationFn: async (contentGameId: string) => {
+      // Keep the physical files, matching the old Content-tab action. The
+      // regular delete flow only removes files when deleteFiles=true is sent.
+      await apiRequest("DELETE", `/api/games/${contentGameId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/content`] });
+      toast({ description: "Content game removed from collection" });
+    },
+    onError: (error: Error) => {
+      toast({
+        description: error.message || "Failed to remove content game",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const {
     data: gameFiles = [],
     isLoading: filesLoading,
     isError: filesError,
@@ -958,6 +1152,108 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
     // The endpoint recursively scans the game's library folder, so only fetch it once the
     // Files section is close to the viewport rather than on every page open.
     enabled: filesWanted && !isDiscoveryId(game.id),
+  });
+
+  const scanDisk = useCallback(async () => {
+    setScanningDisk(true);
+    setScanResults([]);
+    setScanTruncated(false);
+    try {
+      const response = await apiRequest("GET", `/api/games/${game.id}/files`);
+      const data = (await response.json()) as {
+        files?: ScannedGameFile[];
+        truncated?: boolean;
+      };
+      const files = Array.isArray(data.files) ? data.files : [];
+      setScanResults(files);
+      setScanTruncated(data.truncated === true);
+      toast({
+        description:
+          files.length === 0
+            ? "No files found on disk"
+            : `Found ${files.length} file${files.length === 1 ? "" : "s"} on disk`,
+      });
+    } catch (error) {
+      setScanResults([]);
+      toast({
+        description: error instanceof Error ? error.message : "Failed to scan game folder",
+        variant: "destructive",
+      });
+    } finally {
+      setScanningDisk(false);
+    }
+  }, [game.id, toast]);
+
+  const scanImportMutation = useMutation({
+    mutationFn: async (file: ScannedGameFile) => {
+      await apiRequest("POST", `/api/games/${game.id}/manual-import`, {
+        filePath: file.path,
+        category: file.category,
+        // Scan Disk is a relocation workflow. It must never copy or link a file
+        // that is already inside the game's library tree.
+        transferMode: "move",
+        scanDisk: true,
+      });
+      return file;
+    },
+    onSuccess: (file) => {
+      setScanResults((previous) => previous.filter((candidate) => candidate.path !== file.path));
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/files`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/content`] });
+      toast({ description: `${file.name} imported` });
+    },
+    onError: (error: Error) => {
+      toast({
+        description: error.message || "Failed to import file",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const scanImportAllMutation = useMutation({
+    mutationFn: async (files: ScannedGameFile[]) => {
+      const results: Array<{ file: ScannedGameFile; success: boolean; error?: string }> = [];
+      // Keep imports sequential so a failed file does not prevent the remaining
+      // files from being attempted and destination conflicts remain deterministic.
+      for (const file of files) {
+        try {
+          await apiRequest("POST", `/api/games/${game.id}/manual-import`, {
+            filePath: file.path,
+            category: file.category,
+            transferMode: "move",
+            scanDisk: true,
+          });
+          results.push({ file, success: true });
+        } catch (error) {
+          results.push({
+            file,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      const imported = results.filter((result) => result.success).map((result) => result.file.path);
+      const failed = results.filter((result) => !result.success);
+      setScanResults((previous) => previous.filter((file) => !imported.includes(file.path)));
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/files`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/content`] });
+      toast({
+        description:
+          failed.length === 0
+            ? `Imported ${imported.length} file${imported.length === 1 ? "" : "s"}`
+            : `${imported.length} imported, ${failed.length} failed`,
+        ...(failed.length > 0 ? { variant: "destructive" as const } : {}),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        description: error.message || "Failed to import scanned files",
+        variant: "destructive",
+      });
+    },
   });
 
   const groupedGameFiles = useMemo(() => {
@@ -1025,6 +1321,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
     game.timeToBeatNormally,
     game.timeToBeatCompletely,
   ].some((value) => value != null);
+  const contentFileCount = contentSlots.reduce((total, slot) => total + slot.files.length, 0);
 
   // Steam achievements only exist for saved games that are linked to a Steam app.
   const hasAchievements = isLibraryGame && !!game.steamAppId;
@@ -1042,6 +1339,7 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
       label: "Media",
       count: screenshots.length + videos.length + personalScreenshots.length,
     },
+    ...(isLibraryGame ? [{ id: "content", label: "Content", count: contentFileCount }] : []),
     ...(hasExpansions ? [{ id: "dlc", label: "DLC", count: game.expansions?.length ?? 0 }] : []),
     ...(nexusDomain ? [{ id: "mods", label: "Mods" }] : []),
     ...(isLibraryGame ? [{ id: "files", label: "Files" }] : []),
@@ -1204,7 +1502,11 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                 <div className="col-span-2 flex flex-wrap gap-2 sm:col-span-1">
                   <Button
                     className="h-10 flex-1 gap-2 sm:h-9 sm:flex-none"
-                    onClick={() => setDownloadOpen(true)}
+                    onClick={() => {
+                      setDownloadSearchGame(null);
+                      setDownloadContentCategory(undefined);
+                      setDownloadOpen(true);
+                    }}
                     data-testid="button-download-game"
                   >
                     <Download className="h-4 w-4" />
@@ -1812,6 +2114,232 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
               </div>
             </Section>
 
+            {/* ── Content ── */}
+            {isLibraryGame && (
+              <Section
+                id="content"
+                title="Content"
+                icon={<Layers className="h-5 w-5" />}
+                count={contentFileCount}
+              >
+                {contentLoading ? (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground">
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Loading content…
+                  </div>
+                ) : contentError ? (
+                  <div className="flex items-center justify-center py-8 text-sm text-destructive">
+                    Failed to load content.
+                  </div>
+                ) : contentSlots.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
+                    <Layers className="h-8 w-8 opacity-40" />
+                    <p className="text-sm">No content records found.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {contentSlots.map((slot) => {
+                      const slotKey = `${slot.category}-${slot.igdbId ?? slot.label}`;
+                      const categoryLabel =
+                        EXPANSION_CATEGORY_LABELS[slot.category] ?? slot.category;
+                      const specificCategoryLabel =
+                        slot.igdbCategory != null
+                          ? IGDB_CATEGORY_LABELS[slot.igdbCategory]
+                          : undefined;
+                      const categoryBadgeClass =
+                        slot.igdbCategory != null
+                          ? IGDB_CATEGORY_COLORS[slot.igdbCategory]
+                          : undefined;
+                      return (
+                        <Card key={slotKey} className="overflow-hidden">
+                          <CardContent className="p-3 sm:p-4">
+                            <div className="flex min-w-0 items-center gap-3">
+                              {slot.coverUrl ? (
+                                <img
+                                  src={safeUrl(slot.coverUrl)}
+                                  alt=""
+                                  className="h-14 w-10 shrink-0 rounded object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded bg-muted">
+                                  <Layers className="h-5 w-5 text-muted-foreground" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h3 className="truncate text-sm font-semibold" title={slot.label}>
+                                    {slot.label}
+                                  </h3>
+                                  <Badge
+                                    variant={specificCategoryLabel ? "outline" : "secondary"}
+                                    className={cn("text-xs capitalize", categoryBadgeClass)}
+                                  >
+                                    {specificCategoryLabel ?? categoryLabel}
+                                  </Badge>
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {slot.present
+                                    ? `${slot.files.length} file${slot.files.length === 1 ? "" : "s"} on disk`
+                                    : "Missing"}
+                                </p>
+                              </div>
+                              {slot.gameId != null && slot.files.length > 0 && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                                  aria-label={`Remove ${slot.label} from collection`}
+                                  title="Remove from collection"
+                                  disabled={removeContentGameMutation.isPending}
+                                  onClick={() => {
+                                    if (
+                                      !window.confirm(`Remove ${slot.label} from your collection?`)
+                                    ) {
+                                      return;
+                                    }
+                                    removeContentGameMutation.mutate(slot.gameId!);
+                                  }}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              {slot.igdbId != null &&
+                                (slot.category === "dlc" ||
+                                  slot.category === "update" ||
+                                  slot.category === "packs") && (
+                                  <div className="flex shrink-0 gap-1.5">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="gap-1.5"
+                                      onClick={() => {
+                                        setDownloadSearchGame({ ...game, title: slot.label });
+                                        setDownloadContentCategory(
+                                          slot.category === "packs"
+                                            ? "packs"
+                                            : slot.category === "update"
+                                              ? "update"
+                                              : "dlc"
+                                        );
+                                        setDownloadOpen(true);
+                                      }}
+                                    >
+                                      <Search className="h-3.5 w-3.5" />
+                                      Search
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="gap-1.5"
+                                      onClick={() => {
+                                        setManualImportCategory(
+                                          slot.category === "packs"
+                                            ? "packs"
+                                            : slot.category === "update"
+                                              ? "update"
+                                              : "dlc"
+                                        );
+                                        setManualImportContentId(slot.igdbId ?? undefined);
+                                        setManualImportOpen(true);
+                                      }}
+                                    >
+                                      <Upload className="h-3.5 w-3.5" />
+                                      Import
+                                    </Button>
+                                  </div>
+                                )}
+                            </div>
+                            {slot.summary && <ContentSummary summary={slot.summary} />}
+                            {(slot.releaseDate != null ||
+                              slot.rating != null ||
+                              slot.aggregatedRating != null) && (
+                              <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                                {slot.releaseDate != null && (
+                                  <span className="flex items-center gap-1">
+                                    <Calendar className="h-3 w-3" />
+                                    {formatContentDate(slot.releaseDate)}
+                                  </span>
+                                )}
+                                {slot.rating != null && (
+                                  <span className="flex items-center gap-1">
+                                    <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                                    {Math.round(slot.rating / 10)}/10
+                                  </span>
+                                )}
+                                {slot.aggregatedRating != null && (
+                                  <span className="flex items-center gap-1 text-slate-500">
+                                    <TrendingUp className="h-3 w-3" />
+                                    {Math.round(slot.aggregatedRating / 10)}/10
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {slot.files.length > 0 && (
+                              <div className="mt-3 space-y-1 border-t border-border pt-2">
+                                {slot.files.map((file) => (
+                                  <div
+                                    key={file.id}
+                                    className="flex min-w-0 items-center gap-2 rounded-md px-1 py-1.5 text-sm"
+                                  >
+                                    <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                    <span
+                                      className="min-w-0 flex-1 truncate"
+                                      title={file.originalName}
+                                    >
+                                      {file.originalName}
+                                    </span>
+                                    {file.fileSize != null && (
+                                      <span className="shrink-0 text-xs text-muted-foreground">
+                                        {formatBytes(file.fileSize)}
+                                      </span>
+                                    )}
+                                    {formatContentDate(file.createdAt) && (
+                                      <span className="shrink-0 text-xs text-muted-foreground">
+                                        {formatContentDate(file.createdAt)}
+                                      </span>
+                                    )}
+                                    {file.igdbContentId != null && (
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 shrink-0"
+                                        aria-label={`Unlink ${file.originalName} from ${slot.label}`}
+                                        title="Unlink from IGDB content"
+                                        disabled={unlinkContentMutation.isPending}
+                                        onClick={() => unlinkContentMutation.mutate(file.id)}
+                                      >
+                                        <Unlink className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                                      aria-label={`Remove record for ${file.originalName}`}
+                                      title="Remove file record (keep file on disk)"
+                                      disabled={deleteContentFileMutation.isPending}
+                                      onClick={() => setDeleteContentFileId(file.id)}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </Section>
+            )}
+
             {/* ── DLC ── */}
             {hasExpansions && (
               <Section
@@ -1968,7 +2496,42 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                 icon={<File className="h-5 w-5" />}
                 innerRef={filesRef}
               >
-                <div>
+                <div className="space-y-4">
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="gap-2"
+                      disabled={scanningDisk || !game.libraryPath}
+                      onClick={scanDisk}
+                      title={
+                        game.libraryPath
+                          ? "Scan the game's folder for untracked files"
+                          : "Set a library folder before scanning"
+                      }
+                      data-testid="button-scan-disk"
+                    >
+                      <Scan className={cn("h-4 w-4", scanningDisk && "animate-spin")} />
+                      {scanningDisk ? "Scanning…" : "Scan Disk"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => {
+                        setManualImportCategory(undefined);
+                        setManualImportContentId(undefined);
+                        setManualImportOpen(true);
+                      }}
+                      data-testid="button-manual-import-game"
+                    >
+                      <Upload className="h-4 w-4" />
+                      Manual Import
+                    </Button>
+                  </div>
+
                   {filesLoading ? (
                     <div className="flex items-center justify-center py-8 text-muted-foreground">
                       <Loader2 className="w-5 h-5 animate-spin mr-2" />
@@ -2041,6 +2604,117 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
                         </div>
                       );
                     })()
+                  )}
+
+                  {scanResults.length > 0 && (
+                    <Card className="border-amber-500/30">
+                      <CardContent className="space-y-3 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <h4 className="flex items-center gap-2 text-sm font-semibold">
+                            <Scan className="h-4 w-4 text-amber-400" />
+                            Files found on disk
+                          </h4>
+                          {scanResults.some((file) => !file.tracked) && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1.5 text-xs"
+                              disabled={
+                                scanImportAllMutation.isPending || scanImportMutation.isPending
+                              }
+                              onClick={() =>
+                                scanImportAllMutation.mutate(
+                                  scanResults.filter((file) => !file.tracked)
+                                )
+                              }
+                              data-testid="button-import-all-scanned"
+                            >
+                              <Upload className="h-3.5 w-3.5" />
+                              {scanImportAllMutation.isPending
+                                ? "Importing…"
+                                : `Import All (${scanResults.filter((file) => !file.tracked).length})`}
+                            </Button>
+                          )}
+                        </div>
+                        {scanTruncated && (
+                          <p className="text-xs text-amber-400">
+                            The scan reached its safety limit. Scan again after importing or review
+                            the folder in smaller groups.
+                          </p>
+                        )}
+                        {scanResults.every((file) => file.tracked) ? (
+                          <p className="text-xs text-muted-foreground">
+                            All files on disk are already tracked.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {scanResults
+                              .filter((file) => !file.tracked)
+                              .map((file) => (
+                                <div
+                                  key={file.path}
+                                  className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-sm"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate" title={file.name}>
+                                      {file.name}
+                                    </p>
+                                    <p
+                                      className="truncate text-xs text-muted-foreground"
+                                      title={file.path}
+                                    >
+                                      {file.path}
+                                    </p>
+                                  </div>
+                                  <span className="shrink-0 text-xs text-muted-foreground">
+                                    {formatBytes(file.size)}
+                                  </span>
+                                  <select
+                                    className="h-7 rounded border border-input bg-background px-2 text-xs"
+                                    value={file.category}
+                                    onChange={(event) =>
+                                      setScanResults((previous) =>
+                                        previous.map((candidate) =>
+                                          candidate.path === file.path
+                                            ? {
+                                                ...candidate,
+                                                category: event.target
+                                                  .value as ScannedGameFile["category"],
+                                              }
+                                            : candidate
+                                        )
+                                      )
+                                    }
+                                    aria-label={`Category for ${file.name}`}
+                                  >
+                                    <option value="main">Main</option>
+                                    <option value="dlc">DLC</option>
+                                    <option value="update">Update</option>
+                                    <option value="packs">Packs/Addons</option>
+                                    <option value="extra">Extra</option>
+                                  </select>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 shrink-0 text-muted-foreground hover:text-accent"
+                                    disabled={
+                                      scanImportMutation.isPending ||
+                                      scanImportAllMutation.isPending
+                                    }
+                                    onClick={() => scanImportMutation.mutate(file)}
+                                    aria-label={`Import ${file.name}`}
+                                    data-testid="button-import-scanned-file"
+                                  >
+                                    <Upload className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
                   )}
                 </div>
               </Section>
@@ -2155,7 +2829,19 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
 
       {downloadOpen && (
         <Suspense fallback={null}>
-          <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
+          <GameDownloadDialog
+            game={downloadSearchGame ?? game}
+            open={downloadOpen}
+            onOpenChange={(open) => {
+              setDownloadOpen(open);
+              if (!open) {
+                setDownloadSearchGame(null);
+                setDownloadContentCategory(undefined);
+              }
+            }}
+            {...(downloadContentCategory ? { contentCategory: downloadContentCategory } : {})}
+            contentOnly={downloadSearchGame !== null}
+          />
         </Suspense>
       )}
 
@@ -2164,6 +2850,55 @@ export default function GameDetails({ game, onClose }: GameDetailsProps) {
           <AddDdlLinksDialog game={game} open={ddlOpen} onOpenChange={setDdlOpen} />
         </Suspense>
       )}
+
+      {manualImportOpen && (
+        <Suspense fallback={null}>
+          <ManualImportModal
+            game={game}
+            open={manualImportOpen}
+            onOpenChange={(open) => {
+              setManualImportOpen(open);
+              if (!open) {
+                setManualImportCategory(undefined);
+                setManualImportContentId(undefined);
+              }
+            }}
+            {...(manualImportCategory ? { defaultCategory: manualImportCategory } : {})}
+            {...(manualImportContentId != null ? { contentId: manualImportContentId } : {})}
+          />
+        </Suspense>
+      )}
+
+      <AlertDialog
+        open={deleteContentFileId !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleteContentFileMutation.isPending) setDeleteContentFileId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove file record?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the file from Questarr&apos;s tracking only. The physical file on disk
+              will not be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteContentFileMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteContentFileMutation.isPending || deleteContentFileId === null}
+              onClick={() => {
+                if (deleteContentFileId) deleteContentFileMutation.mutate(deleteContentFileId);
+              }}
+            >
+              {deleteContentFileMutation.isPending ? "Removing…" : "Remove record"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={showRemoveConfirm} onOpenChange={setShowRemoveConfirm}>
         <AlertDialogContent>

@@ -12,10 +12,11 @@ import {
   rescanAllEnabledRootFolders,
   scanRootFolderById,
   scanAllEnabledRootFolders,
+  backfillGameFilesForGame,
   getScanProgress,
   getAllUnmatched,
 } from "../library-scanner.js";
-import type { RootFolder, Game } from "../../shared/schema.js";
+import type { RootFolder, Game, GameFile } from "../../shared/schema.js";
 
 const { scoreMatch, isIgnoredFile } = __testing;
 
@@ -45,6 +46,7 @@ vi.mock("../storage.js", () => ({
     updateGameStatus: vi.fn(),
     getGameFiles: vi.fn().mockResolvedValue([]),
     addGameFile: vi.fn(),
+    addGameFilesBatch: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -98,6 +100,101 @@ describe("library-scanner isIgnoredFile", () => {
     expect(isIgnoredFile("game.iso")).toBe(false);
     expect(isIgnoredFile("game.zip")).toBe(false);
   });
+});
+
+describe("backfillGameFilesForGame", () => {
+  it("serializes overlapping backfills for the same game", async () => {
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-backfill-"));
+    const libraryRoot = path.join(tmpDir, "library");
+    const gameDir = path.join(libraryRoot, "PC", "Test Game");
+    await fs.promises.mkdir(gameDir, { recursive: true });
+    await fs.promises.writeFile(path.join(gameDir, "game.iso"), "game");
+    const { storage } = await import("../storage.js");
+
+    try {
+      const records: GameFile[] = [];
+      let startFirstRead!: () => void;
+      let releaseFirstRead!: () => void;
+      let startSecondRead!: () => void;
+      const firstReadStarted = new Promise<void>((resolve) => {
+        startFirstRead = resolve;
+      });
+      const firstReadGate = new Promise<void>((resolve) => {
+        releaseFirstRead = resolve;
+      });
+      const secondReadStarted = new Promise<void>((resolve) => {
+        startSecondRead = resolve;
+      });
+      let readCount = 0;
+
+      vi.mocked(storage.getGameFiles).mockImplementation(async () => {
+        readCount += 1;
+        const snapshot = [...records];
+        if (readCount === 1) {
+          startFirstRead();
+          await firstReadGate;
+        } else if (readCount === 2) {
+          startSecondRead();
+        }
+        return snapshot;
+      });
+      vi.mocked(storage.addGameFilesBatch).mockImplementation(async (files) => {
+        const created = files.map(
+          (file, index) => ({ ...file, id: `gf-${records.length + index + 1}` }) as GameFile
+        );
+        records.push(...created);
+        return created;
+      });
+
+      const game = { id: "g-backfill-queue", libraryPath: gameDir };
+      const first = backfillGameFilesForGame(game, libraryRoot);
+      await firstReadStarted;
+      const second = backfillGameFilesForGame(game, libraryRoot);
+      const overlap = await Promise.race([
+        secondReadStarted.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 100)),
+      ]);
+      releaseFirstRead();
+
+      await expect(Promise.all([first, second])).resolves.toEqual([1, 0]);
+      expect(overlap).toBe(false);
+      expect(storage.addGameFilesBatch).toHaveBeenCalledTimes(1);
+      expect(records).toHaveLength(1);
+    } finally {
+      vi.mocked(storage.getGameFiles).mockReset().mockResolvedValue([]);
+      vi.mocked(storage.addGameFilesBatch).mockReset().mockResolvedValue([]);
+      await fs.promises.rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "does not duplicate a file tracked through a symlink path",
+    async () => {
+      const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-backfill-"));
+      const libraryRoot = path.join(tmpDir, "library");
+      const gameDir = path.join(libraryRoot, "PC", "Test Game");
+      await fs.promises.mkdir(gameDir, { recursive: true });
+
+      const actualPath = path.join(gameDir, "game.iso");
+      const aliasPath = path.join(gameDir, "game-alias.iso");
+      await fs.promises.writeFile(actualPath, "game");
+      await fs.promises.symlink(actualPath, aliasPath);
+
+      const { storage } = await import("../storage.js");
+      vi.mocked(storage.getGameFiles).mockResolvedValue([
+        { id: "gf-existing", gameId: "g-backfill", filePath: aliasPath } as GameFile,
+      ]);
+      vi.mocked(storage.addGameFilesBatch).mockClear();
+
+      const added = await backfillGameFilesForGame(
+        { id: "g-backfill", libraryPath: gameDir },
+        libraryRoot
+      );
+
+      expect(added).toBe(0);
+      expect(storage.addGameFilesBatch).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe("matchUnmatchedFolder", () => {

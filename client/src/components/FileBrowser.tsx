@@ -28,10 +28,17 @@ interface FileBrowserProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (path: string) => void;
+  onMultiSelect?: (paths: string[]) => void;
   initialPath?: string;
   title?: string;
   /** Override the server-side browse root (e.g. "/" to browse the full filesystem). Defaults to library root. */
   root?: string;
+  /** Select an individual file instead of the current directory. */
+  mode?: "file" | "folder";
+  /** Allow selecting several files from the current directory. */
+  multiple?: boolean;
+  /** Quick-navigation locations shown above the path bar. */
+  shortcuts?: Array<{ label: string; path: string }>;
 }
 
 export function FileBrowser({
@@ -41,8 +48,14 @@ export function FileBrowser({
   initialPath = "/",
   title = "Select Directory",
   root,
+  mode = "folder",
+  multiple = false,
+  onMultiSelect,
+  shortcuts,
 }: Readonly<FileBrowserProps>) {
   const [currentPath, setCurrentPath] = useState(initialPath);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(() => new Set());
   const [data, setData] = useState<BrowseResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,12 +102,16 @@ export function FileBrowser({
   useEffect(() => {
     if (open) {
       setCurrentPath(initialPath);
+      setSelectedFile(null);
+      setSelectedFiles(new Set());
     }
   }, [open, initialPath]);
 
   useEffect(() => {
     if (open) {
       loadPath(currentPath);
+      setSelectedFile(null);
+      setSelectedFiles(new Set());
     }
   }, [open, currentPath, loadPath]);
 
@@ -143,14 +160,46 @@ export function FileBrowser({
               <span className="text-sm flex-1 truncate">{item.name}</span>
               <ChevronRight className="h-3 w-3 text-muted-foreground" />
             </button>
-          ) : (
-            <div
+          ) : multiple ? (
+            <label
               key={item.path}
-              className="flex items-center gap-2 p-2 rounded-sm opacity-50 cursor-default"
+              className="flex w-full cursor-pointer items-center gap-2 rounded-sm p-2 text-left hover:bg-accent"
+            >
+              <input
+                type="checkbox"
+                aria-label={`Select ${item.name}`}
+                checked={selectedFiles.has(item.path)}
+                onChange={() => {
+                  setSelectedFiles((current) => {
+                    const next = new Set(current);
+                    if (next.has(item.path)) next.delete(item.path);
+                    else next.add(item.path);
+                    return next;
+                  });
+                }}
+                className="h-4 w-4"
+              />
+              <File className="h-4 w-4 text-gray-500" />
+              <span className="flex-1 truncate text-sm">{item.name}</span>
+            </label>
+          ) : (
+            <button
+              type="button"
+              key={item.path}
+              className={`flex items-center gap-2 p-2 rounded-sm w-full text-left ${
+                mode === "file" ? "cursor-pointer hover:bg-accent" : "opacity-50 cursor-default"
+              }`}
+              onClick={() => {
+                if (mode === "file") setSelectedFile(item.path);
+              }}
+              disabled={mode !== "file"}
             >
               <File className="h-4 w-4 text-gray-500" />
               <span className="text-sm flex-1 truncate">{item.name}</span>
-            </div>
+              {mode === "file" && selectedFile === item.path && (
+                <span className="text-xs font-semibold text-primary">Selected</span>
+              )}
+            </button>
           )
         )}
       </div>
@@ -162,7 +211,32 @@ export function FileBrowser({
       <DialogContent className="max-w-2xl h-[500px] flex flex-col">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>Navigate and select a directory</DialogDescription>
+          <div className="flex items-center justify-between gap-2">
+            <DialogDescription className="m-0">
+              {multiple
+                ? "Navigate and select files"
+                : mode === "file"
+                  ? "Navigate and select a file"
+                  : "Navigate and select a directory"}
+            </DialogDescription>
+            {shortcuts && shortcuts.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                {shortcuts.map((shortcut) => (
+                  <Button
+                    key={shortcut.path}
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPath === shortcut.path}
+                    onClick={() => setCurrentPath(shortcut.path)}
+                    title={shortcut.path}
+                    className="h-7 text-xs"
+                  >
+                    {shortcut.label}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
         </DialogHeader>
 
         <div className="flex items-center gap-2 p-2 bg-muted rounded-md mb-2">
@@ -189,12 +263,33 @@ export function FileBrowser({
           </Button>
           <Button
             onClick={() => {
-              onSelect(currentPath);
+              if (loading || !data || error) return;
+              if (mode === "file" && !multiple) {
+                if (!selectedFile) return;
+                onSelect(selectedFile);
+              } else {
+                onSelect(currentPath);
+              }
               onOpenChange(false);
             }}
+            disabled={
+              loading || !data || !!error || (mode === "file" && !multiple && !selectedFile)
+            }
           >
-            Select Current
+            {mode === "file" && !multiple ? "Select File" : "Select Current"}
           </Button>
+          {multiple && onMultiSelect && (
+            <Button
+              disabled={loading || !data || !!error || selectedFiles.size === 0}
+              onClick={() => {
+                if (loading || !data || error || selectedFiles.size === 0) return;
+                onMultiSelect(Array.from(selectedFiles));
+                onOpenChange(false);
+              }}
+            >
+              Select {selectedFiles.size} File{selectedFiles.size === 1 ? "" : "s"}
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>

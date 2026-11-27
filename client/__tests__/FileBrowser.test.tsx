@@ -167,6 +167,55 @@ describe("FileBrowser", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("selects an individual file in file mode", async () => {
+    const onSelect = vi.fn();
+    const onOpenChange = vi.fn();
+    mockApiRequest.mockResolvedValue(makeResponse(makeDirData()));
+
+    render(
+      <FileBrowser {...defaultProps} mode="file" onSelect={onSelect} onOpenChange={onOpenChange} />
+    );
+
+    await screen.findByText("readme.txt");
+    fireEvent.click(screen.getByRole("button", { name: /readme\.txt/i }));
+    fireEvent.click(screen.getByRole("button", { name: /select file/i }));
+
+    expect(onSelect).toHaveBeenCalledWith("/data/readme.txt");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("selects multiple files from the current directory", async () => {
+    const onMultiSelect = vi.fn();
+    const onOpenChange = vi.fn();
+    mockApiRequest.mockResolvedValue(
+      makeResponse(
+        makeDirData({
+          items: [
+            { name: "one.rom", path: "/data/one.rom", isDirectory: false, size: 1 },
+            { name: "two.rom", path: "/data/two.rom", isDirectory: false, size: 2 },
+          ],
+        })
+      )
+    );
+
+    render(
+      <FileBrowser
+        {...defaultProps}
+        multiple
+        onMultiSelect={onMultiSelect}
+        onOpenChange={onOpenChange}
+      />
+    );
+
+    await screen.findByText("one.rom");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select one.rom" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select two.rom" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select 2 Files" }));
+
+    expect(onMultiSelect).toHaveBeenCalledWith(["/data/one.rom", "/data/two.rom"]);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("uses root param in URL when root prop is provided", async () => {
     mockApiRequest.mockResolvedValue(makeResponse(makeDirData()));
 

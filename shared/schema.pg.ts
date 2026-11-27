@@ -736,6 +736,7 @@ export const gameFiles = pgTable(
     storedName: text("stored_name").notNull(),
     category: text("category").notNull().$type<GameFileCategory>(),
     categoryOverridden: boolean("category_overridden").notNull().default(false),
+    igdbContentId: integer("igdb_content_id"),
     filePath: text("file_path").notNull(),
     fileSize: bigint("file_size", { mode: "number" }),
     createdAt: timestampMs("created_at").default(sql`(EXTRACT(EPOCH FROM now()) * 1000)::bigint`),
@@ -743,6 +744,7 @@ export const gameFiles = pgTable(
   (t) => [
     index("game_files_game_id_idx").on(t.gameId),
     index("game_files_download_id_idx").on(t.downloadId),
+    index("game_files_igdb_content_id_idx").on(t.igdbContentId),
   ]
 );
 

@@ -24,6 +24,7 @@ import type {
 } from "../../shared/schema.js";
 import type {
   ExpectedPlaySession,
+  LibraryPathChange,
   PlaySessionReplacement,
   SyncIndexersResult,
 } from "./transactional-ops.js";
@@ -40,8 +41,16 @@ import type {
  * Postgres tables and their real types directly instead of the app-wide
  * SQLite-shaped view of the schema.
  */
-const { apiKeys, gamePlaySessions, games, indexers, platformMappings, systemConfig, users } =
-  pgSchema;
+const {
+  apiKeys,
+  gameFiles,
+  gamePlaySessions,
+  games,
+  indexers,
+  platformMappings,
+  systemConfig,
+  users,
+} = pgSchema;
 const db = appDb as unknown as NodePgDatabase<typeof pgSchema>;
 
 export async function seedPlatformMappingsIfEmpty(
@@ -97,6 +106,28 @@ export async function updateGamesBatch(
   await db.transaction(async (tx) => {
     for (const update of updates) {
       await tx.update(games).set(update.data).where(eq(games.id, update.id));
+    }
+  });
+}
+
+export async function updateLibraryPathsBatch(changes: LibraryPathChange[]): Promise<void> {
+  await db.transaction(async (tx) => {
+    for (const change of changes) {
+      const rows =
+        change.kind === "game"
+          ? await tx
+              .update(games)
+              .set({ libraryPath: change.newPath })
+              .where(and(eq(games.id, change.id), eq(games.libraryPath, change.oldPath)))
+              .returning({ id: games.id })
+          : await tx
+              .update(gameFiles)
+              .set({ filePath: change.newPath })
+              .where(and(eq(gameFiles.id, change.id), eq(gameFiles.filePath, change.oldPath)))
+              .returning({ id: gameFiles.id });
+      if (rows.length !== 1) {
+        throw new Error(`Library path changed concurrently for ${change.kind} ${change.id}`);
+      }
     }
   });
 }

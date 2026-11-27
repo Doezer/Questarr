@@ -25,6 +25,10 @@ export interface DatabaseConnection {
    * SQLite-pinned tests reach for it.
    */
   pool: import("better-sqlite3").Database;
+  /** Absolute path of the backing store when this driver has one. */
+  storagePath?: string;
+  /** Create a consistent backup at the requested destination when supported. */
+  backup?: (destination: string) => Promise<void>;
   /** Round-trip the connection; throws if the database is unreachable. */
   ping: () => Promise<void>;
   /** Release driver resources. A no-op on SQLite. */

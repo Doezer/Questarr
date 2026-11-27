@@ -31,6 +31,7 @@ import {
   IncompleteScanError,
 } from "../services/ImportManager.js";
 import { PCImportStrategy } from "../services/ImportStrategies.js";
+import { igdbClient } from "../igdb.js";
 import { makeGame, makeImportConfig } from "./helpers/import-test-helpers.js";
 
 describe("ImportManager", () => {
@@ -86,6 +87,74 @@ describe("ImportManager", () => {
     await manager.processImport("dl-1", "/remote/path");
 
     expect(storage.updateGameDownloadStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not infer an IGDB link for a pre-existing file in a shared destination", async () => {
+    const oldFilePath = path.resolve("update", "My Game Update v1.nsp");
+    const newFilePath = path.resolve("update", "newly-imported.nsp");
+    const existingRows = [
+      {
+        id: "gf-old",
+        gameId: "g1",
+        filePath: oldFilePath,
+        category: "update",
+        igdbContentId: null,
+      },
+    ];
+    const contentStorage = Object.assign(storage, {
+      getGameFiles: vi.fn().mockResolvedValue(existingRows),
+      addGameFile: vi.fn(async (file: Record<string, unknown>) => ({ id: "gf-new", ...file })),
+      updateGameFileContentId: vi.fn(),
+    });
+    fsMock.stat.mockResolvedValue({ isFile: () => true, size: 4 });
+    const getGameEditions = vi
+      .spyOn(igdbClient, "getGameEditions")
+      .mockResolvedValue({ base: null, editions: [] });
+    const game = makeGame({
+      id: "g1",
+      title: "My Game",
+      igdbId: 42,
+      expansions: [
+        {
+          id: 4242,
+          name: "My Game Update v1",
+          category: "update",
+          gameType: 14,
+          coverUrl: "",
+          releaseDate: "",
+        },
+      ],
+    });
+    const manager = new ImportManager(
+      contentStorage as never,
+      pathService as never,
+      platformService as never,
+      archiveService as never
+    );
+    const recordImportedFiles = (
+      manager as unknown as {
+        recordImportedFiles: (...args: unknown[]) => Promise<void>;
+      }
+    ).recordImportedFiles.bind(manager);
+
+    try {
+      await recordImportedFiles("dl-2", game, [oldFilePath, newFilePath], "My Game Update v1");
+
+      expect(contentStorage.updateGameFileContentId).not.toHaveBeenCalled();
+      expect(contentStorage.addGameFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filePath: newFilePath,
+          category: "update",
+          igdbContentId: 4242,
+        })
+      );
+    } finally {
+      getGameEditions.mockRestore();
+      Reflect.deleteProperty(storage, "getGameFiles");
+      Reflect.deleteProperty(storage, "addGameFile");
+      Reflect.deleteProperty(storage, "updateGameFileContentId");
+      fsMock.stat.mockReset().mockResolvedValue({ isDirectory: () => false });
+    }
   });
 
   it("reports an import as in flight until it finishes and ignores a second start", async () => {

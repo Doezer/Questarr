@@ -26,6 +26,13 @@ export interface PlaySessionReplacement {
   source: string;
 }
 
+export interface LibraryPathChange {
+  kind: "game" | "file";
+  id: string;
+  oldPath: string;
+  newPath: string;
+}
+
 export interface SyncIndexersResult {
   added: number;
   updated: number;
@@ -63,6 +70,9 @@ export interface TransactionalOps {
 
   /** Apply many game updates as one unit. */
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
+
+  /** Apply game and game-file library paths atomically, only when each old path still matches. */
+  updateLibraryPathsBatch(changes: LibraryPathChange[]): Promise<void>;
 
   /**
    * Upsert indexers by URL.

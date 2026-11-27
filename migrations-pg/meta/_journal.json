@@ -253,6 +253,13 @@
       "when": 1795500439267,
       "tag": "0035_addon_subfolders",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795689804346,
+      "tag": "0036_igdb_content_current",
+      "breakpoints": true
     }
   ]
 }

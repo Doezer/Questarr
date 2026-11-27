@@ -23,6 +23,7 @@ export interface ImportResult {
   platformDir?: string;
   destDir: string;
   filesPlaced: string[];
+  placedFileCategories?: FileCategoryEntry[] | undefined;
   modeUsed: TransferMode;
   conflictsResolved: string[];
   // The game's own entry in the library when it is not destDir: an update or DLC placed in
@@ -49,6 +50,7 @@ export interface ImportReview {
 export interface FileCategoryEntry {
   name: string;
   category: DownloadCategory;
+  igdbContentId?: number | undefined;
 }
 
 export interface PlanImportOptions {
@@ -704,8 +706,9 @@ function destinationForFile(gameDir: string, entry: FileCategoryEntry): string {
 // the source before any transfer). Instead this runs as a cheap same-filesystem
 // reorganization pass over the destination directory after extraction has already
 // placed everything there.
-export async function reorganizeBySortExtras(destDir: string): Promise<void> {
+export async function reorganizeBySortExtras(destDir: string): Promise<Map<string, string>> {
   const entries = await categorizeSourceFiles(destDir, { skipExtractStaging: true });
+  const moved = new Map<string, string>();
   const moves = entries.map((entry) => ({
     currentPath: path.resolve(path.join(destDir, entry.name)),
     desiredPath: path.resolve(destinationForFile(destDir, entry)),
@@ -727,7 +730,9 @@ export async function reorganizeBySortExtras(destDir: string): Promise<void> {
     if (currentPath === desiredPath) continue;
     await fs.ensureDir(path.dirname(desiredPath));
     await fs.move(currentPath, desiredPath, { overwrite: true });
+    moved.set(currentPath, desiredPath);
   }
+  return moved;
 }
 
 /**
@@ -892,8 +897,14 @@ export class PCImportStrategy implements ImportStrategy {
       "Refusing to process a path outside the configured downloader roots"
     );
 
+    const sourceStats = await fs.stat(review.originalPath);
+    const sourceIsDirectory = sourceStats.isDirectory();
     if (review.fileCategories && review.fileCategories.length > 0) {
+      if (!sourceIsDirectory && review.fileCategories.length !== 1) {
+        throw new Error("A single-file import can have only one category entry");
+      }
       const filesPlaced: string[] = [];
+      const placedFileCategories: FileCategoryEntry[] = [];
       const conflictsResolved: string[] = [];
       // Keep modeUsed as the originally-requested batch mode: a per-file fallback
       // (e.g. hardlink -> copy for one file among many) is recorded per-entry in
@@ -903,14 +914,15 @@ export class PCImportStrategy implements ImportStrategy {
       const plannedTransfers = review.fileCategories
         .map((entry) => ({
           entry,
-          sourceFile: resolveContainedPath(
-            review.originalPath,
-            path.join(review.originalPath, entry.name)
-          ),
-          destinationFile: resolveContainedPath(
-            review.proposedPath,
-            destinationForFile(review.proposedPath, entry)
-          ),
+          sourceFile: sourceIsDirectory
+            ? resolveContainedPath(review.originalPath, path.join(review.originalPath, entry.name))
+            : review.originalPath,
+          destinationFile: sourceIsDirectory
+            ? resolveContainedPath(
+                review.proposedPath,
+                destinationForFile(review.proposedPath, entry)
+              )
+            : review.proposedPath,
         }))
         // Excluded entries (e.g. a raw archive already extracted straight to the
         // destination) stay untransferred — same as the plain-directory path below.
@@ -956,9 +968,10 @@ export class PCImportStrategy implements ImportStrategy {
           sourceFile,
           destinationFile,
           transferMode,
-          review.proposedPath
+          sourceIsDirectory ? review.proposedPath : path.dirname(review.proposedPath)
         );
         filesPlaced.push(destinationFile);
+        placedFileCategories.push(entry);
         if (entryMode !== transferMode) {
           conflictsResolved.push(`${entry.name} (mode fallback: ${entryMode})`);
         }
@@ -978,6 +991,7 @@ export class PCImportStrategy implements ImportStrategy {
       return {
         destDir: review.proposedPath,
         filesPlaced,
+        placedFileCategories,
         modeUsed,
         conflictsResolved,
       };

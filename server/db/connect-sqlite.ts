@@ -61,6 +61,10 @@ export function connectSqlite(): DatabaseConnection {
   return {
     db,
     pool: sqlite,
+    storagePath: path.resolve(dbPath),
+    backup: async (destination: string) => {
+      await sqlite.backup(destination);
+    },
     ping: async () => {
       if (!db.get(sql`SELECT 1`)) {
         throw new Error("Database connection test failed");

@@ -7,21 +7,29 @@ import {
   ImportStrategy,
   ImportReview,
   ImportResult,
+  FileCategoryEntry,
   PCImportStrategy,
   TransferMode,
   resolveLibraryLeafName,
-  gatherFiles,
   reorganizeBySortExtras,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
 import { resolveRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
+import { categorizeDownload } from "../../shared/download-categorizer.js";
 import { parseReleaseMetadata, PLATFORM_CATALOG } from "../../shared/title-utils.js";
-import { GAME_LINK_REQUIRED_STATUS, QUARANTINED_STATUS, type Game } from "../../shared/schema.js";
+import {
+  GAME_LINK_REQUIRED_STATUS,
+  QUARANTINED_STATUS,
+  type Game,
+  type GameFileCategory,
+} from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath, assertWithinRoots } from "../path-security.js";
+import { configLoader } from "../config-loader.js";
+import { resolveSqliteDbPath } from "../db/sqlite-path.js";
 import { notifyUser } from "../socket.js";
 import type { DownloadCategory } from "../../shared/download-categorizer.js";
 import { carriesBaseGameVersion, inferReleaseCategory } from "../../shared/version-utils.js";
@@ -40,6 +48,165 @@ import {
   disposeOldVersion,
   type UpgradeReplacement,
 } from "./upgrade-replace.js";
+import { igdbClient, type IGDBContentRef } from "../igdb.js";
+import {
+  igdbCategoryForStoredCategory,
+  igdbContentSlotCategory,
+  resolveIgdbContentSlotCategory,
+} from "../../shared/igdb-content.js";
+
+export type ImportContentSuggestion = {
+  id: number;
+  name: string;
+  category: "dlc" | "update" | "packs" | "extra";
+};
+
+type ExtractionContentMetadata = Pick<FileCategoryEntry, "category" | "igdbContentId">;
+
+const MANUAL_IMPORT_SUPPORTED_EXTENSIONS = new Set([
+  ".7z",
+  ".bin",
+  ".chd",
+  ".cue",
+  ".gdi",
+  ".gz",
+  ".iso",
+  ".nca",
+  ".nsp",
+  ".pkg",
+  ".pup",
+  ".rar",
+  ".rvz",
+  ".tar",
+  ".wad",
+  ".wbfs",
+  ".xci",
+  ".zip",
+]);
+
+export function isSupportedManualImportFile(filePath: string): boolean {
+  return MANUAL_IMPORT_SUPPORTED_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+async function isWithinPath(candidatePath: string, rootPath: string): Promise<boolean> {
+  const resolvedCandidate = path.resolve(candidatePath);
+  const resolvedRoot = path.resolve(rootPath);
+  const canonicalize = async (target: string): Promise<string> => {
+    try {
+      return typeof fs.realpath === "function" ? await fs.realpath(target) : target;
+    } catch {
+      return target;
+    }
+  };
+  const canonicalCandidate = await canonicalize(resolvedCandidate);
+  const canonicalRoot = await canonicalize(resolvedRoot);
+  const relative = path.relative(canonicalRoot, canonicalCandidate);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function importedFileCategory(filePath: string): "main" | "dlc" | "update" | "extra" {
+  const parent = path.basename(path.dirname(filePath)).toLowerCase();
+  if (parent === "update") return "update";
+  if (parent === "dlc") return "dlc";
+  if (parent === "packs") return "extra";
+  if (parent === "extra") return "extra";
+  const inferred = categorizeDownload(path.basename(filePath)).category;
+  return inferred === "packs" ? "extra" : inferred;
+}
+
+function contentSuggestionMatchesFile(
+  contentCategory: ImportContentSuggestion["category"],
+  fileCategory: "main" | "dlc" | "update" | "extra"
+): boolean {
+  if (contentCategory === "update") return fileCategory === "update";
+  if (contentCategory === "dlc") return fileCategory === "dlc";
+  return fileCategory === "extra";
+}
+
+function buildExtractionFileCategories(
+  destDir: string,
+  filesPlaced: string[],
+  extractedFiles: string[],
+  reorganizedPaths: ReadonlyMap<string, string>,
+  extractedMetadata?: ExtractionContentMetadata,
+  remainingResult?: ImportResult
+): FileCategoryEntry[] {
+  const byPath = new Map<string, FileCategoryEntry>();
+  for (const extractedFile of extractedFiles) {
+    const finalPath = reorganizedPaths.get(path.resolve(extractedFile)) ?? extractedFile;
+    byPath.set(
+      path.resolve(finalPath),
+      extractedMetadata
+        ? {
+            name: path.relative(destDir, finalPath),
+            category: extractedMetadata.category,
+            ...(extractedMetadata.igdbContentId != null
+              ? { igdbContentId: extractedMetadata.igdbContentId }
+              : {}),
+          }
+        : { name: path.relative(destDir, finalPath), category: importedFileCategory(finalPath) }
+    );
+  }
+
+  if (remainingResult?.placedFileCategories) {
+    for (const [index, filePath] of remainingResult.filesPlaced.entries()) {
+      const category = remainingResult.placedFileCategories[index];
+      if (category) byPath.set(path.resolve(filePath), category);
+    }
+  }
+
+  return filesPlaced.map((filePath) => {
+    return (
+      byPath.get(path.resolve(filePath)) ?? {
+        name: path.relative(destDir, filePath),
+        category: importedFileCategory(filePath),
+      }
+    );
+  });
+}
+
+function normalizeContentMatchText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Suggests an exact IGDB content item only when the release's inferred category
+ * agrees with the IGDB item's category. This prevents a generic update from
+ * being attached to an expansion just because the title happens to contain a
+ * similar word.
+ */
+export function findImportContentMatch(
+  downloadTitle: string,
+  items: ImportContentSuggestion[]
+): ImportContentSuggestion | null {
+  const inferred = categorizeDownload(downloadTitle).category;
+  const allowedCategories =
+    inferred === "update"
+      ? new Set<ImportContentSuggestion["category"]>(["update"])
+      : inferred === "dlc" || inferred === "packs"
+        ? new Set<ImportContentSuggestion["category"]>(["dlc", "packs"])
+        : new Set<ImportContentSuggestion["category"]>();
+  if (allowedCategories.size === 0) return null;
+
+  const normalizedTitle = normalizeContentMatchText(downloadTitle);
+  return (
+    items
+      .filter(
+        (item) =>
+          allowedCategories.has(item.category) &&
+          normalizeContentMatchText(item.name).length >= 4 &&
+          normalizedTitle.includes(normalizeContentMatchText(item.name))
+      )
+      .sort(
+        (a, b) =>
+          normalizeContentMatchText(b.name).length - normalizeContentMatchText(a.name).length
+      )[0] ?? null
+  );
+}
 
 const PLATFORM_FOLDER_NAMES: Record<string, string> = {
   ...Object.fromEntries(
@@ -224,6 +391,203 @@ export class ImportManager {
     return this.resolvePlatformFolder("", game, allowedPlatformIds);
   }
 
+  /** Destination roots accepted by the standalone manual-import flow. */
+  async getManualImportDestinationRoots(userId?: string): Promise<string[]> {
+    const [config, rootFolders] = await Promise.all([
+      this.storage.getImportConfig(userId),
+      this.storage.getEnabledRootFolders(),
+    ]);
+    return [
+      ...new Set([
+        path.resolve(config.libraryRoot || "/data"),
+        ...rootFolders.map((folder) => path.resolve(folder.path)),
+      ]),
+    ];
+  }
+
+  /** Source roots accepted by the manual-import picker. */
+  async getManualImportSourceRoots(userId?: string): Promise<string[]> {
+    const mappedRoots = await this.pathService.getConfiguredRoots();
+    const [config, rootFolders] = await Promise.all([
+      this.storage.getImportConfig(userId),
+      this.storage.getEnabledRootFolders(),
+    ]);
+    return [
+      ...new Set([
+        ...mappedRoots.map((root) => path.resolve(root)),
+        path.resolve(config.libraryRoot || "/data"),
+        ...rootFolders.map((folder) => path.resolve(folder.path)),
+      ]),
+    ];
+  }
+
+  /** Validates a manually selected source path using Questarr's configured-root policy. */
+  async validateManualImportSource(filePath: string, userId?: string): Promise<string> {
+    if (await isSensitivePath(filePath)) {
+      throw new Error("Refusing to process a sensitive system path");
+    }
+
+    const sourcePath = path.resolve(filePath);
+    const appDataRoots = [path.dirname(resolveSqliteDbPath()), configLoader.getConfigDir()];
+    const appDataChecks = await Promise.all(
+      appDataRoots.map((root) => isWithinPath(sourcePath, root))
+    );
+    if (appDataChecks.some(Boolean)) {
+      throw new Error("Refusing to process Questarr app data");
+    }
+    await assertWithinRoots(
+      sourcePath,
+      await this.getManualImportSourceRoots(userId),
+      "Manual import source must be inside a configured source root"
+    );
+    return sourcePath;
+  }
+
+  /**
+   * Import one user-selected file into a game's existing folder, or create a
+   * new game folder under the configured library root when the game has no
+   * library path yet.
+   */
+  async manualImportFile(
+    filePath: string,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    options: {
+      category?: GameFileCategory | "packs" | undefined;
+      platformDir?: string | undefined;
+      targetDir?: string | undefined;
+      transferMode?: TransferMode | undefined;
+      scanDisk?: boolean | undefined;
+    } = {}
+  ): Promise<{ destDir: string; newPath: string; fileSize: number; modeUsed: TransferMode }> {
+    const allowedRoots = await this.getManualImportDestinationRoots(game.userId ?? undefined);
+    const sourcePath = await this.validateManualImportSource(filePath, game.userId ?? undefined);
+    const sourceStats = await fs.stat(sourcePath);
+    if (!sourceStats.isFile()) throw new Error("filePath must point to a file");
+    if (!isSupportedManualImportFile(sourcePath)) {
+      throw new Error("Unsupported manual import file type");
+    }
+
+    const config = await this.storage.getImportConfig(game.userId ?? undefined);
+    const libraryRoot = path.resolve(config.libraryRoot || "/data");
+    const currentLibraryPath = game.libraryPath ? path.resolve(game.libraryPath) : null;
+    if (options.scanDisk) {
+      if (!currentLibraryPath) {
+        throw new Error("Scan Disk imports require an existing game library path");
+      }
+      await assertWithinRoots(
+        sourcePath,
+        [currentLibraryPath],
+        "Scan Disk source must be inside the game's library path"
+      );
+    }
+    let destDir: string;
+    let forceMove = false;
+
+    if (options.targetDir) {
+      // Scan Disk relocation is always move-only: the source is already inside
+      // the game's tree and must not be duplicated.
+      destDir = path.resolve(options.targetDir);
+      forceMove = Boolean(options.scanDisk);
+    } else if (currentLibraryPath) {
+      const currentStats = await fs.stat(currentLibraryPath).catch(() => null);
+      if (!currentStats) throw new Error("Game library path does not exist");
+      destDir = currentStats.isDirectory() ? currentLibraryPath : path.dirname(currentLibraryPath);
+    } else {
+      const platformDir = options.platformDir
+        ? await this.resolveManualPlatformFolder(options.platformDir)
+        : await this.resolveLibraryPlatformFolder(game, config.importPlatformIds);
+      const leafName = resolveLibraryLeafName(game, config, platformDir);
+      destDir = path.join(libraryRoot, platformDir, leafName);
+    }
+
+    const gameRoot = path.resolve(destDir);
+    const categoryDir =
+      options.category && options.category !== "main" ? options.category : undefined;
+    const resolvedDestDir = categoryDir ? path.join(gameRoot, categoryDir) : gameRoot;
+    await assertWithinRoots(
+      resolvedDestDir,
+      allowedRoots,
+      "Manual import destination must be inside a configured import root"
+    );
+
+    const newPath = path.join(resolvedDestDir, path.basename(sourcePath));
+    if (path.resolve(newPath) === sourcePath) {
+      return {
+        destDir: gameRoot,
+        newPath: sourcePath,
+        fileSize: sourceStats.size,
+        modeUsed: "move",
+      };
+    }
+    if (await fs.pathExists(newPath)) {
+      throw new Error(`Destination already exists: ${newPath}`);
+    }
+
+    const strategy = new PCImportStrategy([]);
+    const result = await strategy.executeImport(
+      {
+        needsReview: false,
+        originalPath: sourcePath,
+        proposedPath: newPath,
+        strategy: "pc",
+      },
+      forceMove || options.scanDisk ? "move" : (options.transferMode ?? config.transferMode)
+    );
+    requestRommScanAfterImport();
+
+    return {
+      destDir: gameRoot,
+      newPath,
+      fileSize: sourceStats.size,
+      modeUsed: result.modeUsed,
+    };
+  }
+
+  /** Undo a completed manual-import transfer when recording its game-file row fails. */
+  async rollbackManualImport(
+    sourcePath: string,
+    destinationPath: string,
+    modeUsed: TransferMode
+  ): Promise<void> {
+    const source = path.resolve(sourcePath);
+    const destination = path.resolve(destinationPath);
+    if (source === destination) return;
+    if (modeUsed === "move") {
+      await fs.move(destination, source);
+    } else {
+      await fs.remove(destination);
+    }
+  }
+
+  private validateManualPlatformDir(platformDir: string): string {
+    const trimmed = platformDir.trim();
+    if (
+      !trimmed ||
+      trimmed === "." ||
+      trimmed === ".." ||
+      path.basename(trimmed) !== trimmed ||
+      path.isAbsolute(trimmed) ||
+      trimmed.includes("\0")
+    ) {
+      throw new Error("Invalid platform directory");
+    }
+    return trimmed;
+  }
+
+  private async resolveManualPlatformFolder(platformDir: string): Promise<string> {
+    const validated = this.validateManualPlatformDir(platformDir);
+    if (!(await isRommPlatformFoldersEnabled())) return validated;
+
+    const normalized = validated.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const platform = PLATFORM_CATALOG.find(({ canonical, igdbNames }) =>
+      [canonical, ...igdbNames].some(
+        (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "") === normalized
+      )
+    );
+    const slug = platform && rommSlugForPlatformId(platform.igdbIds[0]);
+    return slug && isValidRommSlug(slug) ? slug : validated;
+  }
+
   private resolvePlatformFolderName(
     downloadTitle: string,
     game: { platforms?: unknown },
@@ -343,7 +707,8 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     password: string | undefined,
     sortExtras: boolean,
-    progress?: ImportProgress
+    progress?: ImportProgress,
+    extractionMetadata?: ExtractionContentMetadata
   ): Promise<ImportResult> {
     const strategy = new PCImportStrategy(await this.pathService.getConfiguredRoots());
 
@@ -360,7 +725,8 @@ export class ImportManager {
         strategy,
         password,
         sortExtras,
-        progress
+        progress,
+        extractionMetadata
       );
     }
 
@@ -372,7 +738,8 @@ export class ImportManager {
       game,
       password,
       sortExtras,
-      progress
+      progress,
+      extractionMetadata
     );
   }
 
@@ -409,28 +776,64 @@ export class ImportManager {
     strategy: PCImportStrategy,
     password: string | undefined,
     sortExtras: boolean,
-    progress?: ImportProgress
+    progress?: ImportProgress,
+    extractionMetadata?: ExtractionContentMetadata
   ): Promise<ImportResult> {
     const destDir = plan.proposedPath;
     await this.assertAddonDestinationIsFolder(plan);
     await fs.ensureDir(destDir);
     progress?.setPhase("extracting");
-    await this.archiveService.extract(resolution.archivePath, destDir, password);
+    const extractedFiles = await this.archiveService.extract(
+      resolution.archivePath,
+      destDir,
+      password
+    );
 
     let modeUsed = transferMode;
+    let remainingResult: ImportResult | undefined;
     if (resolution.isDirectorySource && resolution.hasRemainingFiles) {
       progress?.setPhase("transferring");
-      modeUsed = (await strategy.executeImport(plan, transferMode, resolution.excludePaths))
-        .modeUsed;
+      remainingResult = await strategy.executeImport(plan, transferMode, resolution.excludePaths);
+      modeUsed = remainingResult.modeUsed;
     }
 
     // Sorting after the remaining-files transfer (not before) so a categorized loose
     // file doesn't land at destDir's root, outside this pass's reach.
-    if (sortExtras) await reorganizeBySortExtras(destDir);
+    const reorganizedPaths = sortExtras ? await reorganizeBySortExtras(destDir) : new Map();
+    const filesPlaced = Array.from(
+      new Set(
+        [...extractedFiles, ...(remainingResult?.filesPlaced ?? [])].map(
+          (filePath) => reorganizedPaths.get(path.resolve(filePath)) ?? filePath
+        )
+      )
+    );
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
+      filesPlaced,
+      ...(extractionMetadata
+        ? {
+            placedFileCategories: buildExtractionFileCategories(
+              destDir,
+              filesPlaced,
+              extractedFiles,
+              reorganizedPaths,
+              extractionMetadata,
+              remainingResult
+            ),
+          }
+        : remainingResult?.placedFileCategories
+          ? {
+              placedFileCategories: buildExtractionFileCategories(
+                destDir,
+                filesPlaced,
+                extractedFiles,
+                reorganizedPaths,
+                undefined,
+                remainingResult
+              ),
+            }
+          : {}),
       modeUsed,
       conflictsResolved: [],
     };
@@ -447,7 +850,8 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
     password: string | undefined,
     sortExtras: boolean,
-    progress?: ImportProgress
+    progress?: ImportProgress,
+    extractionMetadata?: ExtractionContentMetadata
   ): Promise<ImportResult> {
     const destDir = plan.proposedPath;
     await this.assertAddonDestinationIsFolder(plan);
@@ -458,9 +862,10 @@ export class ImportManager {
       destDir
     );
 
+    let extractedFiles: string[];
     try {
       progress?.setPhase("extracting");
-      await this.archiveService.extract(archiveInDest, destDir, password);
+      extractedFiles = await this.archiveService.extract(archiveInDest, destDir, password);
     } catch (err) {
       await this.notifyStrandedImport(game, archiveInDest, err);
       throw err;
@@ -471,11 +876,12 @@ export class ImportManager {
     }
 
     let modeUsed = transferMode;
+    let remainingResult: ImportResult | undefined;
     if (resolution.isDirectorySource) {
       if (resolution.hasRemainingFiles) {
         progress?.setPhase("transferring");
-        modeUsed = (await strategy.executeImport(plan, transferMode, resolution.excludePaths))
-          .modeUsed;
+        remainingResult = await strategy.executeImport(plan, transferMode, resolution.excludePaths);
+        modeUsed = remainingResult.modeUsed;
       } else if (transferMode === "move") {
         // Only archive-family files were relocated above, leaving an empty source
         // directory behind — the plain-directory transfer path would normally remove
@@ -484,11 +890,41 @@ export class ImportManager {
       }
     }
 
-    if (sortExtras) await reorganizeBySortExtras(destDir);
+    const reorganizedPaths = sortExtras ? await reorganizeBySortExtras(destDir) : new Map();
+    const filesPlaced = Array.from(
+      new Set(
+        [...extractedFiles, ...(remainingResult?.filesPlaced ?? [])].map(
+          (filePath) => reorganizedPaths.get(path.resolve(filePath)) ?? filePath
+        )
+      )
+    );
 
     return {
       destDir,
-      filesPlaced: await gatherFiles(destDir, { skipExtractStaging: true }),
+      filesPlaced,
+      ...(extractionMetadata
+        ? {
+            placedFileCategories: buildExtractionFileCategories(
+              destDir,
+              filesPlaced,
+              extractedFiles,
+              reorganizedPaths,
+              extractionMetadata,
+              remainingResult
+            ),
+          }
+        : remainingResult?.placedFileCategories
+          ? {
+              placedFileCategories: buildExtractionFileCategories(
+                destDir,
+                filesPlaced,
+                extractedFiles,
+                reorganizedPaths,
+                undefined,
+                remainingResult
+              ),
+            }
+          : {}),
       modeUsed,
       conflictsResolved: [],
     };
@@ -734,13 +1170,36 @@ export class ImportManager {
       downloadTitle?: string | null;
     },
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
-    libraryPath: string
+    libraryPath: string,
+    filesPlaced: string[] = [],
+    downloadTitle = "",
+    placedFileCategories?: FileCategoryEntry[],
+    replacement: UpgradeReplacement | null = null
   ): Promise<void> {
     // null clears an error left by an earlier failed attempt.
     await this.storage.updateGameDownloadStatus(download.id, "imported", null);
-    await this.storage.updateGame(game.id, { libraryPath });
+    if (replacement && !replacement.samePath) {
+      const resolvedLibraryPath = path.resolve(libraryPath);
+      await this.storage.updateGame(game.id, { libraryPath: resolvedLibraryPath });
+      game.libraryPath = resolvedLibraryPath;
+    } else {
+      await this.setLibraryPathOnce(game, libraryPath);
+    }
     // The import is marked above, so it no longer counts as unfinished for a patch's gate.
     if (game.status !== "owned") await applyDeliveredStatus(this.storage, download, game);
+    try {
+      await this.recordImportedFiles(
+        download.id,
+        game,
+        filesPlaced,
+        downloadTitle,
+        placedFileCategories
+      );
+    } catch (error) {
+      // A successful disk import must not be demoted because recording its file
+      // metadata failed; the next library scan can safely backfill the records.
+      logger.warn({ error, downloadId: download.id }, "Could not record imported game files");
+    }
     // Last, and it never throws: a write that fails above puts the previous version back, and
     // the new version must not stay recorded for it.
     await this.recordInstalledVersion(download.id, game, libraryPath);
@@ -836,28 +1295,40 @@ export class ImportManager {
     transferMode: TransferMode,
     download: NonNullable<Awaited<ReturnType<IStorage["getGameDownload"]>>>,
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
-    transfer: () => Promise<ImportResult>
+    transfer: () => Promise<ImportResult>,
+    downloadTitle = download.downloadTitle,
+    placedFileCategories?: FileCategoryEntry[]
   ): Promise<ImportResult> {
     if (replacement) await setOldVersionAside(replacement);
+    const previousLibraryPath = game.libraryPath;
     let result: ImportResult;
     let transferred = false;
     try {
       result = await transfer();
       transferred = true;
-      await this.finalizeImport(download, game, result.libraryEntry ?? result.destDir);
+      await this.finalizeImport(
+        download,
+        game,
+        result.libraryEntry ?? result.destDir,
+        result.filesPlaced,
+        downloadTitle,
+        result.placedFileCategories ?? placedFileCategories,
+        replacement
+      );
     } catch (err) {
       if (replacement) {
         // Recording the import may have stopped halfway: the game must keep pointing at the
         // version that is still in place, not at the import that failed.
         if (transferred) {
           await this.storage
-            .updateGame(game.id, { libraryPath: game.libraryPath })
+            .updateGame(game.id, { libraryPath: previousLibraryPath })
             .catch((restoreErr) =>
               logger.error(
                 { err: restoreErr, gameId: game.id },
                 "[ImportManager] Could not point the game back at its previous version"
               )
             );
+          game.libraryPath = previousLibraryPath;
         }
         const keptAt = await this.restoreReplacedVersion(replacement, transferMode, download.id);
         // The files are no longer where the transfer left them: say where they went, on
@@ -965,6 +1436,101 @@ export class ImportManager {
       }
     } catch (error) {
       logger.warn({ error, downloadId: download.id }, "[ImportManager] Replacement not notified");
+    }
+  }
+  /**
+   * Persist the first library target only. A later import may land in a
+   * category subfolder or a different file, but it must not move the game's
+   * root away from the location established by the first successful import.
+   * The storage operation is conditional so concurrent imports cannot replace
+   * one another's target.
+   */
+  async setLibraryPathOnce(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    candidatePath: string
+  ): Promise<void> {
+    if (game.libraryPath) return;
+
+    const libraryPath = path.resolve(candidatePath);
+    const updated = await this.storage.setGameLibraryPathIfUnset(game.id, libraryPath);
+    if (updated?.libraryPath) {
+      game.libraryPath = updated.libraryPath;
+      return;
+    }
+
+    // A concurrent import may have won the conditional write while this game
+    // object was still stale. Refresh it so callers in the same workflow use
+    // the persisted first target from this point onward.
+    const persistedGame = await this.storage.getGame(game.id);
+    if (persistedGame?.libraryPath) game.libraryPath = persistedGame.libraryPath;
+  }
+
+  private async recordImportedFiles(
+    downloadId: string,
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    filesPlaced: string[],
+    downloadTitle: string,
+    placedFileCategories?: FileCategoryEntry[]
+  ): Promise<void> {
+    if (filesPlaced.length === 0) return;
+
+    const suggestion = await this.suggestImportContent(game, downloadTitle);
+    const explicitContentItems = placedFileCategories?.some((entry) => entry.igdbContentId != null)
+      ? await this.getImportContentItems(game)
+      : [];
+    const existing = await this.storage.getGameFiles(game.id);
+    const existingByPath = new Map(existing.map((file) => [path.resolve(file.filePath), file]));
+    for (const [index, filePath] of filesPlaced.entries()) {
+      const resolvedPath = path.resolve(filePath);
+      const stats = await fs.stat(resolvedPath).catch(() => undefined);
+      if (!stats || (typeof stats.isFile === "function" && !stats.isFile())) continue;
+
+      const selected = placedFileCategories?.[index];
+      const category = selected
+        ? selected.category === "packs"
+          ? "extra"
+          : selected.category
+        : importedFileCategory(resolvedPath);
+      const suggestionMatchesSelected =
+        suggestion != null && contentSuggestionMatchesFile(suggestion.category, category);
+      const selectedContent =
+        selected?.igdbContentId != null
+          ? explicitContentItems.find((item) => item.id === selected.igdbContentId)
+          : undefined;
+      const explicitContentMatches =
+        selectedContent != null && contentSuggestionMatchesFile(selectedContent.category, category);
+      const existingFile = existingByPath.get(resolvedPath);
+      if (existingFile) {
+        const contentId =
+          explicitContentMatches &&
+          selectedContent != null &&
+          contentSuggestionMatchesFile(selectedContent.category, existingFile.category)
+            ? selected?.igdbContentId
+            : undefined;
+        // Never overwrite a user association read from storage. A title-based
+        // suggestion applies only to a row created by this transfer, not older
+        // files found in a shared destination folder.
+        if (contentId != null && existingFile.igdbContentId == null) {
+          await this.storage.updateGameFileContentId(existingFile.id, contentId);
+        }
+        continue;
+      }
+
+      const created = await this.storage.addGameFile({
+        gameId: game.id,
+        downloadId,
+        originalName: path.basename(resolvedPath),
+        storedName: path.basename(resolvedPath),
+        category,
+        filePath: resolvedPath,
+        fileSize: typeof stats.size === "number" ? stats.size : null,
+        ...(explicitContentMatches
+          ? { igdbContentId: selected?.igdbContentId }
+          : suggestion && suggestionMatchesSelected
+            ? { igdbContentId: suggestion.id }
+            : {}),
+      });
+      existingByPath.set(resolvedPath, created);
     }
   }
 
@@ -1417,6 +1983,9 @@ export class ImportManager {
       // flat destDir, not a category subfolder) and redundant — the post-extraction
       // reorganizeBySortExtras pass in transferWithUnpack re-categorizes everything,
       // extracted contents included, once the real files exist.
+      const extractionMetadata = needsExtraction
+        ? this.extractionContentMetadata(plan, archiveResolution!)
+        : undefined;
       if (needsExtraction) {
         plan.fileCategories = undefined;
       }
@@ -1435,13 +2004,17 @@ export class ImportManager {
             game,
             password,
             // Already inside update/ or dlc/: nothing left to sort.
-            config.sortExtras && !plan.addonGameFolder
+            config.sortExtras && !plan.addonGameFolder,
+            undefined,
+            extractionMetadata
           );
           // An update or DLC in a subfolder does not move the game's own entry.
           return plan.addonGameFolder
             ? { ...transferred, libraryEntry: game.libraryPath ?? plan.addonGameFolder }
             : transferred;
-        }
+        },
+        download.downloadTitle,
+        plan.fileCategories
       );
       await this.reportLeftoverArchives(game, result.destDir, {
         extractionAttempted: needsExtraction,
@@ -1531,6 +2104,98 @@ export class ImportManager {
     );
   }
 
+  private async getImportContentItems(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>
+  ): Promise<ImportContentSuggestion[]> {
+    const items = new Map<number, ImportContentSuggestion>();
+    for (const item of game.expansions ?? []) {
+      if (Number.isInteger(item.id) && item.id > 0) {
+        const cachedIgdbCategory =
+          item.igdbCategory ?? item.gameType ?? igdbCategoryForStoredCategory(item.category);
+        items.set(item.id, {
+          id: item.id,
+          name: item.name,
+          category: igdbContentSlotCategory(cachedIgdbCategory),
+        });
+      }
+    }
+
+    if (game.igdbId) {
+      try {
+        const { base, editions, expandedGames, parentGames } = await igdbClient.getGameEditions(
+          game.igdbId,
+          { includeLegacyContent: true }
+        );
+        const liveItems: Array<{ item: IGDBContentRef; fallbackCategory: number }> = [
+          ...(base?.expansions ?? []).map((item) => ({ item, fallbackCategory: 2 })),
+          ...(base?.dlcs ?? []).map((item) => ({ item, fallbackCategory: 1 })),
+          ...(base?.standalone_expansions ?? []).map((item) => ({ item, fallbackCategory: 4 })),
+          ...(expandedGames ?? base?.expanded_games ?? [])
+            .filter((item) => item.category !== 10 && item.category !== 11)
+            .map((item) => ({ item, fallbackCategory: 10 })),
+          ...(parentGames ?? []).map((item) => ({ item, fallbackCategory: 10 })),
+          ...editions.map((item) => ({ item, fallbackCategory: 10 })),
+        ];
+        for (const { item, fallbackCategory } of liveItems) {
+          if (Number.isInteger(item.id) && item.id > 0) {
+            const cached = items.get(item.id);
+            items.set(item.id, {
+              id: item.id,
+              name: item.name || cached?.name || "Unknown content",
+              category: resolveIgdbContentSlotCategory({
+                liveCategory: item.category,
+                liveGameType: item.game_type,
+                cachedCategory: cached?.category,
+                fallbackIgdbCategory: fallbackCategory,
+              }),
+            });
+          }
+        }
+      } catch (error) {
+        logger.warn(
+          { error, igdbId: game.igdbId },
+          "Could not load IGDB content for import review"
+        );
+      }
+    }
+
+    return Array.from(items.values());
+  }
+
+  private async suggestImportContent(
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    downloadTitle: string
+  ): Promise<ImportContentSuggestion | null> {
+    const inferred = categorizeDownload(downloadTitle).category;
+    if (
+      !game.igdbId ||
+      !downloadTitle.trim() ||
+      (inferred !== "update" && inferred !== "dlc" && inferred !== "packs")
+    ) {
+      return null;
+    }
+    return findImportContentMatch(downloadTitle, await this.getImportContentItems(game));
+  }
+
+  private extractionContentMetadata(
+    plan: ImportReview,
+    resolution: ArchiveResolution
+  ): ExtractionContentMetadata | undefined {
+    const archiveName = path.basename(resolution.archivePath);
+    const relativeArchiveName = resolution.isDirectorySource
+      ? path.relative(plan.originalPath, resolution.archivePath)
+      : archiveName;
+    const matches = (plan.fileCategories ?? []).filter(
+      (entry) =>
+        path.normalize(entry.name) === path.normalize(relativeArchiveName) ||
+        path.basename(entry.name) === archiveName
+    );
+    const selected = matches.length === 1 ? matches[0] : undefined;
+    return selected?.igdbContentId != null
+      ? { category: selected.category, igdbContentId: selected.igdbContentId }
+      : undefined;
+  }
+
   async planConfirmImport(
     downloadId: string,
     overrideSourcePath?: string,
@@ -1538,15 +2203,24 @@ export class ImportManager {
   ): Promise<{
     originalPath: string | null;
     proposedPath: string;
-    files: Array<{ name: string; isArchive: boolean }>;
+    files: Array<{
+      name: string;
+      isArchive: boolean;
+      category?: FileCategoryEntry["category"];
+      suggestedContentId?: number;
+      suggestedContentName?: string;
+    }>;
     hasArchive: boolean;
     totalCount: number;
+    suggestedContent: ImportContentSuggestion | null;
   }> {
     const download = await this.storage.getGameDownload(downloadId, callerUserId);
     if (!download) throw new Error(`Download ${downloadId} not found`);
 
     const game = await this.storage.getGame(download.gameId);
     if (!game) throw new Error(`Game not found for download ${downloadId}`);
+
+    const suggestedContent = await this.suggestImportContent(game, download.downloadTitle);
 
     const config = await this.storage.getImportConfig(game.userId ?? undefined);
     const libraryRoot = config.libraryRoot || "/data";
@@ -1586,12 +2260,26 @@ export class ImportManager {
               inferReleaseCategory(download.downloadTitle || "")) as DownloadCategory,
           }
         );
+        const filesWithCategories = files.map((file) => {
+          const category = plan.fileCategories?.find((entry) => entry.name === file.name)?.category;
+          return {
+            ...file,
+            ...(category ? { category } : {}),
+            ...(suggestedContent
+              ? {
+                  suggestedContentId: suggestedContent.id,
+                  suggestedContentName: suggestedContent.name,
+                }
+              : {}),
+          };
+        });
         return {
           originalPath: resolvedOriginalPath,
           proposedPath: plan.proposedPath,
-          files,
+          files: filesWithCategories,
           hasArchive,
           totalCount,
+          suggestedContent,
         };
       } catch {
         // Source not yet accessible (e.g. still in incomplete folder) — path is known but can't be stat'd
@@ -1601,6 +2289,7 @@ export class ImportManager {
           files,
           hasArchive,
           totalCount,
+          suggestedContent,
         };
       }
     }
@@ -1611,6 +2300,7 @@ export class ImportManager {
       files: [],
       hasArchive: false,
       totalCount: 0,
+      suggestedContent,
     };
   }
 
@@ -1692,6 +2382,21 @@ export class ImportManager {
 
     const config = await this.storage.getImportConfig(game.userId ?? undefined);
 
+    if (overridePlan.fileCategories?.some((entry) => entry.igdbContentId != null)) {
+      const contentItems = await this.getImportContentItems(game);
+      for (const entry of overridePlan.fileCategories) {
+        if (entry.igdbContentId == null) continue;
+        const selectedContent = contentItems.find((item) => item.id === entry.igdbContentId);
+        const fileCategory = entry.category === "packs" ? "extra" : entry.category;
+        const categoryMatches =
+          selectedContent != null &&
+          contentSuggestionMatchesFile(selectedContent.category, fileCategory);
+        if (!categoryMatches) {
+          throw new Error("File category does not match the selected IGDB content");
+        }
+      }
+    }
+
     // The same gate processImport runs before any automatic transfer — a manual
     // confirmation is still a transfer, so it must not be a way to route a
     // flagged file into the library without ever being scanned.
@@ -1736,6 +2441,12 @@ export class ImportManager {
         await this.resolveArchive(resolvedOriginalPath, { includeDiscImages: true })
       : null;
     const needsExtraction = !!archiveResolution && !archiveResolution.alreadyExtracted;
+    const extractionMetadata = needsExtraction
+      ? this.extractionContentMetadata(
+          { ...overridePlan, originalPath: resolvedOriginalPath },
+          archiveResolution!
+        )
+      : undefined;
 
     // The client always echoes back an extension-bearing proposedPath regardless of the
     // unpack toggle (it can't know in advance whether unpack will be requested), so a
@@ -1821,13 +2532,32 @@ export class ImportManager {
         }
       }
     }
-    if (config.sortExtras && !needsExtraction && !planToExecute.addonGameFolder) {
-      // Reuse the categories of a plan that did not select an add-on folder
-      planToExecute.fileCategories =
-        addonPlan && !addonPlan.addonGameFolder
-          ? addonPlan.fileCategories
-          : (await strategy.planImport(resolvedOriginalPath, game, config.libraryRoot, config))
-              .fileCategories;
+    if ((config.sortExtras || overridePlan.fileCategories?.length) && !needsExtraction) {
+      const categorizedPlan = await strategy.planImport(
+        resolvedOriginalPath,
+        game,
+        config.libraryRoot,
+        overridePlan.fileCategories?.length ? { ...config, sortExtras: true } : config
+      );
+      const requestedByName = new Map(
+        (overridePlan.fileCategories ?? []).map((entry) => [entry.name, entry])
+      );
+      const sourceStats = await fs.stat(resolvedOriginalPath);
+      const baseline =
+        (addonPlan && !addonPlan.addonGameFolder ? addonPlan.fileCategories : undefined) ??
+        categorizedPlan.fileCategories ??
+        (!sourceStats.isDirectory()
+          ? [{ name: path.basename(resolvedOriginalPath), category: "main" as const }]
+          : []);
+      for (const requested of requestedByName.values()) {
+        if (!baseline.some((entry) => entry.name === requested.name)) {
+          throw new Error(`Import category references an unknown source file: ${requested.name}`);
+        }
+      }
+      planToExecute.fileCategories = baseline.map((entry) => ({
+        ...entry,
+        ...(requestedByName.get(entry.name) ?? {}),
+      }));
     }
 
     const release = await this.acquireGameLock(game.id);
@@ -1865,13 +2595,16 @@ export class ImportManager {
             current,
             overridePlan.password,
             config.sortExtras && !planToExecute.addonGameFolder,
-            progress
+            progress,
+            extractionMetadata
           );
           // An update or DLC in a subfolder does not move the game's own entry.
           return planToExecute.addonGameFolder
             ? { ...transferred, libraryEntry: current.libraryPath ?? planToExecute.addonGameFolder }
             : transferred;
-        }
+        },
+        download.downloadTitle,
+        planToExecute.fileCategories
       );
       await this.reportLeftoverArchives(current, result.destDir, {
         extractionAttempted: needsExtraction,

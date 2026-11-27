@@ -369,6 +369,7 @@ describe("IGDBClient - extended coverage", { timeout: 20000 }, () => {
           name: "Expansion One",
           cover: { url: "//img/t_thumb/expansion.jpg" },
           first_release_date: 1640995200,
+          category: 2,
           game_type: 2,
           url: "https://www.igdb.com/games/expansion-one",
         },
@@ -390,6 +391,7 @@ describe("IGDBClient - extended coverage", { timeout: 20000 }, () => {
         releaseDate: "2022-01-01",
         category: "dlc",
         gameType: 2,
+        igdbCategory: 2,
         igdbUrl: "https://www.igdb.com/games/expansion-one",
       },
     ]);
@@ -416,6 +418,17 @@ describe("IGDBClient - extended coverage", { timeout: 20000 }, () => {
     expect(formatted.isReleased).toBe(false);
     expect(formatted.releaseYear).toBeNull();
     expect(formatted.earlyAccess).toBe(false);
+  });
+
+  it("keeps IGDB pack content distinct from DLC", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    const formatted = igdbClient.formatGameData({
+      id: 3,
+      name: "Base Game",
+      expansions: [{ id: 13, name: "Content Pack", game_type: 13 }],
+    });
+
+    expect(formatted.expansions?.[0]?.category).toBe("packs");
   });
 
   it("formatGameData treats an unreleased future date as not released", async () => {

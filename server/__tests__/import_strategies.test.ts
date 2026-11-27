@@ -948,6 +948,9 @@ describe("ImportStrategies", () => {
       );
 
       expect(result.filesPlaced).toEqual([path.join(destination, "update", "Game Update v1.nsp")]);
+      expect(result.placedFileCategories).toEqual([
+        { name: "Game Update v1.nsp", category: "update" },
+      ]);
       expect(await fs.pathExists(path.join(destination, "game.zip"))).toBe(false);
     });
 

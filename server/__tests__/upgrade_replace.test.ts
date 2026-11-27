@@ -291,7 +291,6 @@ describe("ImportManager: replacing the installed version", () => {
       await read(path.join(libraryRoot, REPLACED_ARCHIVE_DIR, archived as string, "old-only.dll"))
     ).toBe("v1");
 
-    expect(storage.updateGame).toHaveBeenCalledWith("g1", { libraryPath: oldDir() });
     expect(storage.addDownloadEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: "upgrade",
@@ -331,6 +330,9 @@ describe("ImportManager: replacing the installed version", () => {
     expect(await fs.readdir(path.join(libraryRoot, "PC"))).toHaveLength(1);
     expect(imported).not.toBe("My Game");
     expect(await read(path.join(libraryRoot, "PC", imported as string, "game.exe"))).toBe("v2");
+    expect(storage.updateGame).toHaveBeenCalledWith("g1", {
+      libraryPath: path.join(libraryRoot, "PC", imported as string),
+    });
   });
 
   it("puts the old version back when the import fails", async () => {
@@ -379,7 +381,9 @@ describe("ImportManager: replacing the installed version", () => {
 
   it("puts the old version back when recording the import fails after the transfer", async () => {
     const { manager, storage } = setup({ upgradeReplaceMode: "delete" });
-    storage.updateGame.mockRejectedValue(new Error("database is locked"));
+    const game = await storage.getGame("g1");
+    storage.getGame.mockResolvedValue({ ...game, status: "wanted" });
+    storage.updateGameStatus.mockRejectedValue(new Error("database is locked"));
 
     await manager.processImport("dl-1", path.join(downloads, RELEASE));
 
